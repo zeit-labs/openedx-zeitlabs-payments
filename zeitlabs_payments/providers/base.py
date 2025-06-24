@@ -12,7 +12,7 @@ from django.shortcuts import render
 from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as _
 
-from zeitlabs_payments.exceptions import CartFulfillmentError, GatewayError, InavlidCartError
+from zeitlabs_payments.exceptions import CartFulfillmentError, GatewayError, InvalidCartError
 from zeitlabs_payments.helpers import get_currency, get_language, get_merchant_reference, get_order_description
 from zeitlabs_payments.models import Cart, CatalogueItem, Transaction, WebhookEvent, AuditLog
 from zeitlabs_payments.fulfillment import FULFILLMENT_HANDLERS
@@ -101,12 +101,12 @@ class BaseProcessor:
         try:
             cart_id_int = int(cart_id)
         except (ValueError, TypeError) as exc:
-            raise InavlidCartError(f'Invalid cart ID: {cart_id}') from exc
+            raise InvalidCartError(f'Invalid cart ID: {cart_id}') from exc
 
         try:
             return Cart.objects.get(id=cart_id_int)
         except Cart.DoesNotExist as exc:
-            raise InavlidCartError(f'Cart with ID {cart_id} does not exist.') from exc
+            raise InvalidCartError(f'Cart with ID {cart_id} does not exist.') from exc
 
     def get_site(self, site_id: str | int) -> Site:
         """

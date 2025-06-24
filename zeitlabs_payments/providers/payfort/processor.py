@@ -39,7 +39,7 @@ class PayFort(BaseProcessor):
         self.redirect_url = settings.PAYFORT_SETTINGS['redirect_url']
         self.return_url = urljoin(
             configuration_helpers.get_value('LMS_URL', settings.ECOMMERCE_BASE_URL),
-            reverse('zeitlabs_payments:payfort-return')
+            reverse('zeitlabs_payments:payfort:return')
         )
 
     @classmethod

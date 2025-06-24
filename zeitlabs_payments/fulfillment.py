@@ -3,10 +3,11 @@
 import logging
 
 from common.djangoapps.course_modes.models import CourseMode
-from common.djangoapps.student.models import CourseEnrollment
+from common.djangoapps.student.models import CourseEnrollment, CourseEnrollmentException
 
-from zeitlabs_payments.exceptions import CartFulfillmentError
+from zeitlabs_payments.exceptions import CartFulfillmentError, InvalidCartError
 from zeitlabs_payments.models import Cart, CatalogueItem, AuditLog, CartItem
+from zeitlabs_payments.helpers import check_user_enroll_conditions
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,12 @@ class BaseFulfillmentStrategy:
     Subclasses must implement the fulfill method.
     """
 
+    def validate(self, cart: Cart, item: CartItem) -> None:
+        """
+        Raise InvalidCartError if validation fails.
+        """
+        return cart
+
     def fulfill(self, cart: Cart, item: CartItem, processor_slug: str):
         """
         Fulfill the given item in the cart.
@@ -50,6 +57,17 @@ class PaidCourseFulfillment(BaseFulfillmentStrategy):
     """
     Fulfillment handler for paid course catalogue items.
     """
+
+    def validate_add_to_cart(self, user, catalogue_item: CatalogueItem) -> None:
+        try:
+            course_mode = CourseMode.objects.get(sku=catalogue_item.sku)
+            check_user_enroll_conditions(user, course_mode)
+        except CourseMode.DoesNotExist:
+            raise InvalidCartError('Unable to add item to the cart as CourseMode not found')
+        except CourseEnrollmentException as exc:
+            raise InvalidCartError(
+                f"Unable to add item to the cart as user: {user} does not fulfill enrollment conditions."
+            ) from exc
 
     def fulfill(self, cart: Cart, item: CartItem, processor_slug: str) -> None:
         """
@@ -84,6 +102,7 @@ class PaidCourseFulfillment(BaseFulfillmentStrategy):
                 cart.user,
                 course_mode.course.id,
                 mode=course_mode.mode_slug,
+                check_access=True
             )
             AuditLog.log(
                 action=AuditLog.AuditActions.USER_ENROLLED,
@@ -98,7 +117,7 @@ class PaidCourseFulfillment(BaseFulfillmentStrategy):
                 f'User {cart.user.id} enrolled in course {course_mode.course.id} '
                 f'with mode {course_mode.mode_slug}'
             )
-        except Exception as exc:
+        except CourseEnrollmentException as exc:
             logger.exception(
                 f'Unexpected error while enrolling user {cart.user.id} in course: '
                 f'{course_mode.course.id}. Item ID: {item.id}'

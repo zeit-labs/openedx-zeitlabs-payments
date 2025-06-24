@@ -17,8 +17,9 @@ from rest_framework.views import APIView
 
 from zeitlabs_payments import models
 from zeitlabs_payments.providers.registry import PROCESSORS, get_processor
+from zeitlabs_payments.fulfillment import FULFILLMENT_HANDLERS
 from zeitlabs_payments.serializers import CartSerializer
-from zeitlabs_payments.exceptions import InavlidCartError
+from zeitlabs_payments.exceptions import InvalidCartError
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +91,7 @@ class InitiatePaymentView(LoginRequiredMixin, View):
 
         try:
             cart = processor.get_cart(cart_id)
-        except InavlidCartError as exc:
+        except InvalidCartError as exc:
             logger.error(f'Cart not found with id: {cart_id} - {exc}')
             return HttpResponseBadRequest(f'Error: {str(exc)}')
 
@@ -211,7 +212,26 @@ class CartView(APIView):
             logger.debug(f'Catalog item found for SKU {sku_code}')
         except models.CatalogueItem.DoesNotExist:
             return Response(
-                {'error': 'Invalid SKU, iunable to find catalogue item.'},
+                {'error': 'Invalid SKU, unable to find catalogue item.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        handler = FULFILLMENT_HANDLERS.get(catalog_item.type)
+        if not handler:
+            return Response(
+                {'error': 'Item with given SKU has unsupported type: {catalog_item.type}.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            handler.validate_add_to_cart(request.user, catalog_item)
+        except InvalidCartError as exc:
+            reason = str(exc.__cause__) if exc.__cause__ else "Unknown reason"
+            return Response(
+                {
+                    'error': 'Given SKU item does not match add to cart requirements',
+                    'details': f"{str(exc)} Reason: {reason}"
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

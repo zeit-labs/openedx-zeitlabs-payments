@@ -1,15 +1,25 @@
 """Utility functions for the Payfort payment gateway."""
 
 from __future__ import annotations
+import logging
 
 import re
 from typing import Any, Optional
 from urllib.parse import urljoin
 
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
+from common.djangoapps.student.models import (
+    CourseEnrollment,
+    EnrollmentClosedError,
+    CourseFullError,
+    AlreadyEnrolledError,
+)
 
 from zeitlabs_payments.exceptions import GatewayError
 from zeitlabs_payments.models import Cart, CartItem, CatalogueItem, AuditLog
+
+logger = logging.getLogger(__name__)
+
 
 VALID_CURRENCY = 'SAR'
 VALID_PATTERNS = {
@@ -190,3 +200,29 @@ def get_merchant_reference(site_id: int, cart: Cart) -> str:
     verify_param(cart, 'cart', Cart)
 
     return f'{site_id}-{cart.id}'
+
+
+def check_user_enroll_conditions(user, course_mode):
+    if CourseEnrollment.is_enrollment_closed(user, course_mode.course):
+        logger.warning(
+            "User %s failed to enroll in course %s because enrollment is closed.",
+            user.username,
+            str(course_mode.course.id),
+        )
+        raise EnrollmentClosedError('Enrollment is closed.')
+
+    if CourseEnrollment.objects.is_course_full(course_mode.course):
+        logger.warning(
+            "Course %s has reached its maximum enrollment of %d learners. User %s failed to enroll.",
+            str(course_mode.course.id),
+            course_mode.course.max_student_enrollments_allowed,
+            user.username,
+        )
+        raise CourseFullError('Course is Full.')
+    if CourseEnrollment.is_enrolled(user, course_mode.course.id):
+        logger.warning(
+            "User %s attempted to enroll in %s, but they were already enrolled",
+            user.username,
+            str(course_mode.course.id)
+        )
+        raise AlreadyEnrolledError('User is already enrolled in the course.')

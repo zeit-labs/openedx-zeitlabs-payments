@@ -9,5 +9,5 @@ class CartFulfillmentError(Exception):
     """Custom exception raised when cart fulfillment fails."""
 
 
-class InavlidCartError(Exception):
+class InvalidCartError(Exception):
     """Custom exception raised when cart is invalid."""

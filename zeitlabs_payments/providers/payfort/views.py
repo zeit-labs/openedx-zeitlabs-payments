@@ -13,7 +13,7 @@ from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
-from zeitlabs_payments.exceptions import InavlidCartError, GatewayError
+from zeitlabs_payments.exceptions import InvalidCartError, GatewayError
 from zeitlabs_payments.models import Cart, AuditLog, Transaction
 from zeitlabs_payments.providers.payfort.exceptions import PayFortException, PayFortBadSignatureException
 from zeitlabs_payments.providers.payfort.helpers import SUCCESS_STATUS, verify_response_format, verify_signature
@@ -94,7 +94,7 @@ class PayFortReturnView(PayFortBaseView):
                 render(request, 'zeitlabs_payments/payment_error.html')
 
             data['ecommerce_transaction_id'] = data['fort_id']
-            data['ecommerce_status_url'] = reverse('zeitlabs_payments:payfort-status')
+            data['ecommerce_status_url'] = reverse('zeitlabs_payments:payfort:status')
             data['ecommerce_error_url'] = reverse(
                 'zeitlabs_payments:payment-error',
                 args=[data['fort_id']]
