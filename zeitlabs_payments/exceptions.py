@@ -9,5 +9,13 @@ class CartFulfillmentError(Exception):
     """Custom exception raised when cart fulfillment fails."""
 
 
-class InavlidCartError(Exception):
+class InvalidCartError(Exception):
     """Custom exception raised when cart is invalid."""
+
+
+class InvoiceError(Exception):
+    """Custom exception raised for invoice errors."""
+
+
+class DuplicateTransactionError(Exception):
+    """TRansaction already exist for given cart."""

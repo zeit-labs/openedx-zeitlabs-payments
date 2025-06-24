@@ -63,3 +63,6 @@ docs/zeitlabs_payments.*.rst
 # Private requirements
 requirements/private.in
 requirements/private.txt
+
+# temporary tests migration files
+/test_utils/edx_platform_mocks_shared/fake_models/migrations/

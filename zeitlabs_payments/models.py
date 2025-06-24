@@ -1,14 +1,24 @@
 """Zeitlabs payments models."""
 import re
-from django.core.exceptions import ValidationError
-from django.contrib.auth import get_user_model
-from django.db import models
 
+from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
+from django.db import models
 
 User = get_user_model()
 
 
-class Transaction(models.Model):
+class TimeStampedModel(models.Model):
+    """TimeStamped model."""
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        abstract = True
+
+
+class Transaction(TimeStampedModel):
     """Transaction model."""
 
     class TransactionType(models.TextChoices):
@@ -30,100 +40,19 @@ class Transaction(models.Model):
     initiator_user = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True
     )
-    created_at = models.DateTimeField(auto_now_add=True)
 
 
-class WebhookEvent(models.Model):
+class WebhookEvent(TimeStampedModel):
     """WebhookEvent model."""
 
     gateway = models.CharField(max_length=50)
     event_type = models.CharField(max_length=100)
     payload = models.JSONField()
     related_transaction = models.ForeignKey(Transaction, on_delete=models.SET_NULL, null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
     handled = models.BooleanField(default=False)
 
 
-class AuditLog(models.Model):
-    """AuditLog model."""
-
-    class AuditActions:
-        CART_FULFILLMENT_ERROR = "CartFulfillmentError"
-        USER_ENROLLED = "UserEnrolled"
-        USER_ENROLLED_ERROR = "UserEnrolledError"
-        REDIRECT_TO_PAYMENT = "RedirectToPaymentGateway"
-        DUPLICATE_TRANSACTION = "DuplicateTransactionDetected"
-        BAD_RESPONSE_SIGNATURE = "BadResponseSignature"
-        RECEIVED_RESPONSE = "ReceivedGatewayResponse"
-        RESPONSE_INVALID_CART = "ResponseForInvalidCart"
-        TRANSACTION_ROLLED_BACK = "TransactionRolledBack"
-        CART_STATUS_UPDATED = "CartStatusUpdated"
-        CART_FULFIlED = "CartFulfilled"
-
-    TEMPLATES = {
-        AuditActions.CART_FULFILLMENT_ERROR: (
-            "Error during cart fulfillment for item: {item_id}, "
-            "catalogue_item: {catalogue_item_id} due to invalid SKU: {sku} or unsupported type."
-        ),
-        AuditActions.USER_ENROLLED: (
-            "User enrolled to the course: {course_id} with mode: {mode_slug} "
-            "during cart fulfillment for catalogue_item: {catalogue_item_id}."
-        ),
-        AuditActions.USER_ENROLLED_ERROR: (
-            "Unable to complete user enrollment to course: {course_id} with mode: {mode_slug} "
-            "during cart fulfillment for catalogue_item: {catalogue_item_id}."
-        ),
-        AuditActions.REDIRECT_TO_PAYMENT: "Redirecting to payment page.",
-        AuditActions.DUPLICATE_TRANSACTION: (
-            "Transaction with id: {transaction_id} already existed. Cart has status: {cart_status}."
-        ),
-        AuditActions.BAD_RESPONSE_SIGNATURE: "Bad response signature detected: {data}.",
-        AuditActions.RECEIVED_RESPONSE: "Received response from payment gateway: {data}.",
-        AuditActions.RESPONSE_INVALID_CART: (
-            "Invalid cart state found during success feedback processing. Cart"
-            "is in state: {cart_status} instead of {required_cart_state}."
-        ),
-        AuditActions.TRANSACTION_ROLLED_BACK: (
-            "Transaction: {transaction_id} for cart: {cart_id} and site: {site_id} rolled back."
-        ),
-        AuditActions.CART_STATUS_UPDATED: (
-            "Status updated for cart from: {old_status} to: {new_status}."
-        ),
-        AuditActions.CART_FULFIlED: (
-            "Cart fullfilled successfully."
-        )
-    }
-
-    action = models.CharField(max_length=255)
-    cart = models.ForeignKey('Cart', on_delete=models.CASCADE, related_name='audits', null=True)
-    gateway = models.CharField(max_length=50, blank=True, null=True)
-    details = models.TextField(blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    @classmethod
-    def log(cls, *, action, context=None, cart=None, gateway=None):
-        context = context or {}
-        template = cls.TEMPLATES.get(action, "")
-
-        # Validate required template parameters
-        if template:
-            required_keys = set(re.findall(r'{(\w+)}', template))
-            missing_keys = required_keys - context.keys()
-            if missing_keys:
-                raise ValidationError(
-                    f"Missing template parameters for action '{action}': {', '.join(missing_keys)}"
-                )
-
-        details = template.format(**context) if template else str(context)
-        return cls.objects.create(
-            action=action,
-            cart=cart,
-            gateway=gateway,
-            details=details,
-        )
-
-
-class Cart(models.Model):
+class Cart(TimeStampedModel):
     """Cart model."""
 
     class Status(models.TextChoices):
@@ -145,8 +74,109 @@ class Cart(models.Model):
         """Calculate total."""
         return sum(item.final_price for item in self.items.all())
 
+    @property
+    def discount_total(self) -> int:
+        """Calculate discount total."""
+        return sum(item.discount_amount for item in self.items.all())
 
-class Coupon(models.Model):
+
+class AuditLog(TimeStampedModel):
+    """AuditLog model."""
+
+    class AuditActions:
+        """Audit log actions."""
+
+        CART_FULFILLMENT_ERROR = 'CartFulfillmentError'
+        USER_ENROLLED = 'UserEnrolled'
+        USER_ENROLLED_ERROR = 'UserEnrolledError'
+        REDIRECT_TO_PAYMENT = 'RedirectToPaymentGateway'
+        DUPLICATE_TRANSACTION = 'DuplicateTransactionDetected'
+        BAD_RESPONSE_SIGNATURE = 'BadResponseSignature'
+        RECEIVED_RESPONSE = 'ReceivedGatewayResponse'
+        RESPONSE_INVALID_CART = 'ResponseForInvalidCart'
+        TRANSACTION_ROLLED_BACK = 'TransactionRolledBack'
+        CART_STATUS_UPDATED = 'CartStatusUpdated'
+        CART_FULFIlED = 'CartFulfilled'
+
+    TEMPLATES = {
+        AuditActions.CART_FULFILLMENT_ERROR: (
+            'Error during cart fulfillment for item: {item_id}, '
+            'catalogue_item: {catalogue_item_id} due to invalid SKU: {sku} or unsupported type.'
+        ),
+        AuditActions.USER_ENROLLED: (
+            'User enrolled to the course: {course_id} with mode: {mode_slug} '
+            'during cart fulfillment for catalogue_item: {catalogue_item_id}.'
+        ),
+        AuditActions.USER_ENROLLED_ERROR: (
+            'Unable to complete user enrollment to course: {course_id} with mode: {mode_slug} '
+            'during cart fulfillment for catalogue_item: {catalogue_item_id}.'
+        ),
+        AuditActions.REDIRECT_TO_PAYMENT: 'Redirecting to payment page.',
+        AuditActions.DUPLICATE_TRANSACTION: (
+            'Transaction with id: {transaction_id} already existed. Cart has status: {cart_status}.'
+        ),
+        AuditActions.BAD_RESPONSE_SIGNATURE: 'Bad response signature detected: {data}.',
+        AuditActions.RECEIVED_RESPONSE: 'Received response from payment gateway: {data}.',
+        AuditActions.RESPONSE_INVALID_CART: (
+            'Invalid cart state found during success feedback processing. Cart'
+            'is in state: {cart_status} instead of {required_cart_state}.'
+        ),
+        AuditActions.TRANSACTION_ROLLED_BACK: (
+            'Transaction: {transaction_id} for cart: {cart_id} and site: {site_id} rolled back.'
+        ),
+        AuditActions.CART_STATUS_UPDATED: (
+            'Status updated for cart from: {old_status} to: {new_status}.'
+        ),
+        AuditActions.CART_FULFIlED: (
+            'Cart fullfilled successfully.'
+        )
+    }
+
+    action = models.CharField(max_length=255)
+    cart = models.ForeignKey('Cart', on_delete=models.CASCADE, related_name='audits', null=True)
+    gateway = models.CharField(max_length=50, blank=True, null=True)
+    details = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    @classmethod
+    def log(cls, *, action: str, context: dict = None, cart: Cart = None, gateway: str = None) -> None:
+        """
+        Create a log entry for a given action, optionally using a template and additional context.
+        This method:
+        - Looks up a template string based on the provided action.
+        - Validates that all required parameters for the template exist in the context.
+        - Formats the log details using the context.
+        - Creates and saves a log entry associated with the cart and payment gateway.
+
+        :param action: The name of the action to log (used to find the template).
+        :param context: A dictionary of context values to fill into the template.
+        :param cart: Optional cart instance related to the log entry.
+        :param gateway: Optional payment gateway name related to the log entry.
+        :raises ValidationError: If the context is missing required parameters for the template.
+        :return: None
+        """
+        context = context or {}
+        template = cls.TEMPLATES.get(action, '')
+
+        # Validate required template parameters
+        if template:
+            required_keys = set(re.findall(r'{(\w+)}', template))
+            missing_keys = required_keys - context.keys()
+            if missing_keys:
+                raise ValidationError(
+                    f"Missing template parameters for action '{action}': {', '.join(missing_keys)}"
+                )
+
+        details = template.format(**context) if template else str(context)
+        return cls.objects.create(
+            action=action,
+            cart=cart,
+            gateway=gateway,
+            details=details,
+        )
+
+
+class Coupon(TimeStampedModel):
     """Coupon model."""
 
     class DiscountType(models.TextChoices):
@@ -164,7 +194,7 @@ class Coupon(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
-class CouponUsage(models.Model):
+class CouponUsage(TimeStampedModel):
     """CouponUsage model."""
 
     coupon = models.ForeignKey(Coupon, on_delete=models.CASCADE, related_name='usages')
@@ -173,7 +203,7 @@ class CouponUsage(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
-class CatalogueItem(models.Model):
+class CatalogueItem(TimeStampedModel):
     """CatalogueItem model."""
 
     class ItemType(models.TextChoices):
@@ -184,13 +214,15 @@ class CatalogueItem(models.Model):
 
     sku = models.CharField(max_length=255)
     type = models.CharField(max_length=20, choices=ItemType.choices)
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
     item_ref_id = models.CharField(max_length=255)
     price = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     currency = models.CharField(max_length=10, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
 
-class CartItem(models.Model):
+class CartItem(TimeStampedModel):
     """CartItem model."""
 
     cart = models.ForeignKey(Cart, on_delete=models.CASCADE, related_name='items')
@@ -201,26 +233,27 @@ class CartItem(models.Model):
     final_price = models.DecimalField(max_digits=10, decimal_places=2)
 
 
-class Invoice(models.Model):
+class Invoice(TimeStampedModel):
     """Invoice model."""
 
-    class Status(models.TextChoices):
+    class InvoiceStatus(models.TextChoices):
         """Invoice statuses."""
 
         DRAFT = 'draft'
         PAID = 'paid'
         CANCELLED = 'cancelled'
 
+    invoice_number = models.CharField(max_length=255, unique=True)
     cart = models.ForeignKey(Cart, on_delete=models.CASCADE, related_name='invoices')
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
+    status = models.CharField(max_length=20, choices=InvoiceStatus.choices, default=InvoiceStatus.DRAFT)
     total = models.DecimalField(max_digits=10, decimal_places=2)
     discount_total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     currency = models.CharField(max_length=10)
-    created_at = models.DateTimeField(auto_now_add=True)
     paid_at = models.DateTimeField(blank=True, null=True)
+    related_transaction = models.ForeignKey(Transaction, on_delete=models.SET_NULL, null=True, blank=True)
 
 
-class InvoiceItem(models.Model):
+class InvoiceItem(TimeStampedModel):
     """InvoiceItem model."""
 
     invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name='items')
@@ -231,7 +264,7 @@ class InvoiceItem(models.Model):
     quantity = models.PositiveIntegerField(default=1)
 
 
-class CreditMemo(models.Model):
+class CreditMemo(TimeStampedModel):
     """CreditMemo model."""
 
     invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name='credit_memos')
