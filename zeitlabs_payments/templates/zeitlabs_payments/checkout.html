@@ -5,46 +5,42 @@
 {% block body %}
 <link rel="stylesheet" href="https://srei.ecommerce.futurex.sa/static/CACHE/css/main.643ebe9aca4b.css" type="text/css">
 
-<div class="basket" dir="rtl">
-   <div class="container">
-      <div id="messages"></div>
-      <div id="content-inner">
+   <div class="basket">
+       <div class="container">
+           <div id="messages"></div>
+           <div id="content-inner">
             {% csrf_token %}
             {{ formset.management_form }}
-               {% if cart and cart.items %}
-                  <form action="." method="post">
+               <form action="." method="post">
+                  {% for item in cart.items %}
+                     {% for course in item.courses %}
                      <div class="basket-items">
-                        <p class="certificate_type">{% trans "Get a certificate to document your skills" %}</p>
-                        {% for item in cart.items %}
-                        <div class="row mb-4" style="display: flex; flex-wrap: wrap; justify-content: space-between;">
-                           <div class="course-info" style="flex: 0 0 48%; /* roughly half width */">
-                              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                                 <p class="product-title" style="margin: 0;">
-                                    {{ item.sku }} ({{ item.type }})
-                                 </p>
-                                 <p class="price" style="margin: 0;">
-                                    {{ item.final_price }} {{ item.currency }}
-                                 </p>
-                              </div>
-                              <ul style="width:800px">
-                              {% for course in item.courses %}
-                              <li style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
-                                 <p style="margin: 0;">{{ course.course_name }}</p>
-                                 <img height="150" width="300" class="course-image" src="{{ course.course_image }}" alt="{{ course.course_name }}" />
-                              </li>
-                              {% endfor %}
-                              </ul>
-                           </div>
-                        </div>
-                        {% endfor %}
-                     </div>
-                  </form>
+                        <p class="certificate_type">
+                              Earn a valuable certificate to showcase the skills you learn in
+                        </p>
 
-                  <div class="total">
-                     <div class="row">
-                        <div class="use-voucher col-sm-7 col-xs-8 pull-right">
+                        <div class="row">
+                              <div class="col-md-2 col-sm-12 product-image pull-left">
+                                 <img class="thumbnail" src="{{ course.course_image }}" alt="{{ course.course_name }}" />
+                              </div>
+                              <div class="col-md-5 col-sm-12 pull-left">
+                                 <p class="product-title">{{ course.course_name }} - {{ course.org }} ({{ course.run }})</p>
+                                 <p class="product-description">{{ course.description|default_if_none:'' }}</p>
+                              </div>
+                              <div class="col-md-5 col-xs-12 product-prices pull-right">
+                                 <div class="price">{{ item.final_price }} {{item.currency }}</div>
+                              </div>
+                        </div>
+                     </div>
+                     {% endfor %}
+                  {% endfor %}
+               </form>
+
+               <div class="total">
+                   <div class="row">
+                       <div class="use-voucher col-sm-7 col-xs-8 pull-left">
                            <p id="voucher_form_link">
-                              <a href="#voucher">{% trans "Apply voucher code" %}</a>
+                               <a href="#voucher">Apply a coupon code</a>
                            </p>
                            <div id="voucher_form_container" class="voucher_form">
                               <form id="voucher_form" action="/basket/vouchers/add/" method="post">
@@ -57,32 +53,45 @@
                                  </div>
                               </form>
                            </div>
-                        </div>
-                        <div id="basket_totals" class="col-xs-4 pull-left">
-                           {% blocktrans %}Total: {{ cart.total_price }} SAR{% endblocktrans %}
-                        </div>
-                     </div>
-                  </div>
-               {% else %}
-                  <p>No cart exists.</p>
-               {% endif %}
+                       </div>
 
-         <div class="row">
-            <div class="col-sm-12">
-               <div class="pull-left payment-buttons">
-                  {% for method in methods %}
-                     <a 
-                        href="{{ method.url }}"
-                        class="btn payment-button pay-btn-{{ method.slug }}"
-                        data-slug="{{ method.slug }}" 
-                        data-title="{{ method.title }}">
-                        {{ method.checkout_text }}
-                     </a>
-                  {% endfor %}
+                       <div id="basket_totals" class="col-xs-4 pull-right">
+                        {% trans "Total:" as tmsg %}{{ tmsg | force_escape }}
+                        {{ cart.total }}
+                       </div>
+                   </div>
                </div>
-            </div>
-         </div>
-      </div>
+
+               <div class="row">
+                   <div class="col-sm-12">
+                       <div class="pull-right payment-buttons" data-basket-id="1">
+                        {% for method in methods %}
+                           <button 
+                              href="{{ method.url }}"
+                              class="btn payment-button pay-btn-{{ method.slug }}"
+                              data-slug="{{ method.slug }}" 
+                              data-title="{{ method.title }}">
+                              {{ method.checkout_text }}
+                           </a>
+                        {% endfor %}
+                       </div>
+                   </div>
+               </div>
+
+               <div class="row verification-note">
+                   <div class="col-sm-12">
+                       <span><i class="fa fa-exclamation-circle"></i></span>
+                       <strong>{% trans "Note:" %}</strong>{% trans "Earn a valuable certificate to showcase the skills you learn in" as tmsg %}{{ tmsg | force_escape }}
+                   </div>
+               </div>
+
+               <div class="row help">
+                   <div class="col-sm-12">
+                       <p><strong>{% trans "Have questions?" %}</strong></p>
+                       <a href="{{ support_url }}">{% trans "Please read our FAQs to view common questions about our certificates." %}</a>
+                   </div>
+               </div>
+           </div>
+       </div>
    </div>
-</div>
 {% endblock %}

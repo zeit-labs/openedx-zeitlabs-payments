@@ -17,10 +17,13 @@ class CourseSerializer(serializers.ModelSerializer):
     course_name = serializers.SerializerMethodField()
     course_id = serializers.SerializerMethodField()
     course_image = serializers.SerializerMethodField()
+    org = serializers.SerializerMethodField()
+    run = serializers.SerializerMethodField()
+    description = serializers.SerializerMethodField()
 
     class Meta:
         model = CourseOverview
-        fields = ['course_id', 'course_name', 'course_image']
+        fields = ['course_id', 'course_name', 'course_image', 'org', 'run', 'description']
 
     def get_course_name(self, obj: CourseOverview) -> str:
         """
@@ -39,6 +42,33 @@ class CourseSerializer(serializers.ModelSerializer):
         :return: Course ID as string
         """
         return str(obj.id)
+
+    def get_org(self, obj: CourseOverview) -> str:
+        """
+        Return the org of the course.
+
+        :param obj: CourseOverview instance
+        :return: Course org as string
+        """
+        return str(obj.id.org)
+
+    def get_run(self, obj: CourseOverview) -> str:
+        """
+        Return the run of the course.
+
+        :param obj: CourseOverview instance
+        :return: course run as string
+        """
+        return str(obj.id.run)
+
+    def get_description(self, obj: CourseOverview) -> str:
+        """
+        Return the description of the course as string.
+
+        :param obj: CourseOverview instance
+        :return: Course description as string
+        """
+        return str(obj.short_description)
 
     def get_course_image(self, obj: CourseOverview) -> Optional[str]:
         """
