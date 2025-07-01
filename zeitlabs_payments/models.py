@@ -4,11 +4,20 @@ from django.core.exceptions import ValidationError
 from django.contrib.auth import get_user_model
 from django.db import models
 
-
 User = get_user_model()
 
 
-class Transaction(models.Model):
+class TimeStampedModel(models.Model):
+    """TimeStamped model."""
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        abstract = True
+
+
+class Transaction(TimeStampedModel):
     """Transaction model."""
 
     class TransactionType(models.TextChoices):
@@ -30,21 +39,19 @@ class Transaction(models.Model):
     initiator_user = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True
     )
-    created_at = models.DateTimeField(auto_now_add=True)
 
 
-class WebhookEvent(models.Model):
+class WebhookEvent(TimeStampedModel):
     """WebhookEvent model."""
 
     gateway = models.CharField(max_length=50)
     event_type = models.CharField(max_length=100)
     payload = models.JSONField()
     related_transaction = models.ForeignKey(Transaction, on_delete=models.SET_NULL, null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
     handled = models.BooleanField(default=False)
 
 
-class AuditLog(models.Model):
+class AuditLog(TimeStampedModel):
     """AuditLog model."""
 
     class AuditActions:
@@ -123,7 +130,7 @@ class AuditLog(models.Model):
         )
 
 
-class Cart(models.Model):
+class Cart(TimeStampedModel):
     """Cart model."""
 
     class Status(models.TextChoices):
@@ -146,7 +153,7 @@ class Cart(models.Model):
         return sum(item.final_price for item in self.items.all())
 
 
-class Coupon(models.Model):
+class Coupon(TimeStampedModel):
     """Coupon model."""
 
     class DiscountType(models.TextChoices):
@@ -164,7 +171,7 @@ class Coupon(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
-class CouponUsage(models.Model):
+class CouponUsage(TimeStampedModel):
     """CouponUsage model."""
 
     coupon = models.ForeignKey(Coupon, on_delete=models.CASCADE, related_name='usages')
@@ -173,7 +180,7 @@ class CouponUsage(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
-class CatalogueItem(models.Model):
+class CatalogueItem(TimeStampedModel):
     """CatalogueItem model."""
 
     class ItemType(models.TextChoices):
@@ -190,7 +197,7 @@ class CatalogueItem(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
-class CartItem(models.Model):
+class CartItem(TimeStampedModel):
     """CartItem model."""
 
     cart = models.ForeignKey(Cart, on_delete=models.CASCADE, related_name='items')
@@ -201,7 +208,7 @@ class CartItem(models.Model):
     final_price = models.DecimalField(max_digits=10, decimal_places=2)
 
 
-class Invoice(models.Model):
+class Invoice(TimeStampedModel):
     """Invoice model."""
 
     class Status(models.TextChoices):
@@ -220,7 +227,7 @@ class Invoice(models.Model):
     paid_at = models.DateTimeField(blank=True, null=True)
 
 
-class InvoiceItem(models.Model):
+class InvoiceItem(TimeStampedModel):
     """InvoiceItem model."""
 
     invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name='items')
@@ -231,7 +238,7 @@ class InvoiceItem(models.Model):
     quantity = models.PositiveIntegerField(default=1)
 
 
-class CreditMemo(models.Model):
+class CreditMemo(TimeStampedModel):
     """CreditMemo model."""
 
     invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name='credit_memos')

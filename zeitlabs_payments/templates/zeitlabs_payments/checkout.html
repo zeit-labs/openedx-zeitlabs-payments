@@ -11,6 +11,7 @@
            <div id="content-inner">
             {% csrf_token %}
             {{ formset.management_form }}
+            {% if cart %}
                <form action="." method="post">
                   {% for item in cart.items %}
                      {% for course in item.courses %}
@@ -66,7 +67,7 @@
                    <div class="col-sm-12">
                        <div class="pull-right payment-buttons" data-basket-id="1">
                         {% for method in methods %}
-                           <button 
+                           <a 
                               href="{{ method.url }}"
                               class="btn payment-button pay-btn-{{ method.slug }}"
                               data-slug="{{ method.slug }}" 
@@ -91,6 +92,12 @@
                        <a href="{{ support_url }}">{% trans "Please read our FAQs to view common questions about our certificates." %}</a>
                    </div>
                </div>
+            {% else %}
+               <div class="depth depth-2 message-error-content">
+                  <h3 data-something="|add:dashboard_url|add:">{% trans "No cart exist." %}</h3>
+                     {% trans "If you need assistance, contact dev support." %}
+               </div>
+           {% endif %}
            </div>
        </div>
    </div>
