@@ -3,20 +3,30 @@
 import logging
 from typing import Any, Optional
 
-from common.djangoapps.course_modes.models import CourseMode
-from common.djangoapps.student.models import CourseEnrollment
 from django.contrib.auth import get_user_model
 from django.contrib.sites.models import Site
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
+from django.utils import timezone
 from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as _
 
-from zeitlabs_payments.exceptions import CartFulfillmentError, GatewayError, InvalidCartError
-from zeitlabs_payments.helpers import get_currency, get_language, get_merchant_reference, get_order_description
-from zeitlabs_payments.models import Cart, CatalogueItem, Transaction, WebhookEvent, AuditLog
+from zeitlabs_payments.exceptions import (
+    CartFulfillmentError,
+    DuplicateTransactionError,
+    GatewayError,
+    InvalidCartError,
+    InvoiceError,
+)
 from zeitlabs_payments.fulfillment import FULFILLMENT_HANDLERS
-
+from zeitlabs_payments.helpers import (
+    generate_invoice_number,
+    get_currency,
+    get_language,
+    get_merchant_reference,
+    get_order_description,
+)
+from zeitlabs_payments.models import AuditLog, Cart, Invoice, InvoiceItem, Transaction, WebhookEvent
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +136,44 @@ class BaseProcessor:
         except Site.DoesNotExist as exc:
             raise GatewayError(f'Site with ID {site_id} does not exist.') from exc
 
+    def create_invoice(self, cart: Cart, request: Any, transaction_record: Transaction = None) -> Invoice:
+        """
+        Create an invoice for the given cart.
+
+        :param cart: The cart to create an invoice for.
+        :raises InvoiceError: If the cart is not in PAID status.
+        :return: The created Invoice instance.
+        """
+        if cart.status != Cart.Status.PAID:
+            raise InvoiceError(
+                f'Cannot create invoice: Cart {cart.id} is in status "{cart.status}", '
+                f'expected status "{Cart.Status.PAID}".'
+            )
+        invoice = Invoice.objects.create(
+            invoice_number=generate_invoice_number(request),
+            cart=cart,
+            status=Invoice.InvoiceStatus.PAID,
+            total=cart.total,
+            discount_total=cart.discount_total,
+            currency=get_currency(cart),
+            paid_at=timezone.now(),
+            related_transaction=transaction_record
+        )
+        for item in cart.items.all():
+            InvoiceItem.objects.create(
+                invoice=invoice,
+                cart_item=item,
+                original_price=item.original_price,
+                discount_amount=item.discount_amount,
+                price=item.final_price,
+            )
+
+        logger.info(
+            f'Invoice (ID: {invoice.id}) with status "{Invoice.InvoiceStatus.PAID}" '
+            f'successfully generated for cart {cart.id}.'
+        )
+        return invoice
+
     def handle_payment(  # pylint: disable= too-many-positional-arguments
         self,
         cart: Cart,
@@ -137,7 +185,7 @@ class BaseProcessor:
         currency: str,
         reason: str,
         response: dict = None,
-    ) -> None:
+    ) -> Transaction:
         """
         Retrieve a Site instance from a string or integer site ID.
 
@@ -147,16 +195,7 @@ class BaseProcessor:
         """
         if Transaction.objects.filter(gateway_transaction_id=transaction_id).exists():
             logger.warning(f'Duplicate transaction detected while cart: {cart.id} processing.')
-            AuditLog.log(
-                action=AuditLog.AuditActions.DUPLICATE_TRANSACTION,
-                cart=cart,
-                gateway=self.SLUG,
-                context={
-                    'transaction_id': transaction_id,
-                    'cart_status': cart.status
-                }
-            )
-            return
+            raise DuplicateTransactionError('Transaction already exist with given transaction_id: {transaction_id}')
         transaction_record = Transaction.objects.create(
             cart=cart,
             type=Transaction.TransactionType.PAYMENT,
@@ -179,9 +218,9 @@ class BaseProcessor:
             payload=response,
             related_transaction=transaction_record
         )
-
         cart.status = Cart.Status.PAID
         cart.save(update_fields=['status'])
+
         AuditLog.log(
             action=AuditLog.AuditActions.CART_STATUS_UPDATED,
             cart=cart,
@@ -191,6 +230,7 @@ class BaseProcessor:
             }
         )
         logger.info(f'Cart marked as PAID: {cart.id}')
+        return transaction_record
 
     def fulfill_cart(self, cart: Cart) -> None:
         """
@@ -220,4 +260,4 @@ class BaseProcessor:
                 )
                 raise CartFulfillmentError(f'Unsupported catalogue item type: {item.catalogue_item.type}')
 
-            handler.fulfill(cart, item, self.SLUG)
+            handler.fulfill(item, self.SLUG)

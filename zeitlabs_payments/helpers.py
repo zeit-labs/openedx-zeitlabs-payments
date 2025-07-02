@@ -1,22 +1,26 @@
 """Utility functions for the Payfort payment gateway."""
 
 from __future__ import annotations
-import logging
 
+import logging
 import re
 from typing import Any, Optional
 from urllib.parse import urljoin
 
-from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
+from common.djangoapps.course_modes.models import CourseMode
 from common.djangoapps.student.models import (
-    CourseEnrollment,
-    EnrollmentClosedError,
-    CourseFullError,
     AlreadyEnrolledError,
+    CourseEnrollment,
+    CourseFullError,
+    EnrollmentClosedError,
 )
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
+from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
 
 from zeitlabs_payments.exceptions import GatewayError
-from zeitlabs_payments.models import Cart, CartItem, CatalogueItem, AuditLog
+from zeitlabs_payments.models import AuditLog, Cart, CartItem, CatalogueItem, Invoice
 
 logger = logging.getLogger(__name__)
 
@@ -202,18 +206,35 @@ def get_merchant_reference(site_id: int, cart: Cart) -> str:
     return f'{site_id}-{cart.id}'
 
 
-def check_user_enroll_conditions(user, course_mode):
+def check_user_enroll_conditions(user: get_user_model, course_mode: CourseMode) -> None:
+    """
+    Check whether a user can enroll in the given course mode.
+
+    This function validates:
+    - If enrollment for the course is closed.
+    - If the course has reached its maximum capacity.
+    - If the user is already enrolled.
+
+    Raises an appropriate exception if any condition is not met.
+
+    :param user: The user attempting to enroll.
+    :param course_mode: The course mode of the course to check.
+    :raises EnrollmentClosedError: If enrollment for the course is closed.
+    :raises CourseFullError: If the course has reached its maximum allowed enrollments.
+    :raises AlreadyEnrolledError: If the user is already enrolled in the course.
+    :return: None
+    """
     if CourseEnrollment.is_enrollment_closed(user, course_mode.course):
         logger.warning(
-            "User %s failed to enroll in course %s because enrollment is closed.",
+            'User %s failed to enroll in course %s because enrollment is closed.',
             user.username,
             str(course_mode.course.id),
         )
         raise EnrollmentClosedError('Enrollment is closed.')
 
-    if CourseEnrollment.objects.is_course_full(course_mode.course):
+    if CourseEnrollment.is_course_full(course_mode.course):
         logger.warning(
-            "Course %s has reached its maximum enrollment of %d learners. User %s failed to enroll.",
+            'Course %s has reached its maximum enrollment of %d learners. User %s failed to enroll.',
             str(course_mode.course.id),
             course_mode.course.max_student_enrollments_allowed,
             user.username,
@@ -221,8 +242,60 @@ def check_user_enroll_conditions(user, course_mode):
         raise CourseFullError('Course is Full.')
     if CourseEnrollment.is_enrolled(user, course_mode.course.id):
         logger.warning(
-            "User %s attempted to enroll in %s, but they were already enrolled",
+            'User %s attempted to enroll in %s, but they were already enrolled',
             user.username,
             str(course_mode.course.id)
         )
         raise AlreadyEnrolledError('User is already enrolled in the course.')
+
+
+def generate_invoice_number(request: Any) -> str:
+    """
+    Generate a new unique invoice number with the given prefix.
+
+    :param prefix: The prefix string to prepend to the invoice number (e.g., 'DEV-').
+    :type prefix: str
+    :returns: A unique invoice number string with the given prefix (e.g., 'DEV-100002').
+    :rtype: str
+    """
+    prefix = configuration_helpers.get_value('INVOICE_PREFIX', settings.INVOICE_PREFIX)
+    last_invoice = Invoice.objects.filter(invoice_number__startswith=prefix).order_by('-invoice_number').first()
+    if last_invoice and last_invoice.invoice_number:
+        try:
+            last_number = int(last_invoice.invoice_number.replace(prefix, '').replace('-', ''))
+            new_number = last_number + 1
+        except ValueError:
+            new_number = 100001
+    else:
+        new_number = 100001
+    return f'{prefix}-{new_number}'
+
+
+def cancel_old_pending_carts(user: get_user_model) -> None:
+    """
+    Cancel all open carts (in 'PENDING' state) for the given user, and logs each cancellation for auditing.
+
+    :param user: User whose carts need to be cancelled.
+    """
+    pending_carts = list(
+        Cart.objects.filter(user=user, status=Cart.Status.PENDING)
+    )
+
+    if not pending_carts:
+        logger.debug(f'No pending carts to cancel for user {user}.')
+        return
+
+    cart_ids = [cart.id for cart in pending_carts]
+    updated_count = Cart.objects.filter(id__in=cart_ids).update(status=Cart.Status.CANCELLED)
+    logger.debug(f'Cancelled {updated_count} pending cart(s) for user {user}.')
+
+    for cart in pending_carts:
+        cart.refresh_from_db(fields=['status'])
+        AuditLog.log(
+            action=AuditLog.AuditActions.CART_STATUS_UPDATED,
+            cart=cart,
+            context={
+                'old_status': Cart.Status.PENDING,
+                'new_status': Cart.Status.CANCELLED,
+            }
+        )

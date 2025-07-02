@@ -19,6 +19,7 @@ class CourseOverview(models.Model):
     course_image_url = models.TextField()
     visible_to_staff_only = models.BooleanField(default=False)
     effort = models.TextField(null=True)
+    max_student_enrollments_allowed = models.IntegerField(null=True)
 
     class Meta:
         app_label = 'fake_models'
@@ -87,3 +88,18 @@ class CourseEnrollment(models.Model):
                 'is_active': True
             }
         )
+
+    @classmethod
+    def is_enrollment_closed(cls, user, course):
+        """Mock"""
+        return
+
+    @classmethod
+    def is_enrolled(cls, user, course_key):
+        """Mock"""
+        return cls.objects.filter(user=user, course__id=course_key, is_active=True).exists()
+
+    @classmethod
+    def is_course_full(cls, course):
+        """Mock"""
+        return False

@@ -38,10 +38,15 @@
         redirect: "follow"
       })
       .then(response => {
-        if (response.status === 200) {
-          // Show success message
-          window.location.href = successUrl;
-        } else if (response.status === 204) {
+        return response.json().then(data => ({
+          status: response.status,
+          data: data
+        }));
+      })
+      .then(({ status, data }) => {
+        if (status === 200) {
+          window.location.href = data.invoice_url;
+        } else if (status === 204) {
           if (attempts < {{ ecommerce_max_attempts }}) {
             setTimeout(checkStatus, {{ ecommerce_wait_time }});
           } else {

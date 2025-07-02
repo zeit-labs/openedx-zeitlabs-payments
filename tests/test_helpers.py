@@ -1,15 +1,20 @@
 """Test zeitlabse payment helpers"""
 
 from typing import Any, Optional, Union
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
+from common.djangoapps.course_modes.models import CourseMode
+from common.djangoapps.student.models import AlreadyEnrolledError, CourseFullError, EnrollmentClosedError
 from django.contrib.auth import get_user_model
 from django.contrib.sites.models import Site
 
 from zeitlabs_payments.exceptions import GatewayError
 from zeitlabs_payments.helpers import (
     MAX_ORDER_DESCRIPTION_LENGTH_DEFAULT,
+    cancel_old_pending_carts,
+    check_user_enroll_conditions,
+    generate_invoice_number,
     get_course_id,
     get_currency,
     get_customer_name,
@@ -20,7 +25,7 @@ from zeitlabs_payments.helpers import (
     sanitize_text,
     verify_param,
 )
-from zeitlabs_payments.models import Cart, CartItem, CatalogueItem
+from zeitlabs_payments.models import AuditLog, Cart, CartItem, CatalogueItem, Invoice
 
 User = get_user_model()
 
@@ -361,3 +366,100 @@ def test_get_order_description_invalid_cart():
     """
     with pytest.raises(GatewayError, match='cart is required and must be'):
         get_order_description('not-cart')
+
+
+@pytest.mark.django_db
+def test_generate_invoice_number_no_previous_invoice():
+    """
+    Should generate invoice number starting from 100001 when no previous invoice exists.
+    """
+    invoice_number = generate_invoice_number(request=None)
+    assert invoice_number == 'TEST-100001'
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    'existing_invoice_number, expected_invoice_number',
+    [
+        ('TEST-100005', 'TEST-100006'),
+        ('TEST-INVALID', 'TEST-100001'),
+    ]
+)
+def test_generate_invoice_number_with_existing_invoice(existing_invoice_number, expected_invoice_number):
+    """
+    Should increment when last invoice number is valid,
+    or reset when last invoice number is invalid.
+    """
+    Invoice.objects.create(
+        invoice_number=existing_invoice_number,
+        total=100,
+        cart=Cart.objects.create(user=User.objects.get(id=3), status=Cart.Status.PAID)
+    )
+    invoice_number = generate_invoice_number(request=None)
+    assert invoice_number == expected_invoice_number
+
+
+@pytest.mark.django_db
+def test_check_user_enroll_conditions_success():
+    """
+    Should not raise anything when all conditions pass.
+    """
+    user = User.objects.get(id=3)
+    course_mode = CourseMode.objects.get(sku='custom-sku-1')
+    check_user_enroll_conditions(user, course_mode)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    'patch_target, return_value, expected_exception, expected_msg',
+    [
+        (
+            'zeitlabs_payments.helpers.CourseEnrollment.is_enrollment_closed',
+            True, EnrollmentClosedError, 'Enrollment is closed.'
+        ),
+        (
+            'zeitlabs_payments.helpers.CourseEnrollment.is_course_full',
+            True, CourseFullError, 'Course is Full.'
+        ),
+        (
+            'zeitlabs_payments.helpers.CourseEnrollment.is_enrolled',
+            True, AlreadyEnrolledError, 'User is already enrolled in the course.'
+        ),
+    ]
+)
+def test_check_user_enroll_conditions_failures(patch_target, return_value, expected_exception, expected_msg):
+    """
+    Should raise correct exception when condition fails.
+    """
+    user = User.objects.get(id=3)
+    course_mode = CourseMode.objects.get(sku='custom-sku-1')
+    course_mode.course.max_student_enrollments_allowed = 2
+    course_mode.course.save()
+    with patch(patch_target, return_value=return_value):
+        with pytest.raises(expected_exception, match=expected_msg):
+            check_user_enroll_conditions(user, course_mode)
+
+
+@pytest.mark.django_db
+def test_cancel_old_pending_carts_without_patch():
+    user = User.objects.get(id=3)
+    pending_cart_1 = Cart.objects.create(user=user, status=Cart.Status.PENDING)
+    pending_cart_2 = Cart.objects.create(user=user, status=Cart.Status.PENDING)
+    _ = Cart.objects.create(user=user, status=Cart.Status.CANCELLED)  # already cancelled cart.
+    AuditLog.objects.all().delete()
+
+    cancel_old_pending_carts(user)
+
+    all_carts = Cart.objects.filter(user=user)
+    assert all(c.status == Cart.Status.CANCELLED for c in all_carts), \
+        'All user carts should be in CANCELLED status'
+
+    audit_logs = AuditLog.objects.filter(
+        action=AuditLog.AuditActions.CART_STATUS_UPDATED,
+        cart__user=user,
+    )
+    assert audit_logs.count() == 2, 'Only pending carts should generate audit logs'
+
+    updated_ids = {pending_cart_1.id, pending_cart_2.id}
+    logged_ids = set(audit_logs.values_list('cart_id', flat=True))
+    assert logged_ids == updated_ids, 'Audit logs should only exist for carts that were updated from PENDING'
