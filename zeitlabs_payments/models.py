@@ -152,6 +152,11 @@ class Cart(TimeStampedModel):
         """Calculate total."""
         return sum(item.final_price for item in self.items.all())
 
+    @property
+    def discount_total(self) -> int:
+        """Calculate discount total."""
+        return sum(item.discount_amount for item in self.items.all())
+
 
 class Coupon(TimeStampedModel):
     """Coupon model."""
@@ -191,6 +196,8 @@ class CatalogueItem(TimeStampedModel):
 
     sku = models.CharField(max_length=255)
     type = models.CharField(max_length=20, choices=ItemType.choices)
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
     item_ref_id = models.CharField(max_length=255)
     price = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     currency = models.CharField(max_length=10, blank=True, null=True)
@@ -211,20 +218,21 @@ class CartItem(TimeStampedModel):
 class Invoice(TimeStampedModel):
     """Invoice model."""
 
-    class Status(models.TextChoices):
+    class InvoiceStatus(models.TextChoices):
         """Invoice statuses."""
 
         DRAFT = 'draft'
         PAID = 'paid'
         CANCELLED = 'cancelled'
 
+    invoice_number = models.CharField(max_length=255, unique=True)
     cart = models.ForeignKey(Cart, on_delete=models.CASCADE, related_name='invoices')
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
+    status = models.CharField(max_length=20, choices=InvoiceStatus.choices, default=InvoiceStatus.DRAFT)
     total = models.DecimalField(max_digits=10, decimal_places=2)
     discount_total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     currency = models.CharField(max_length=10)
-    created_at = models.DateTimeField(auto_now_add=True)
     paid_at = models.DateTimeField(blank=True, null=True)
+    related_transaction = models.ForeignKey(Transaction, on_delete=models.SET_NULL, null=True, blank=True)
 
 
 class InvoiceItem(TimeStampedModel):

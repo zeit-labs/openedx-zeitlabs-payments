@@ -25,8 +25,8 @@
                                  <img class="thumbnail" src="{{ course.course_image }}" alt="{{ course.course_name }}" />
                               </div>
                               <div class="col-md-5 col-sm-12 pull-left">
-                                 <p class="product-title">{{ course.course_name }} - {{ course.org }} ({{ course.run }})</p>
-                                 <p class="product-description">{{ course.description|default_if_none:'' }}</p>
+                                 <p class="product-title">{{ item.title }} - {{ course.org }} ({{ course.run }})</p>
+                                 <p class="product-description">{{ item.description|default_if_none:'' }}</p>
                               </div>
                               <div class="col-md-5 col-xs-12 product-prices pull-right">
                                  <div class="price">{{ item.final_price }} {{item.currency }}</div>

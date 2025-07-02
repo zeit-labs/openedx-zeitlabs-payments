@@ -7,6 +7,8 @@ import re
 from typing import Any, Optional
 from urllib.parse import urljoin
 
+from django.conf import settings
+from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
 from common.djangoapps.student.models import (
     CourseEnrollment,
@@ -16,7 +18,7 @@ from common.djangoapps.student.models import (
 )
 
 from zeitlabs_payments.exceptions import GatewayError
-from zeitlabs_payments.models import Cart, CartItem, CatalogueItem, AuditLog
+from zeitlabs_payments.models import Cart, CartItem, CatalogueItem, Invoice
 
 logger = logging.getLogger(__name__)
 
@@ -226,3 +228,25 @@ def check_user_enroll_conditions(user, course_mode):
             str(course_mode.course.id)
         )
         raise AlreadyEnrolledError('User is already enrolled in the course.')
+
+
+def generate_invoice_number(request: Any) -> str:
+    """
+    Generate a new unique invoice number with the given prefix.
+
+    :param prefix: The prefix string to prepend to the invoice number (e.g., 'DEV-').
+    :type prefix: str
+    :returns: A unique invoice number string with the given prefix (e.g., 'DEV-100002').
+    :rtype: str
+    """
+    prefix = configuration_helpers.get_value('INVOICE_PREFIX', settings.INVOICE_PREFIX)
+    last_invoice = Invoice.objects.filter(invoice_number__startswith=prefix).order_by('-invoice_number').first()
+    if last_invoice and last_invoice.invoice_number:
+        try:
+            last_number = int(last_invoice.invoice_number.replace(prefix, ''))
+            new_number = last_number + 1
+        except ValueError:
+            new_number = 100001
+    else:
+        new_number = 100001
+    return f"{prefix}{new_number}"

@@ -4,12 +4,14 @@ from typing import Any
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.conf import settings
 from django.http import HttpResponseBadRequest
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import render
-from django.views.generic import TemplateView
+from django.views.generic import TemplateView, DetailView
+
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -261,5 +263,21 @@ class PaymentSuccessView(TemplateView):
         """Handles the GET request."""
         context = {
             "merchant_reference": args[0],
+        }
+        return render(request, self.template_name, context)
+
+
+class InvoiceView(TemplateView):
+    template_name = "zeitlabs_payments/invoice.html"
+
+    def get(self, request, *args, **kwargs):
+        """Handles the GET request."""
+        invoice = models.Invoice.objects.get(invoice_number=args[0])
+        context = {
+            "invoice": invoice,
+            "payment_method": invoice.related_transaction.gateway,
+            "organization": settings.ORGANIZATION,
+            "tax_number": settings.CUSTOMER_NUMBER
+
         }
         return render(request, self.template_name, context)

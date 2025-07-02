@@ -26,9 +26,15 @@ urlpatterns: list = [
         name='payment-error'
     ),
     re_path(
-        r'^payment/v1/sucess/(.+)/$',
+        r'^payment/v1/success/(.+)/$',
         views.PaymentSuccessView.as_view(),
         name='payment-success'
+    ),
+
+    re_path(
+        r'^payment/v1/invoice/(.+)/$',
+        views.InvoiceView.as_view(),
+        name='invoice'
     ),
 
     re_path(r'^api/cart/v1/cart/$', views.CartView.as_view(), name='cart-add'),

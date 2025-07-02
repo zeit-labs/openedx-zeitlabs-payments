@@ -11,3 +11,7 @@ class CartFulfillmentError(Exception):
 
 class InvalidCartError(Exception):
     """Custom exception raised when cart is invalid."""
+
+
+class InvoiceError(Exception):
+    """Custom exception raised for invoice errors."""

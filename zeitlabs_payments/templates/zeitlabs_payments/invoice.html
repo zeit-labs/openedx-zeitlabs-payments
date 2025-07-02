@@ -1,0 +1,97 @@
+{% extends "main_django.html" %}
+{% load i18n %}
+{% load static %}
+
+
+{% block body %}
+<link rel="stylesheet" href="https://srei.ecommerce.futurex.sa/static/CACHE/css/main.643ebe9aca4b.css" type="text/css">
+
+<div id="receipt-container" dir="ltr" class="receipt container content-container" data-currency="USD" data-order-id="DEV-100005" data-total-amount="1000.00" data-back-button="1"> 
+  <div id="messages"></div>
+  <div class="receipt-header">
+    <h2 class="receipt">Invoice</h2>
+    <img class="navbar-brand-logo" alt="dev logo" src="/static/nelp-ecommerce-theme/images/default-logo.png">
+  </div>
+  <p>{{ organization }}</p>
+  <p>{% trans "Tax no:" %} {{ tax_number }}</p>
+  <hr class="solid">
+  <div class="list-info">
+      <div class="info-item payment-info row">
+        <div class="order-headers order-summary">
+          <dl>
+            <div class="order-summary-item">
+              <dt>{% trans "Name:" %}</dt>
+              <dd></dd>
+            </div>
+            <div class="order-summary-item">
+              <dt>{% trans "Invoice Number:" %}</dt>
+              <dd>{{ invoice.invoice_number  }}</dd>
+            </div>
+            <div class="order-summary-item">
+              <dt>{% trans "Order Date:" %}</dt>
+              <dd>{{ invoice.cart.updated_at|date:"F d, Y" }}
+              </dd>
+            </div>
+            <div class="order-summary-item">
+              <dt>{% trans "Payment Method:" %}</dt>
+              <dd>{{ payment_method }}</dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+      <h2>{% trans "Order Information" %}</h2>
+      <div class="table">
+        <dl class="order-lines">
+          <div class="header">
+            <dt aria-hidden="true">{% trans "Product" %}</dt>
+            <dt aria-hidden="true">{% trans "Description" %}</dt>
+            <dt aria-hidden="true">{% trans "Unit Price" %}</dt>
+            <dt aria-hidden="true">{% trans "VAT" %}</dt>
+            <dt aria-hidden="true">{% trans "Total" %}</dt>
+          </div>
+          {% for invoice_item in invoice.items.all %}
+            <div class="order-line-data">
+              <div class="product-description-container">
+                <dt class="product sr">Product:</dt>
+                <dd class="product">
+                  {{ invoice_item.cart_item.catalogue_item.title }}
+                </dd>
+                <dt class="course-description sr">Description:</dt>
+                <dd class="course-description">
+                  <span>
+                    {{ invoice_item.cart_item.catalogue_item.description }}
+                  </span>
+                </dd>
+              </div>
+              <div class="product-data-container">
+                <dt class="line-price sr">Unit Price:</dt>
+                <dd class="line-price price">{{ invoice_item.original_price }}</dd>
+                <dt class="line-vat sr">VAT</dt>
+                <dd class="line-vat vat">$0.00</dd>
+                <dt class="line-total sr">Total:</dt>
+                <dd class="line-total total">{{ invoice_item.price }}</dd>
+              </div>
+            </div>
+          {% endfor %}        
+        </dl>
+        <div class="total-container">
+          <div class="order-totals">
+            <div class="order-total">
+              <div class="description">{% trans "Subtotal" %}</div>
+              <div class="price">{{ invoice.total }}</div>
+            </div>
+            <div class="order-total">
+              <div class="description">{% trans "VAT" %}</div>
+              <div class="price">$0.00</div>
+            </div>
+            <div class="order-total">
+              <div class="description">{% trans "Total" %}</div>
+              <div class="price">{{ invoice.total }}</div>
+            </div>
+          </div>
+        </div>
+    </div>          
+  </div>
+  <button class="print-receipt-button" onclick="window.print()">{% trans "Print Receipt" %}</button>
+</div>
+{% endblock %}

@@ -7,14 +7,14 @@ from django.db import transaction
 from django.contrib.sites.models import Site
 from django.contrib.auth import get_user_model
 from django.urls import reverse
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
 from zeitlabs_payments.exceptions import InvalidCartError, GatewayError
-from zeitlabs_payments.models import Cart, AuditLog, Transaction
+from zeitlabs_payments.models import Cart, AuditLog, Transaction, Invoice
 from zeitlabs_payments.providers.payfort.exceptions import PayFortException, PayFortBadSignatureException
 from zeitlabs_payments.providers.payfort.helpers import SUCCESS_STATUS, verify_response_format, verify_signature
 from zeitlabs_payments.providers.payfort.processor import PayFort
@@ -39,7 +39,7 @@ class PayFortBaseView(View):
         try:
             _, cart_id = reference.split('-', 1)
             return self.payment_processor.get_cart(cart_id)
-        except (ValueError, InavlidCartError):
+        except (ValueError, InvalidCartError):
             logger.error(f'Payfort Error! merchant_reference: {reference} is invalid. Unable to get cart.')
             return None
 
@@ -120,15 +120,17 @@ class PayfortFeedbackView(PayFortBaseView):
     Callback endpoint for PayFort to notify about payment status.
     """
 
-    def post(self, request: Any) -> None:
+    def post(self, request: Any) -> HttpResponse:
         """Handle the POST request from PayFort for payment status or feedback."""
         data = request.POST.dict()
+
         AuditLog.log(
             action=AuditLog.AuditActions.RECEIVED_RESPONSE,
             cart=self.cart,
             gateway=self.payment_processor.SLUG,
             context={'data': data}
         )
+
         try:
             verify_signature(
                 self.payment_processor.response_sha_phrase,
@@ -136,61 +138,72 @@ class PayfortFeedbackView(PayFortBaseView):
                 data,
             )
         except PayFortBadSignatureException:
-            logger.error("Invalid signature received in response from payfort.")
+            logger.error("Invalid signature received in response from PayFort.")
             AuditLog.log(
                 action=AuditLog.AuditActions.BAD_RESPONSE_SIGNATURE,
                 cart=self.cart,
                 gateway=self.payment_processor.SLUG,
                 context={'data': data}
             )
-            raise
+            return HttpResponse(status=400)
 
-        if data.get('status') == SUCCESS_STATUS:
-            verify_response_format(data)
-            if self.cart.status != Cart.Status.PROCESSING:
-                AuditLog.log(
-                    action=AuditLog.AuditActions.RESPONSE_INVALID_CART,
+        if data.get('status') != SUCCESS_STATUS:
+            logger.warning(f"PayFort payment unsuccessful. Status: {data.get('status')}, Data: {data}")
+            return HttpResponse(status=200)
+
+        verify_response_format(data)
+
+        if self.cart.status != Cart.Status.PROCESSING:
+            AuditLog.log(
+                action=AuditLog.AuditActions.RESPONSE_INVALID_CART,
+                cart=self.cart,
+                gateway=self.payment_processor.SLUG,
+                context={'cart_status': self.cart.status, 'required_cart_state': Cart.Status.PROCESSING}
+            )
+            logger.warning(f"Cart {self.cart.id} in invalid status: {self.cart.status} (expected: PROCESSING).")
+            return HttpResponse(status=200)
+
+        try:
+            with transaction.atomic():
+                logger.info(f"Recording payment transaction for cart {self.cart.id}.")
+                transaction_record = self.payment_processor.handle_payment(
                     cart=self.cart,
-                    gateway=self.payment_processor.SLUG,
-                    context={'cart_status': self.cart.status, 'required_cart_state': Cart.Status.PROCESSING}
+                    user=request.user if request.user.is_authenticated else None,
+                    transaction_status=data['response_message'],
+                    transaction_id=data['fort_id'],
+                    method=data['payment_option'],
+                    amount=data['amount'],
+                    currency=data['currency'],
+                    reason=data['acquirer_response_message'],
+                    response=data
                 )
-                return HttpResponse(status=200)
-            try:
-                with transaction.atomic():
-                    logger.info('Starting transaction record creation for PayFort callback.')
-                    self.payment_processor.handle_payment(
-                        cart=self.cart,
-                        user=request.user if request.user.is_authenticated else None,
-                        transaction_status=data['response_message'],
-                        transaction_id=data['fort_id'],
-                        method=data['payment_option'],
-                        amount=data['amount'],
-                        currency=data['currency'],
-                        reason=data['acquirer_response_message'],
-                        response=data
-                    )
-                self.payment_processor.fulfill_cart(self.cart)
-                AuditLog.log(
-                    action=AuditLog.AuditActions.CART_FULFIlED,
-                    cart=self.cart,
-                    gateway=self.payment_processor.SLUG,
-                    context={}
-                )
-                logger.info(f"Transaction for cart {self.cart.id} and fullfillment handled successfully.")
-            except Exception as e:
-                AuditLog.log(
-                    action=AuditLog.AuditActions.TRANSACTION_ROLLED_BACK,
-                    cart=self.cart,
-                    gateway=self.payment_processor.SLUG,
-                    context={
-                        'transaction_id': data['fort_id'],
-                        'cart_id': self.cart.id,
-                        'site_id': self.site.id
-                    }
-                )
-                logger.error(f"Transaction failed and was rolled back: {str(e)}")
-        else:
-            logger.warning(f'PayFort payment is not successful. Status: {data.get("status")}, Data: {data}')
+        except Exception as e:
+            AuditLog.log(
+                action=AuditLog.AuditActions.TRANSACTION_ROLLED_BACK,
+                cart=self.cart,
+                gateway=self.payment_processor.SLUG,
+                context={
+                    'transaction_id': data['fort_id'],
+                    'cart_id': self.cart.id,
+                    'site_id': self.site.id
+                }
+            )
+            logger.error(f"Payment transaction failed and rolled back for cart {self.cart.id}: {str(e)}")
+            return HttpResponse(status=200)
+
+        try:
+            self.cart.refresh_from_db()
+            invoice = self.payment_processor.create_invoice(self.cart, request, transaction_record)
+            self.payment_processor.fulfill_cart(self.cart)
+            AuditLog.log(
+                action=AuditLog.AuditActions.CART_FULFIlED,
+                cart=self.cart,
+                gateway=self.payment_processor.SLUG,
+                context={}
+            )
+            logger.info(f"Successfully fulfilled cart {self.cart.id} and created invoice {invoice.id}.")
+        except Exception as e:
+            logger.error(f"Failed to fulfill cart {self.cart.id} or to create invoice: {str(e)}")
         return HttpResponse(status=200)
 
 
@@ -201,23 +214,41 @@ class PayFortStatusView(PayFortBaseView):
     def post(self, request):
         """Verify transaction status."""
         if not self.cart:
-            return HttpResponse(status=404)
+            return JsonResponse({'error': 'Unable to retrieve cart.'}, status=404)
 
         transaction_id = request.POST.get('transaction_id')
         if not transaction_id:
             logger.error("Payfort Error! Transaction id is required to verify payment status.")
-            return HttpResponse(status=404)
+            return JsonResponse(status=400)
 
-        if not Transaction.objects.filter(
-            cart=self.cart,
-            type=Transaction.TransactionType.PAYMENT,
-            status='Success',
-            gateway=self.payment_processor.SLUG,
-            gateway_transaction_id=transaction_id,
-        ).exists():
-            return HttpResponse(status=204)
-
-        return HttpResponse(status={
+        status_code = {
             Cart.Status.PAID: 200,
             Cart.Status.PROCESSING: 204,
-        }.get(self.cart.status, 404))
+        }.get(self.cart.status, 404)
+
+        if status_code == 200:
+            invoice = Invoice.objects.filter(
+                cart=self.cart,
+                status=Invoice.InvoiceStatus.PAID,
+                related_transaction__gateway_transaction_id=transaction_id).first()
+            if invoice:
+                return JsonResponse(
+                    {
+                        'invoice': invoice.invoice_number,
+                        'invoice_url': reverse(
+                            'zeitlabs_payments:invoice',
+                            args=[invoice.invoice_number]
+                        )
+                    }, status=200)
+
+            error_msg = f'Cart is in {Cart.Status.PAID} status, unable to retrieve invoice with given transaction id.'
+            logger.error(error_msg)
+            data = {'error': error_msg}
+            status_code = 204
+        else:
+            data = {'error': 'cart is in status: {self.cart.status}.'}
+
+        return JsonResponse(
+            data,
+            status=status_code
+        )
