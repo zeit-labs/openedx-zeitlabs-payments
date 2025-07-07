@@ -6,6 +6,9 @@ import logging
 import re
 from typing import Any, Optional
 from urllib.parse import urljoin
+import qrcode
+import base64
+from io import BytesIO
 
 from django.conf import settings
 from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
@@ -243,10 +246,26 @@ def generate_invoice_number(request: Any) -> str:
     last_invoice = Invoice.objects.filter(invoice_number__startswith=prefix).order_by('-invoice_number').first()
     if last_invoice and last_invoice.invoice_number:
         try:
-            last_number = int(last_invoice.invoice_number.replace(prefix, ''))
+            last_number = int(last_invoice.invoice_number.replace(prefix, '').replace('-', ''))
             new_number = last_number + 1
         except ValueError:
             new_number = 100001
     else:
         new_number = 100001
-    return f"{prefix}{new_number}"
+    return f"{prefix}-{new_number}"
+
+
+def generate_qr_code(data):
+    """
+    Generates a QR code and returns it as base64 string.
+    """
+    qr = qrcode.QRCode(box_size=6, border=2)
+    qr.add_data(data)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+
+    buffered = BytesIO()
+    img.save(buffered, format="PNG")
+    img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+    return img_base64

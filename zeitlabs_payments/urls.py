@@ -38,6 +38,7 @@ urlpatterns: list = [
     ),
 
     re_path(r'^api/cart/v1/cart/$', views.CartView.as_view(), name='cart-add'),
+    re_path(r'^api/payment/v1/manual/$', views.ManualPaymentView.as_view(), name='manual-payment'),
 
     re_path(
         r'^payment/v1/payfort/',

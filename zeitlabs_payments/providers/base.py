@@ -3,8 +3,6 @@
 import logging
 from typing import Any, Optional
 
-from common.djangoapps.course_modes.models import CourseMode
-from common.djangoapps.student.models import CourseEnrollment
 from django.contrib.auth import get_user_model
 from django.contrib.sites.models import Site
 from django.utils import timezone
@@ -21,7 +19,7 @@ from zeitlabs_payments.helpers import (
     get_order_description,
     generate_invoice_number,
 )
-from zeitlabs_payments.models import Cart, CatalogueItem, Transaction, WebhookEvent, AuditLog, InvoiceItem, Invoice
+from zeitlabs_payments.models import Cart, CatalogueItem, Transaction, WebhookEvent, AuditLog, InvoiceItem, Invoice, CartItem
 from zeitlabs_payments.fulfillment import FULFILLMENT_HANDLERS
 
 
