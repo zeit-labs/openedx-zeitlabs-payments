@@ -15,3 +15,7 @@ class InvalidCartError(Exception):
 
 class InvoiceError(Exception):
     """Custom exception raised for invoice errors."""
+
+
+class DuplicateTransactionError(Exception):
+    """TRansaction already exist for given cart."""

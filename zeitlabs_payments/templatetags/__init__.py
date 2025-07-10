@@ -6,11 +6,11 @@ content like QR codes or handling other custom template logic within Django view
 Additional tags can be added to further enhance template capabilities.
 """
 import qrcode
-import qrcode.image.svg
 from crum import get_current_request
 from django import template
 from django.urls import reverse
 from django.utils.safestring import mark_safe
+from qrcode.image.svg import SvgPathImage
 
 register = template.Library()
 
@@ -36,7 +36,7 @@ def generate_checkout_qr_code(invoice_number: str) -> str:
     request = get_current_request()
     url = request.build_absolute_uri(receipt_url)
 
-    qr = qrcode.QRCode(image_factory=qrcode.image.svg.SvgPathImage)
+    qr = qrcode.QRCode(image_factory=SvgPathImage)
     qr.add_data(url)
     qr.make(fit=True)
     img = qr.make_image()

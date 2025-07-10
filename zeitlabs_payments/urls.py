@@ -1,10 +1,9 @@
 """
 URLs for zeitlabs_payments.
 """
-from django.urls import re_path, include
+from django.urls import include, re_path
 
 from zeitlabs_payments import views
-from zeitlabs_payments.providers.payfort import views as payfort_views
 
 app_name = 'zeitlabs_payments'
 

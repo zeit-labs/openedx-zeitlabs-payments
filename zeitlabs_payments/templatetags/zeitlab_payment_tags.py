@@ -23,11 +23,8 @@ def generate_invoice_qr_code(invoice_number: str) -> str:
     The function creates a checkout receipt URL that includes the given order number
     as a query parameter. The QR code is generated for this URL and returned as an SVG image.
 
-    Args:
-        order_number (int): The order number to include in the checkout receipt URL.
-
-    Returns:
-        str: A QR code in SVG format, rendered as a string.
+    :params order_number (int): The order number to include in the checkout receipt URL.
+    :returns: str: A QR code in SVG format, rendered as a string.
     """
     receipt_url = reverse(
         'zeitlabs_payments:invoice',

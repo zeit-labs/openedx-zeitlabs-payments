@@ -5,23 +5,28 @@ from typing import Any, Optional
 
 from django.contrib.auth import get_user_model
 from django.contrib.sites.models import Site
-from django.utils import timezone
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
+from django.utils import timezone
 from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as _
 
-from zeitlabs_payments.exceptions import CartFulfillmentError, GatewayError, InvalidCartError, InvoiceError
+from zeitlabs_payments.exceptions import (
+    CartFulfillmentError,
+    DuplicateTransactionError,
+    GatewayError,
+    InvalidCartError,
+    InvoiceError,
+)
+from zeitlabs_payments.fulfillment import FULFILLMENT_HANDLERS
 from zeitlabs_payments.helpers import (
+    generate_invoice_number,
     get_currency,
     get_language,
     get_merchant_reference,
     get_order_description,
-    generate_invoice_number,
 )
-from zeitlabs_payments.models import Cart, CatalogueItem, Transaction, WebhookEvent, AuditLog, InvoiceItem, Invoice, CartItem
-from zeitlabs_payments.fulfillment import FULFILLMENT_HANDLERS
-
+from zeitlabs_payments.models import AuditLog, Cart, Invoice, InvoiceItem, Transaction, WebhookEvent
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +146,8 @@ class BaseProcessor:
         """
         if cart.status != Cart.Status.PAID:
             raise InvoiceError(
-                f'Cannot create invoice: Cart {cart.id} is in status "{cart.status}", expected status "{Cart.Status.PAID}".'
+                f'Cannot create invoice: Cart {cart.id} is in status "{cart.status}", '
+                f'expected status "{Cart.Status.PAID}".'
             )
         invoice = Invoice.objects.create(
             invoice_number=generate_invoice_number(request),
@@ -198,7 +204,7 @@ class BaseProcessor:
                     'cart_status': cart.status
                 }
             )
-            return
+            raise DuplicateTransactionError('Transaction already exist with given transaction_id: {transaction_id}')
         transaction_record = Transaction.objects.create(
             cart=cart,
             type=Transaction.TransactionType.PAYMENT,

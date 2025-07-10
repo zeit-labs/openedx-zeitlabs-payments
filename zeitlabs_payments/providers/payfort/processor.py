@@ -80,7 +80,7 @@ class PayFort(BaseProcessor):
             'return_url': self.return_url
         }
 
-    def generate_signature(self, params: Dict[str, Any], sha_phrase=None) -> str:
+    def generate_signature(self, params: Dict[str, Any], sha_phrase: str = '') -> str:
         """
         Generate a signature for the transaction using provided or base parameters.
         """

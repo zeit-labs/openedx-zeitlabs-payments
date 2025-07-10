@@ -1,31 +1,29 @@
 """Zeilabs payments views."""
-import qrcode
 import logging
-from typing import Any
+from typing import Any, Optional
 
+from common.djangoapps.course_modes.models import CourseMode
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.conf import settings
 from django.http import HttpResponseBadRequest
+from django.shortcuts import render
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
-from django.shortcuts import render
-from django.views.generic import TemplateView, DetailView
-
-from common.djangoapps.course_modes.models import CourseMode
+from django.views.generic import TemplateView
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from zeitlabs_payments import models
-from zeitlabs_payments.providers.registry import PROCESSORS, get_processor
-from zeitlabs_payments.helpers import get_currency, generate_qr_code
-from zeitlabs_payments.fulfillment import FULFILLMENT_HANDLERS
-from zeitlabs_payments.serializers import CartSerializer
 from zeitlabs_payments.exceptions import InvalidCartError
+from zeitlabs_payments.fulfillment import FULFILLMENT_HANDLERS
+from zeitlabs_payments.helpers import get_currency
 from zeitlabs_payments.providers.manual_payment import ManualPaymentProcessor
+from zeitlabs_payments.providers.registry import PROCESSORS, get_processor
+from zeitlabs_payments.serializers import CartSerializer
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -233,15 +231,13 @@ class CartView(APIView):
         try:
             handler.validate_add_to_cart(request.user, catalog_item)
         except InvalidCartError as exc:
-            reason = str(exc.__cause__) if exc.__cause__ else "Unknown reason"
             return Response(
                 {
                     'error': 'Given SKU item does not match add to cart requirements',
-                    'details': f"{str(exc)} Reason: {reason}"
+                    'details': f'{str(exc)}'
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
         cart = self.create_cart(request.user, catalog_item)
         serializer = CartSerializer(cart, context={'request': request})
         logger.info(f'Cart created for user {request.user} with SKU {sku_code}')
@@ -250,56 +246,58 @@ class CartView(APIView):
 
 class PaymentErrorView(TemplateView):
     """Render the template that shows the error message to the user when the payment handling is failed."""
-    template_name = "zeitlabs_payments/payment_error.html"
 
-    def get(self, request, *args, **kwargs):
-        """Handles the GET request."""
+    template_name = 'zeitlabs_payments/payment_error.html'
+
+    def get(self, request: Any, *args: Any, **kwargs: Any) -> Any:
+        """Handle the GET request."""
         context = {
-            "merchant_reference": args[0],
+            'merchant_reference': args[0],
         }
         return render(request, self.template_name, context)
 
 
 class PaymentSuccessView(TemplateView):
     """Render the template that shows the error message to the user when the payment handling is failed."""
-    template_name = "zeitlabs_payments/payment_successful.html"
 
-    def get(self, request, *args, **kwargs):
-        """Handles the GET request."""
+    template_name = 'zeitlabs_payments/payment_successful.html'
+
+    def get(self, request: Any, *args: Any, **kwargs: Any) -> Any:
+        """Handle the GET request."""
         context = {
-            "merchant_reference": args[0],
+            'merchant_reference': args[0],
         }
         return render(request, self.template_name, context)
 
 
 class InvoiceView(TemplateView):
-    template_name = "zeitlabs_payments/invoice.html"
+    """Render Invoice with given invoice number."""
 
-    def get(self, request, *args, **kwargs):
-        """Handles the GET request."""
+    template_name = 'zeitlabs_payments/invoice.html'
+
+    def get(self, request: Any, *args: Any, **kwargs: Any) -> Any:
+        """Handle the GET request."""
         invoice = models.Invoice.objects.get(invoice_number=args[0])
-        payment_method = invoice.related_transaction.gateway if getattr(invoice, 'related_transaction', None) else 'manual'
-
-        qr_data = f"Invoice: {invoice.invoice_number}"
-        qr_base64 = generate_qr_code(qr_data)
+        payment_method = 'manual'
+        if getattr(invoice, 'related_transaction', None):
+            payment_method = invoice.related_transaction.gateway
 
         context = {
-            "invoice": invoice,
-            "payment_method": payment_method,
-            "organization": settings.ORGANIZATION,
-            "tax_number": settings.CUSTOMER_NUMBER,
-            "qr": qr_base64,
-            "currency": get_currency(invoice.cart)
+            'invoice': invoice,
+            'payment_method': payment_method,
+            'organization': settings.ORGANIZATION,
+            'tax_number': settings.CUSTOMER_NUMBER,
+            'currency': get_currency(invoice.cart)
         }
         return render(request, self.template_name, context)
 
 
 class ManualPaymentView(APIView):
+    """Manual Payment view."""
 
-    def _validate_required_fields(self, payload):
+    def _validate_required_fields(self, payload: dict) -> tuple:
         """
-        Checks if either 'user_id' or 'username' is present and not empty,
-        and if all other required_fields exist and are not empty.
+        Check if either 'user_id' or 'username' is present and all other required_fields exist.
 
         :Returns
         (True, None) if valid
@@ -316,9 +314,10 @@ class ManualPaymentView(APIView):
 
         return True, None
 
-    def _get_user(self, payload):
+    def _get_user(self, payload: dict) -> Optional[get_user_model]:
         """
-        Tries to get user by user_id or username.
+        Get user by user_id or username.
+
         :Returns
         User instance if found
         None if not found
@@ -328,12 +327,14 @@ class ManualPaymentView(APIView):
                 return User.objects.get(id=payload['user_id'])
             elif payload.get('username'):
                 return User.objects.get(username=payload['username'])
+            else:
+                return None
         except User.DoesNotExist:
             return None
 
-    def _get_course_item(self, mode, course_id):
+    def _get_course_item(self, mode: str, course_id: str) -> Optional[models.CatalogueItem]:
         """
-        Tries to get the CourseMode and related CatalogueItem by mode and course_id.
+        Get the CourseMode and related CatalogueItem by mode and course_id.
 
         :param mode: The mode string to search (e.g., 'verified', 'professional').
         :param course_id: The course ID (e.g., 'course-v1:TestX+Test100+2019_T1').
@@ -369,7 +370,7 @@ class ManualPaymentView(APIView):
         is_valid, missing = self._validate_required_fields(request.data)
         if not is_valid:
             return Response(
-                {'error': f"Missing required param: {missing}"},
+                {'error': f'Missing required param: {missing}'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -385,7 +386,7 @@ class ManualPaymentView(APIView):
             return Response(
                 {
                     'error': (
-                        f"Unable to retrieve course mode or catalogue item for course_id ="
+                        f'Unable to retrieve course mode or catalogue item for course_id ='
                         f" '{request.data['course_key']}' and mode='{request.data['mode']}'."
                     )
                 },
@@ -402,11 +403,10 @@ class ManualPaymentView(APIView):
         try:
             handler.validate_add_to_cart(user, course_catalog_item)
         except InvalidCartError as exc:
-            reason = str(exc.__cause__) if exc.__cause__ else "Unknown reason"
             return Response(
                 {
                     'error': 'Given course does not match add to cart requirements',
-                    'details': f"{str(exc)} Reason: {reason}"
+                    'details': f'{str(exc)}'
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -415,8 +415,8 @@ class ManualPaymentView(APIView):
         try:
             result = processor.process_payment(user, course_catalog_item, request)
             return Response(result, status=status.HTTP_201_CREATED)
-        except Exception as e:
-            logger.error(f"Failed to process manual payment: {str(e)}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error(f'Failed to process manual payment: {str(e)}')
             return Response(
                 {
                     'error': 'Failed to process manual payment',

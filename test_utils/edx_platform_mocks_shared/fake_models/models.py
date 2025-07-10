@@ -87,3 +87,13 @@ class CourseEnrollment(models.Model):
                 'is_active': True
             }
         )
+
+    @classmethod
+    def is_enrollment_closed(cls, user, course):
+        """Mock"""
+        return
+
+    @classmethod
+    def is_enrolled(cls, user, course_key):
+        """Mock"""
+        return cls.objects.filter(user=user, course__id=course_key, is_active=True).exists()

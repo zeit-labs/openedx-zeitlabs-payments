@@ -1,24 +1,23 @@
 """Utility functions for the Payfort payment gateway."""
 
 from __future__ import annotations
-import logging
 
+import logging
 import re
 from typing import Any, Optional
 from urllib.parse import urljoin
-import qrcode
-import base64
-from io import BytesIO
 
-from django.conf import settings
-from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
-from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
+from common.djangoapps.course_modes.models import CourseMode
 from common.djangoapps.student.models import (
-    CourseEnrollment,
-    EnrollmentClosedError,
-    CourseFullError,
     AlreadyEnrolledError,
+    CourseEnrollment,
+    CourseFullError,
+    EnrollmentClosedError,
 )
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
+from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
 
 from zeitlabs_payments.exceptions import GatewayError
 from zeitlabs_payments.models import Cart, CartItem, CatalogueItem, Invoice
@@ -207,10 +206,27 @@ def get_merchant_reference(site_id: int, cart: Cart) -> str:
     return f'{site_id}-{cart.id}'
 
 
-def check_user_enroll_conditions(user, course_mode):
+def check_user_enroll_conditions(user: get_user_model, course_mode: CourseMode) -> None:
+    """
+    Check whether a user can enroll in the given course mode.
+
+    This function validates:
+    - If enrollment for the course is closed.
+    - If the course has reached its maximum capacity.
+    - If the user is already enrolled.
+
+    Raises an appropriate exception if any condition is not met.
+
+    :param user: The user attempting to enroll.
+    :param course_mode: The course mode of the course to check.
+    :raises EnrollmentClosedError: If enrollment for the course is closed.
+    :raises CourseFullError: If the course has reached its maximum allowed enrollments.
+    :raises AlreadyEnrolledError: If the user is already enrolled in the course.
+    :return: None
+    """
     if CourseEnrollment.is_enrollment_closed(user, course_mode.course):
         logger.warning(
-            "User %s failed to enroll in course %s because enrollment is closed.",
+            'User %s failed to enroll in course %s because enrollment is closed.',
             user.username,
             str(course_mode.course.id),
         )
@@ -218,7 +234,7 @@ def check_user_enroll_conditions(user, course_mode):
 
     if CourseEnrollment.objects.is_course_full(course_mode.course):
         logger.warning(
-            "Course %s has reached its maximum enrollment of %d learners. User %s failed to enroll.",
+            'Course %s has reached its maximum enrollment of %d learners. User %s failed to enroll.',
             str(course_mode.course.id),
             course_mode.course.max_student_enrollments_allowed,
             user.username,
@@ -226,7 +242,7 @@ def check_user_enroll_conditions(user, course_mode):
         raise CourseFullError('Course is Full.')
     if CourseEnrollment.is_enrolled(user, course_mode.course.id):
         logger.warning(
-            "User %s attempted to enroll in %s, but they were already enrolled",
+            'User %s attempted to enroll in %s, but they were already enrolled',
             user.username,
             str(course_mode.course.id)
         )
@@ -252,20 +268,4 @@ def generate_invoice_number(request: Any) -> str:
             new_number = 100001
     else:
         new_number = 100001
-    return f"{prefix}-{new_number}"
-
-
-def generate_qr_code(data):
-    """
-    Generates a QR code and returns it as base64 string.
-    """
-    qr = qrcode.QRCode(box_size=6, border=2)
-    qr.add_data(data)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-
-    buffered = BytesIO()
-    img.save(buffered, format="PNG")
-    img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
-
-    return img_base64
+    return f'{prefix}-{new_number}'

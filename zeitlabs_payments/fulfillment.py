@@ -1,13 +1,15 @@
-# fulfillment.py
+"""Cart fullfillment."""
 
 import logging
+from typing import Any
 
 from common.djangoapps.course_modes.models import CourseMode
 from common.djangoapps.student.models import CourseEnrollment, CourseEnrollmentException
+from django.contrib.auth import get_user_model
 
 from zeitlabs_payments.exceptions import CartFulfillmentError, InvalidCartError
-from zeitlabs_payments.models import Cart, CatalogueItem, AuditLog, CartItem
 from zeitlabs_payments.helpers import check_user_enroll_conditions
+from zeitlabs_payments.models import AuditLog, Cart, CartItem, CatalogueItem
 
 logger = logging.getLogger(__name__)
 
@@ -15,32 +17,20 @@ logger = logging.getLogger(__name__)
 FULFILLMENT_HANDLERS = {}
 
 
-def register_handler(item_type):
-    """
-    Decorator to register a fulfillment handler for a given catalogue item type.
-
-    :param item_type: The type of catalogue item to register the handler for.
-    :return: The class decorator function.
-    """
-    def wrapper(cls):
-        FULFILLMENT_HANDLERS[item_type] = cls()
-        return cls
-    return wrapper
-
-
 class BaseFulfillmentStrategy:
     """
     Base class/interface for fulfillment strategy handlers.
-    Subclasses must implement the fulfill method.
     """
 
-    def validate(self, cart: Cart, item: CartItem) -> None:
+    def validate_add_to_cart(
+        self, user: get_user_model, catalogue_item: CatalogueItem  # pylint: disable=unused-argument
+    ) -> None:
         """
         Raise InvalidCartError if validation fails.
         """
-        return cart
+        return
 
-    def fulfill(self, cart: Cart, item: CartItem, processor_slug: str):
+    def fulfill(self, cart: Cart, item: CartItem, processor_slug: str) -> None:
         """
         Fulfill the given item in the cart.
 
@@ -49,7 +39,20 @@ class BaseFulfillmentStrategy:
         :raises NotImplementedError: If the subclass does not implement this method.
         :return: None
         """
-        raise NotImplementedError("Subclasses must implement fulfill()")
+        raise NotImplementedError('Subclasses must implement this.')
+
+
+def register_handler(item_type: str) -> Any:
+    """
+    Register a fulfillment handler for a given catalogue item type.
+
+    :param item_type: The type of catalogue item to register the handler for.
+    :return: The class decorator function.
+    """
+    def wrapper(cls: Any) -> BaseFulfillmentStrategy:
+        FULFILLMENT_HANDLERS[item_type] = cls()
+        return cls
+    return wrapper
 
 
 @register_handler(CatalogueItem.ItemType.PAID_COURSE)
@@ -58,15 +61,28 @@ class PaidCourseFulfillment(BaseFulfillmentStrategy):
     Fulfillment handler for paid course catalogue items.
     """
 
-    def validate_add_to_cart(self, user, catalogue_item: CatalogueItem) -> None:
+    def validate_add_to_cart(self, user: get_user_model, catalogue_item: CatalogueItem) -> None:
+        """
+        Validate whether a user can add a given catalogue item (linked to a course) to their cart.
+
+        This method:
+        - Retrieves the corresponding CourseMode by SKU from the catalogue item.
+        - Checks if the user meets enrollment conditions for that course.
+        - Raises an appropriate error if validation fails.
+
+        :param user: The user attempting to add the item to the cart.
+        :param catalogue_item: The catalogue item representing the course to add.
+        :raises InvalidCartError: If the course mode does not exist, or if the user does not meet enrollment conditions.
+        :return: None
+        """
         try:
             course_mode = CourseMode.objects.get(sku=catalogue_item.sku)
             check_user_enroll_conditions(user, course_mode)
-        except CourseMode.DoesNotExist:
-            raise InvalidCartError('Unable to add item to the cart as CourseMode not found')
+        except CourseMode.DoesNotExist as exc:
+            raise InvalidCartError('Unable to add item to the cart as CourseMode not found') from exc
         except CourseEnrollmentException as exc:
             raise InvalidCartError(
-                f"Unable to add item to the cart as user: {user} does not fulfill enrollment conditions."
+                f'Unable to add item to the cart as user: {user} does not fulfill enrollment conditions. {str(exc)}'
             ) from exc
 
     def fulfill(self, cart: Cart, item: CartItem, processor_slug: str) -> None:
