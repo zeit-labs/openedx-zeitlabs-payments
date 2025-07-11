@@ -97,3 +97,8 @@ class CourseEnrollment(models.Model):
     def is_enrolled(cls, user, course_key):
         """Mock"""
         return cls.objects.filter(user=user, course__id=course_key, is_active=True).exists()
+
+    @classmethod
+    def is_course_full(cls, course):
+        """Mock"""
+        return False

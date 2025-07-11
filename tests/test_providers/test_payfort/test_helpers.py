@@ -7,6 +7,8 @@ from django.contrib.auth import get_user_model
 
 from zeitlabs_payments.providers.payfort.exceptions import PayFortBadSignatureException, PayFortException
 from zeitlabs_payments.providers.payfort.helpers import get_signature, verify_response_format, verify_signature
+from zeitlabs_payments.exceptions import GatewayError
+
 
 User = get_user_model()
 VALID_RESPONSE: Dict[str, str] = {
@@ -66,7 +68,7 @@ def test_get_signature_invalid(sha_phrase, sha_method, params, expected_error, u
     Test that get_signature raises PayFortException with appropriate
     error messages when called with invalid or missing parameters.
     """
-    with pytest.raises(PayFortException) as exc_info:
+    with pytest.raises(GatewayError) as exc_info:
         get_signature(sha_phrase, sha_method, params)
     assert expected_error in str(exc_info.value), f'Failed for case: {usecase}.'
 

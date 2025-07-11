@@ -232,7 +232,7 @@ def check_user_enroll_conditions(user: get_user_model, course_mode: CourseMode) 
         )
         raise EnrollmentClosedError('Enrollment is closed.')
 
-    if CourseEnrollment.objects.is_course_full(course_mode.course):
+    if CourseEnrollment.is_course_full(course_mode.course):
         logger.warning(
             'Course %s has reached its maximum enrollment of %d learners. User %s failed to enroll.',
             str(course_mode.course.id),

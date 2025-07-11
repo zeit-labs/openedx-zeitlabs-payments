@@ -75,3 +75,6 @@ PAYFORT_SETTINGS = {
     'redirect_url': 'https://sbcheckout.payfort.com/FortAPI/paymentPage'
 }
 ECOMMERCE_BASE_URL = 'test.com'
+INVOICE_PREFIX = 'TEST'
+ORGANIZATION = 'test_org'
+CUSTOMER_NUMBER = '112233'
