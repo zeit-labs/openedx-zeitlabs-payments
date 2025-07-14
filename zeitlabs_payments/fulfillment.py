@@ -9,7 +9,7 @@ from django.contrib.auth import get_user_model
 
 from zeitlabs_payments.exceptions import CartFulfillmentError, InvalidCartError
 from zeitlabs_payments.helpers import check_user_enroll_conditions
-from zeitlabs_payments.models import AuditLog, Cart, CartItem, CatalogueItem
+from zeitlabs_payments.models import AuditLog, CartItem, CatalogueItem
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +30,10 @@ class BaseFulfillmentStrategy:
         """
         return
 
-    def fulfill(self, cart: Cart, item: CartItem, processor_slug: str) -> None:
+    def fulfill(self, item: CartItem, processor_slug: str) -> None:
         """
         Fulfill the given item in the cart.
 
-        :param cart: The Cart instance containing the item.
         :param item: The cart item to fulfill.
         :raises NotImplementedError: If the subclass does not implement this method.
         :return: None
@@ -77,6 +76,11 @@ class PaidCourseFulfillment(BaseFulfillmentStrategy):
         """
         try:
             course_mode = CourseMode.objects.get(sku=catalogue_item.sku)
+            if str(course_mode.course.id) != catalogue_item.item_ref_id:
+                raise InvalidCartError(
+                    'Unable to add item to the cart as Course mode found with given sku but course_id'
+                    ' mismatch with catalogue item ref-id.'
+                )
             check_user_enroll_conditions(user, course_mode)
         except CourseMode.DoesNotExist as exc:
             raise InvalidCartError('Unable to add item to the cart as CourseMode not found') from exc
@@ -85,15 +89,15 @@ class PaidCourseFulfillment(BaseFulfillmentStrategy):
                 f'Unable to add item to the cart as user: {user} does not fulfill enrollment conditions. {str(exc)}'
             ) from exc
 
-    def fulfill(self, cart: Cart, item: CartItem, processor_slug: str) -> None:
+    def fulfill(self, item: CartItem, processor_slug: str) -> None:
         """
         Fulfill a paid course item by enrolling the user in the course.
 
-        :param cart: The Cart instance.
         :param item: The cart item representing a paid course.
         :raises CartFulfillmentError: If course mode is not found or enrollment fails.
         :return: None
         """
+        cart = item.cart
         logger.debug(f'Processing item {item.id} in cart {cart.id}.')
 
         try:
@@ -112,6 +116,22 @@ class PaidCourseFulfillment(BaseFulfillmentStrategy):
                 }
             )
             raise CartFulfillmentError('CourseMode not found') from exc
+
+        if str(course_mode.course.id) != item.catalogue_item.item_ref_id:
+            logger.error(
+                f'CourseMode found with sku: {item.catalogue_item.sku} but course id: {course_mode.course.id} does '
+                f'not match with item ref id {item.catalogue_item.item_ref_id} - Item ID: {item.id}'
+            )
+            AuditLog.log(
+                action=AuditLog.AuditActions.CART_FULFILLMENT_ERROR,
+                cart=cart,
+                context={
+                    'item_id': item.id,
+                    'catalogue_item_id': item.catalogue_item.id,
+                    'sku': item.catalogue_item.sku,
+                }
+            )
+            raise CartFulfillmentError('Course Mode found but item ref id mismatched. ')
 
         try:
             CourseEnrollment.enroll(

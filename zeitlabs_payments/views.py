@@ -1,5 +1,6 @@
 """Zeilabs payments views."""
 import logging
+import re
 from typing import Any, Optional
 
 from common.djangoapps.course_modes.models import CourseMode
@@ -13,20 +14,25 @@ from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import TemplateView
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from zeitlabs_payments import models
 from zeitlabs_payments.exceptions import InvalidCartError
 from zeitlabs_payments.fulfillment import FULFILLMENT_HANDLERS
-from zeitlabs_payments.helpers import get_currency
+from zeitlabs_payments.helpers import cancel_old_pending_carts, get_currency
 from zeitlabs_payments.providers.manual_payment import ManualPaymentProcessor
 from zeitlabs_payments.providers.registry import PROCESSORS, get_processor
 from zeitlabs_payments.serializers import CartSerializer
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
+
+ID_PART = r'[a-zA-Z0-9_-]+'
+COURSE_ID_REGX = \
+    fr'(?P<course_id>course-v1:(?P<org>{ID_PART})\+(?P<course>{ID_PART})\+(?P<run>{ID_PART}))'
+COURSE_ID_REGX_EXACT = rf'^{COURSE_ID_REGX}$'
 
 
 class CheckoutView(LoginRequiredMixin, TemplateView):
@@ -147,24 +153,14 @@ class CartView(APIView):
     def create_cart(self, user: get_user_model, catalog_item: models.CatalogueItem) -> models.Cart:
         """
         Create an open cart for the given user.
+        Before creating a new cart, this function will cancel all of the user's stale carts
+        that are in the 'pending' state, ensuring the user has only one active pending cart at a time.
 
         :param user: User instance
         :param catalog_item: CatalogueItem instance to add to cart
         :return: Cart instance
         """
-        pending_carts = models.Cart.objects.filter(user=user, status=models.Cart.Status.PENDING)
-        updated_count = pending_carts.update(status=models.Cart.Status.CANCELLED)
-        logger.debug(f'Cancelled {updated_count} previous pending carts for user {user}.')
-        for cart in pending_carts:
-            models.AuditLog.log(
-                action=models.AuditLog.AuditActions.CART_STATUS_UPDATED,
-                cart=cart,
-                context={
-                    'old_status': models.Cart.Status.PENDING,
-                    'new_status': models.Cart.Status.CANCELLED,
-                }
-            )
-
+        cancel_old_pending_carts(user)
         cart = models.Cart.objects.create(user=user, status=models.Cart.Status.PENDING)
         logger.info(f'Created new pending cart {cart.id} for user {user}')
         models.CartItem.objects.create(
@@ -224,7 +220,7 @@ class CartView(APIView):
         handler = FULFILLMENT_HANDLERS.get(catalog_item.type)
         if not handler:
             return Response(
-                {'error': 'Item with given SKU has unsupported type: {catalog_item.type}.'},
+                {'error': f'Item with given SKU has unsupported type: {catalog_item.type}.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -295,6 +291,8 @@ class InvoiceView(TemplateView):
 class ManualPaymentView(APIView):
     """Manual Payment view."""
 
+    permission_classes = [IsAdminUser]
+
     def _validate_required_fields(self, payload: dict) -> tuple:
         """
         Check if either 'user_id' or 'username' is present and all other required_fields exist.
@@ -325,10 +323,8 @@ class ManualPaymentView(APIView):
         try:
             if payload.get('user_id'):
                 return User.objects.get(id=payload['user_id'])
-            elif payload.get('username'):
-                return User.objects.get(username=payload['username'])
             else:
-                return None
+                return User.objects.get(username=payload['username'])
         except User.DoesNotExist:
             return None
 
@@ -377,7 +373,13 @@ class ManualPaymentView(APIView):
         user = self._get_user(request.data)
         if not user:
             return Response(
-                {'error': 'Unable to retrieve user with given id or username.'},
+                {'error': 'Unable to retrieve user with given user info.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not re.search(COURSE_ID_REGX_EXACT, request.data['course_key']):
+            return Response(
+                {'error': f"Invalid course id provided: {request.data['course_key']}."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -396,7 +398,10 @@ class ManualPaymentView(APIView):
         handler = FULFILLMENT_HANDLERS.get(course_catalog_item.type)
         if not handler:
             return Response(
-                {'error': 'Catalog Item with given course_id and mode has unsupported type: {catalog_item.type}.'},
+                {'error': (
+                    f'Catalog Item with given course_id and mode has unsupported'
+                    f' type: {course_catalog_item.type}.'
+                )},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

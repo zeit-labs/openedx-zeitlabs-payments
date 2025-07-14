@@ -20,7 +20,7 @@ from openedx.core.djangoapps.content.course_overviews.models import CourseOvervi
 from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
 
 from zeitlabs_payments.exceptions import GatewayError
-from zeitlabs_payments.models import Cart, CartItem, CatalogueItem, Invoice
+from zeitlabs_payments.models import AuditLog, Cart, CartItem, CatalogueItem, Invoice
 
 logger = logging.getLogger(__name__)
 
@@ -232,7 +232,7 @@ def check_user_enroll_conditions(user: get_user_model, course_mode: CourseMode) 
         )
         raise EnrollmentClosedError('Enrollment is closed.')
 
-    if CourseEnrollment.objects.is_course_full(course_mode.course):
+    if CourseEnrollment.is_course_full(course_mode.course):
         logger.warning(
             'Course %s has reached its maximum enrollment of %d learners. User %s failed to enroll.',
             str(course_mode.course.id),
@@ -269,3 +269,33 @@ def generate_invoice_number(request: Any) -> str:
     else:
         new_number = 100001
     return f'{prefix}-{new_number}'
+
+
+def cancel_old_pending_carts(user: get_user_model) -> None:
+    """
+    Cancel all open carts (in 'PENDING' state) for the given user, and logs each cancellation for auditing.
+
+    :param user: User whose carts need to be cancelled.
+    """
+    pending_carts = list(
+        Cart.objects.filter(user=user, status=Cart.Status.PENDING)
+    )
+
+    if not pending_carts:
+        logger.debug(f'No pending carts to cancel for user {user}.')
+        return
+
+    cart_ids = [cart.id for cart in pending_carts]
+    updated_count = Cart.objects.filter(id__in=cart_ids).update(status=Cart.Status.CANCELLED)
+    logger.debug(f'Cancelled {updated_count} pending cart(s) for user {user}.')
+
+    for cart in pending_carts:
+        cart.refresh_from_db(fields=['status'])
+        AuditLog.log(
+            action=AuditLog.AuditActions.CART_STATUS_UPDATED,
+            cart=cart,
+            context={
+                'old_status': Cart.Status.PENDING,
+                'new_status': Cart.Status.CANCELLED,
+            }
+        )

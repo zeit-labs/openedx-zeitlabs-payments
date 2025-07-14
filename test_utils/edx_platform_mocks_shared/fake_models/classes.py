@@ -22,6 +22,10 @@ class AlreadyEnrolledError(CourseEnrollmentException):
     pass
 
 
+class InvalidKeyError(Exception):
+    pass
+
+
 class SvgPathImage:
     pass
 

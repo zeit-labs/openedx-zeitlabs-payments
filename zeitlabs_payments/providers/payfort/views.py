@@ -11,8 +11,9 @@ from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
+from rest_framework.permissions import IsAuthenticated
 
-from zeitlabs_payments.exceptions import GatewayError, InvalidCartError
+from zeitlabs_payments.exceptions import DuplicateTransactionError, GatewayError, InvalidCartError
 from zeitlabs_payments.models import AuditLog, Cart, Invoice
 from zeitlabs_payments.providers.payfort.exceptions import PayFortBadSignatureException, PayFortException
 from zeitlabs_payments.providers.payfort.helpers import SUCCESS_STATUS, verify_response_format, verify_signature
@@ -95,8 +96,9 @@ class PayFortReturnView(PayFortBaseView):
         if data.get('status') == SUCCESS_STATUS:
             try:
                 verify_response_format(data)
-            except PayFortException:
-                render(request, 'zeitlabs_payments/payment_error.html')
+            except PayFortException as exc:
+                logger.error(f'Payfort response validation failed: {str(exc)}')
+                return render(request, 'zeitlabs_payments/payment_error.html')
 
             data['ecommerce_transaction_id'] = data['fort_id']
             data['ecommerce_status_url'] = reverse('zeitlabs_payments:payfort:status')
@@ -113,8 +115,8 @@ class PayFortReturnView(PayFortBaseView):
             return render(request=request, template_name=self.template_name, context=data)
 
         logger.error(
-            f"Payfort payment failed! merchant_reference: {data['merchant_reference']}. "
-            f"response_code: {data['response_code']}"
+            f"Payfort payment failed! with merchant_reference: {data.get('merchant_reference')}, status:"
+            f" {data.get('status')} and response_code: {data.get('response_code')}"
         )
         return render(request, 'zeitlabs_payments/payment_error.html')
 
@@ -128,13 +130,19 @@ class PayfortFeedbackView(PayFortBaseView):
     def post(self, request: Any) -> HttpResponse:
         """Handle the POST request from PayFort for payment status or feedback"""
         data = request.POST.dict()
-
         AuditLog.log(
             action=AuditLog.AuditActions.RECEIVED_RESPONSE,
             cart=self.cart,
             gateway=self.payment_processor.SLUG,
             context={'data': data}
         )
+
+        if not self.cart or not self.site:
+            logger.warning(
+                'PayFort response can not be processed further, unable to retrieve '
+                'cart or site from given reference.'
+            )
+            return HttpResponse(status=400)
 
         try:
             verify_signature(
@@ -157,13 +165,6 @@ class PayfortFeedbackView(PayFortBaseView):
             return HttpResponse(status=200)
 
         verify_response_format(data)
-
-        if not self.cart or not self.site:
-            logger.warning(
-                'PayFort response can not be prrocessed further, unable to retrieve '
-                'cart or site from given reference.'
-            )
-            return HttpResponse(status=400)
 
         if self.cart.status != Cart.Status.PROCESSING:
             AuditLog.log(
@@ -189,6 +190,17 @@ class PayfortFeedbackView(PayFortBaseView):
                     reason=data['acquirer_response_message'],
                     response=data
                 )
+        except DuplicateTransactionError:
+            AuditLog.log(
+                action=AuditLog.AuditActions.DUPLICATE_TRANSACTION,
+                cart=self.cart,
+                gateway=self.payment_processor.SLUG,
+                context={
+                    'transaction_id': data['fort_id'],
+                    'cart_status': self.cart.status
+                }
+            )
+            return HttpResponse(status=200)
         except Exception as e:  # pylint: disable=broad-exception-caught
             AuditLog.log(
                 action=AuditLog.AuditActions.TRANSACTION_ROLLED_BACK,
@@ -219,9 +231,10 @@ class PayfortFeedbackView(PayFortBaseView):
         return HttpResponse(status=200)
 
 
-@method_decorator(csrf_exempt, name='dispatch')
 class PayFortStatusView(PayFortBaseView):
     """View to check transaction and payment status."""
+
+    permission_classes = [IsAuthenticated]
 
     def post(self, request: Any) -> JsonResponse:
         """Verify transaction status."""
@@ -231,7 +244,9 @@ class PayFortStatusView(PayFortBaseView):
         transaction_id = request.POST.get('transaction_id')
         if not transaction_id:
             logger.error('Payfort Error! Transaction id is required to verify payment status.')
-            return JsonResponse(data={}, status=400)
+            return JsonResponse(
+                data={'error': 'Transaction id is required to verify payment status.'}, status=400
+            )
 
         status_code = {
             Cart.Status.PAID: 200,
@@ -258,9 +273,9 @@ class PayFortStatusView(PayFortBaseView):
             data = {'error': error_msg}
             status_code = 204
         else:
-            data = {'error': 'cart is in status: {self.cart.status}.'}
+            data = {'error': f'cart is in status: {self.cart.status}.'}
 
         return JsonResponse(
-            data,
+            data=data,
             status=status_code
         )

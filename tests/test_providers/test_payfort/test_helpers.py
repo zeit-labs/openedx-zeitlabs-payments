@@ -5,10 +5,9 @@ from typing import Dict
 import pytest
 from django.contrib.auth import get_user_model
 
+from zeitlabs_payments.exceptions import GatewayError
 from zeitlabs_payments.providers.payfort.exceptions import PayFortBadSignatureException, PayFortException
 from zeitlabs_payments.providers.payfort.helpers import get_signature, verify_response_format, verify_signature
-from zeitlabs_payments.exceptions import GatewayError
-
 
 User = get_user_model()
 VALID_RESPONSE: Dict[str, str] = {

@@ -33,6 +33,7 @@ INSTALLED_APPS = (
     'django.contrib.sites',
     'django.contrib.sessions',
     'fake_models',
+    'dummy_tag_app',
     'zeitlabs_payments',
 )
 
@@ -72,9 +73,11 @@ PAYFORT_SETTINGS = {
     'request_sha_phrase': 'test-request-phrase',
     'response_sha_phrase': 'test-response-phrase',
     'sha_method': 'SHA-256',
-    'redirect_url': 'https://sbcheckout.payfort.com/FortAPI/paymentPage'
+    'redirect_url': 'https://fake_payfort.com'
 }
-ECOMMERCE_BASE_URL = 'test.com'
+ECOMMERCE_PUBLIC_URL_ROOT = 'test.com'
 INVOICE_PREFIX = 'TEST'
 ORGANIZATION = 'test_org'
 CUSTOMER_NUMBER = '112233'
+
+SITE_ID = 1

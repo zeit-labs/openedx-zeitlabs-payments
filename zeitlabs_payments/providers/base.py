@@ -195,15 +195,6 @@ class BaseProcessor:
         """
         if Transaction.objects.filter(gateway_transaction_id=transaction_id).exists():
             logger.warning(f'Duplicate transaction detected while cart: {cart.id} processing.')
-            AuditLog.log(
-                action=AuditLog.AuditActions.DUPLICATE_TRANSACTION,
-                cart=cart,
-                gateway=self.SLUG,
-                context={
-                    'transaction_id': transaction_id,
-                    'cart_status': cart.status
-                }
-            )
             raise DuplicateTransactionError('Transaction already exist with given transaction_id: {transaction_id}')
         transaction_record = Transaction.objects.create(
             cart=cart,
@@ -227,9 +218,9 @@ class BaseProcessor:
             payload=response,
             related_transaction=transaction_record
         )
-
         cart.status = Cart.Status.PAID
         cart.save(update_fields=['status'])
+
         AuditLog.log(
             action=AuditLog.AuditActions.CART_STATUS_UPDATED,
             cart=cart,
@@ -269,4 +260,4 @@ class BaseProcessor:
                 )
                 raise CartFulfillmentError(f'Unsupported catalogue item type: {item.catalogue_item.type}')
 
-            handler.fulfill(cart, item, self.SLUG)
+            handler.fulfill(item, self.SLUG)

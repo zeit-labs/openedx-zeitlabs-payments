@@ -19,6 +19,7 @@ class CourseOverview(models.Model):
     course_image_url = models.TextField()
     visible_to_staff_only = models.BooleanField(default=False)
     effort = models.TextField(null=True)
+    max_student_enrollments_allowed = models.IntegerField(null=True)
 
     class Meta:
         app_label = 'fake_models'
