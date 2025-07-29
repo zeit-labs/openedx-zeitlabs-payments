@@ -7,8 +7,8 @@ from common.djangoapps.course_modes.models import CourseMode
 from common.djangoapps.student.models import CourseEnrollmentException
 from django.contrib.auth import get_user_model
 
+from zeitlabs_payments.cart_handler import BaseCartHandler, PaidCourseCartHandler
 from zeitlabs_payments.exceptions import CartFulfillmentError, InvalidCartError
-from zeitlabs_payments.fulfillment import BaseFulfillmentStrategy, PaidCourseFulfillment
 from zeitlabs_payments.models import AuditLog, Cart, CatalogueItem
 
 User = get_user_model()
@@ -16,17 +16,17 @@ User = get_user_model()
 
 @pytest.mark.django_db
 @pytest.mark.usefixtures('base_data')
-class TestBaseFulfillmentStrategy:
+class TestBaseCartHandler:
     """
-    Tests for BaseFulfillmentStrategy.
+    Tests for BaseCartHandler.
     """
-    strategy = BaseFulfillmentStrategy()
+    strategy = BaseCartHandler()
     cart_item = MagicMock()
     user = None
     catalogue_item = None
 
     def setup_method(self):
-        self.strategy = BaseFulfillmentStrategy()
+        self.strategy = BaseCartHandler()
         self.cart_item = MagicMock()
 
     def test_validate_add_to_cart_does_nothing(self):
@@ -46,15 +46,15 @@ class TestBaseFulfillmentStrategy:
 
 @pytest.mark.django_db
 @pytest.mark.usefixtures('base_data')
-class TestPaidCourseFulfillment:
+class TestPaidCourseCartHandler:
     """
-    Tests for PaidCourseFulfillment.
+    Tests for PaidCourseCartHandler.
     """
     fulfillment = learner_user = valid_catalog_item = valid_cart = valid_cart_item = course_mode = None
 
     def setup_method(self):
         """setup."""
-        self.fulfillment = PaidCourseFulfillment()
+        self.fulfillment = PaidCourseCartHandler()
         self.learner_user = User.objects.get(id=3)
         self.valid_catalog_item = CatalogueItem.objects.get(sku='custom-sku-1')
 
@@ -143,7 +143,7 @@ class TestPaidCourseFulfillment:
             with pytest.raises(InvalidCartError, match=expected_msg):
                 self.fulfillment.validate_add_to_cart(self.learner_user, self.valid_catalog_item)
 
-    @patch('zeitlabs_payments.fulfillment.CourseEnrollment.enroll')
+    @patch('zeitlabs_payments.cart_handler.CourseEnrollment.enroll')
     def test_fulfill_success(self, mock_enroll):
         """
         Should enroll user successfully and log events.
@@ -206,7 +206,7 @@ class TestPaidCourseFulfillment:
             )
         ).exists()
 
-    @patch('zeitlabs_payments.fulfillment.CourseEnrollment.enroll')
+    @patch('zeitlabs_payments.cart_handler.CourseEnrollment.enroll')
     def test_fulfill_enrollment_fails(self, mock_enroll):
         """
         Should log and raise CartFulfillmentError when enrollment fails.

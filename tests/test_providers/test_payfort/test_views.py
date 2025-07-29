@@ -326,7 +326,7 @@ class PayfortFeedbackTestView(TestCase):
         assert response.status_code == 200
 
     @patch('zeitlabs_payments.providers.payfort.views.logger.error')
-    @patch('zeitlabs_payments.fulfillment.CourseEnrollment.enroll')
+    @patch('zeitlabs_payments.cart_handler.CourseEnrollment.enroll')
     @patch('zeitlabs_payments.providers.payfort.views.verify_signature')
     def test_post_for_success_payment_paid_course_with_unsuccessful_enrollment(
         self, mock_verify_signature, mock_enroll, mock_logger  # pylint: disable=unused-argument

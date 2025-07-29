@@ -11,6 +11,7 @@ from django.utils import timezone
 from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as _
 
+from zeitlabs_payments.cart_handler import CART_HANDLER
 from zeitlabs_payments.exceptions import (
     CartFulfillmentError,
     DuplicateTransactionError,
@@ -18,7 +19,6 @@ from zeitlabs_payments.exceptions import (
     InvalidCartError,
     InvoiceError,
 )
-from zeitlabs_payments.fulfillment import FULFILLMENT_HANDLERS
 from zeitlabs_payments.helpers import (
     generate_invoice_number,
     get_currency,
@@ -242,7 +242,7 @@ class BaseProcessor:
         """
         for item in cart.items.all():
             logger.debug(f'Processing item {item.id} of type {item.catalogue_item.type} in cart {cart.id}.')
-            handler = FULFILLMENT_HANDLERS.get(item.catalogue_item.type)
+            handler = CART_HANDLER.get(item.catalogue_item.type)
 
             if not handler:
                 logger.error(

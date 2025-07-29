@@ -160,7 +160,7 @@ class CartViewTest(BaseTestViewMixin):
         assert response.data['error'] == 'Invalid SKU, unable to find catalogue item.'
 
     @patch.dict(
-        'zeitlabs_payments.views.FULFILLMENT_HANDLERS', {}, clear=True
+        'zeitlabs_payments.views.CART_HANDLER', {}, clear=True
     )
     def test_post_failed_for_unsupported_item_type(self):
         """Verify that """
@@ -240,10 +240,11 @@ class InitiatePaymentViewTest(TestCase):
 
 class CheckoutViewTests(TestCase):
     """Checkout View Test."""
+    VIEW_NAME = 'zeitlabs_payments:checkout'
 
     def setUp(self):
         self.user = User.objects.get(id=3)
-        self.url = reverse('zeitlabs_payments:checkout')
+        self.url = reverse(self.VIEW_NAME)
 
     def test_redirects_if_not_logged_in(self):
         response = self.client.get(self.url)
@@ -257,13 +258,48 @@ class CheckoutViewTests(TestCase):
         self.assertIsNone(response.context['cart'])
         self.assertEqual(response.context['methods'], [])
 
-    def test_checkout_view_context_with_cart_and_methods(self):
-        user_cart = Cart.objects.create(user=self.user, status=Cart.Status.PENDING)
+    def test_checkout_view_without_sku(self):
+        user_last_cart = Cart.objects.create(user=self.user, status=Cart.Status.PENDING)
         self.client.force_login(self.user)
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context['cart']['id'], user_cart.id)
+        self.assertEqual(response.context['cart']['id'], user_last_cart.id)
         self.assertEqual(len(response.context['methods']), 1)
+
+    def test_checkout_view_with_sku_success(self):
+        user_existing_cart = Cart.objects.create(user=self.user, status=Cart.Status.PENDING)
+        self.client.force_login(self.user)
+        test_sku = 'custom-sku-1'
+        response = self.client.get(f'{self.url}?sku={test_sku}')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['cart']['items']), 1)
+        self.assertEqual(response.context['cart']['items'][0]['sku'], test_sku)
+        self.assertEqual(len(response.context['methods']), 1)
+        user_existing_cart.refresh_from_db()
+        self.assertEqual(user_existing_cart.status, Cart.Status.CANCELLED, 'Old pending cart should be cancelled.')
+
+    def test_checkout_view_with_sku_for_invalid_sku(self):
+        self.client.force_login(self.user)
+        test_sku = 'does-not-exist'
+        response = self.client.get(f'{self.url}?sku={test_sku}')
+        self.assertEqual(response.status_code, 404)
+
+    @patch.dict(
+        'zeitlabs_payments.views.CART_HANDLER', {}, clear=True
+    )
+    def test_checkout_view_with_sku_for_item_sku_with_unsuppported_type(self):
+        self.client.force_login(self.user)
+        response = self.client.get(f'{self.url}?sku=custom-sku-1')
+        self.assertEqual(response.status_code, 400)
+
+    @patch(
+        'zeitlabs_payments.helpers.CourseEnrollment.is_enrolled'
+    )
+    def test_checkout_view_with_sku_for_course_item_sku_already_enrolled(self, mock_enrolled):
+        mock_enrolled.return_value = True
+        self.client.force_login(self.user)
+        response = self.client.get(f'{self.url}?sku=custom-sku-1')
+        self.assertEqual(response.status_code, 400)
 
 
 @pytest.mark.django_db
@@ -486,7 +522,7 @@ class TestManualPaymentView(BaseTestViewMixin):
         )
 
     @patch.dict(
-        'zeitlabs_payments.views.FULFILLMENT_HANDLERS', {}, clear=True
+        'zeitlabs_payments.views.CART_HANDLER', {}, clear=True
     )
     def test_catalogue_item_with_unsupported_type(self):
         """

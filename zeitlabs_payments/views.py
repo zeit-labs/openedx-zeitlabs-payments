@@ -7,8 +7,8 @@ from common.djangoapps.course_modes.models import CourseMode
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponseBadRequest
-from django.shortcuts import render
+from django.http import HttpResponse, HttpResponseBadRequest
+from django.shortcuts import get_object_or_404, render
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
@@ -19,9 +19,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from zeitlabs_payments import models
+from zeitlabs_payments.cart_handler import CART_HANDLER
 from zeitlabs_payments.exceptions import InvalidCartError
-from zeitlabs_payments.fulfillment import FULFILLMENT_HANDLERS
-from zeitlabs_payments.helpers import cancel_old_pending_carts, get_currency
+from zeitlabs_payments.helpers import get_currency
 from zeitlabs_payments.providers.manual_payment import ManualPaymentProcessor
 from zeitlabs_payments.providers.registry import PROCESSORS, get_processor
 from zeitlabs_payments.serializers import CartSerializer
@@ -47,20 +47,11 @@ class CheckoutView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs: Any) -> dict:
         """
-        Build and return the context data for the checkout page.
-
-        :param kwargs: Additional context parameters
-        :return: Context dictionary including cart and payment methods
+        Return Context dictionary including cart and payment methods.
         """
         context = super().get_context_data(**kwargs)
-        cart = None
         methods = []
-        cart = (
-            models.Cart.objects.filter(user=self.request.user, status='pending')
-            .order_by('-created_at')
-            .first()
-        )
-
+        cart = kwargs.get('cart')
         if cart:
             methods = [
                 processor.get_payment_method_metadata(cart)
@@ -75,6 +66,34 @@ class CheckoutView(LoginRequiredMixin, TemplateView):
             }
         )
         return context
+
+    def get(self, request: Any, *args: Any, **kwargs: Any) -> None:
+        """
+        Checkout View. If SKU provided create a new cart otherwise render last pending cart of user.
+        """
+        sku_code = request.GET.get('sku')
+        if sku_code:
+            catalog_item = get_object_or_404(models.CatalogueItem, sku=sku_code)
+            handler = CART_HANDLER.get(catalog_item.type)
+            if not handler:
+                return HttpResponse(f'Item with given SKU has unsupported type: {catalog_item.type}.', status=400)
+
+            try:
+                cart = handler.validate_item_and_create_cart(request.user, catalog_item)
+            except InvalidCartError as exc:
+                return HttpResponse(
+                    f'Given SKU item does not match add to cart requirements: {str(exc)}',
+                    status=400
+                )
+        else:
+            cart = (
+                models.Cart.objects.filter(user=request.user, status='pending')
+                .order_by('-created_at')
+                .first()
+            )
+
+        context = self.get_context_data(cart=cart)
+        return self.render_to_response(context)
 
 
 class InitiatePaymentView(LoginRequiredMixin, View):
@@ -150,28 +169,6 @@ class CartView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def create_cart(self, user: get_user_model, catalog_item: models.CatalogueItem) -> models.Cart:
-        """
-        Create an open cart for the given user.
-        Before creating a new cart, this function will cancel all of the user's stale carts
-        that are in the 'pending' state, ensuring the user has only one active pending cart at a time.
-
-        :param user: User instance
-        :param catalog_item: CatalogueItem instance to add to cart
-        :return: Cart instance
-        """
-        cancel_old_pending_carts(user)
-        cart = models.Cart.objects.create(user=user, status=models.Cart.Status.PENDING)
-        logger.info(f'Created new pending cart {cart.id} for user {user}')
-        models.CartItem.objects.create(
-            cart=cart,
-            catalogue_item=catalog_item,
-            original_price=catalog_item.price,
-            final_price=catalog_item.price,
-        )
-        logger.info(f'Added catalogue item {catalog_item.sku} to cart {cart.id}')
-        return cart
-
     def get(self, request: Any) -> Response:
         """
         Retrieve last cart with pending state.
@@ -217,7 +214,7 @@ class CartView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        handler = FULFILLMENT_HANDLERS.get(catalog_item.type)
+        handler = CART_HANDLER.get(catalog_item.type)
         if not handler:
             return Response(
                 {'error': f'Item with given SKU has unsupported type: {catalog_item.type}.'},
@@ -225,7 +222,7 @@ class CartView(APIView):
             )
 
         try:
-            handler.validate_add_to_cart(request.user, catalog_item)
+            cart = handler.validate_item_and_create_cart(request.user, catalog_item)
         except InvalidCartError as exc:
             return Response(
                 {
@@ -234,7 +231,6 @@ class CartView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        cart = self.create_cart(request.user, catalog_item)
         serializer = CartSerializer(cart, context={'request': request})
         logger.info(f'Cart created for user {request.user} with SKU {sku_code}')
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -395,7 +391,7 @@ class ManualPaymentView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        handler = FULFILLMENT_HANDLERS.get(course_catalog_item.type)
+        handler = CART_HANDLER.get(course_catalog_item.type)
         if not handler:
             return Response(
                 {'error': (
