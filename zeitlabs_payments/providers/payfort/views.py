@@ -236,28 +236,46 @@ class PayFortStatusView(PayFortBaseView):
 
     permission_classes = [IsAuthenticated]
 
-    def post(self, request: Any) -> JsonResponse:
+    def get(self, request: Any) -> JsonResponse:
         """Verify transaction status."""
-        if not self.cart:
-            return JsonResponse({'error': 'Unable to retrieve cart.'}, status=404)
-
-        transaction_id = request.POST.get('transaction_id')
-        if not transaction_id:
-            logger.error('Payfort Error! Transaction id is required to verify payment status.')
+        params = {
+            'transaction_id': request.GET.get('transaction_id'),
+            'merchant_reference': request.GET.get('merchant_reference')
+        }
+        missing_fields = [key for key, value in params.items() if not value]
+        if missing_fields:
+            field_names = ', '.join(missing_fields).replace('_', ' ').title()
+            logger.error(f'Payfort Error! {field_names} is required to verify payment status.')
             return JsonResponse(
-                data={'error': 'Transaction id is required to verify payment status.'}, status=400
+                data={'error': f'{field_names} is required to verify payment status.'},
+                status=400
             )
+
+        try:
+            _, cart_id = params['merchant_reference'].split('-', 1)
+            cart = PayFort().get_cart(cart_id)
+        except (ValueError, InvalidCartError):
+            AuditLog.log(
+                action=AuditLog.AuditActions.RESPONSE_INVALID_CART,
+                cart=None,
+                gateway=self.payment_processor.SLUG,
+                context={'cart_status': 'None', 'required_cart_state': Cart.Status.PROCESSING}
+            )
+            return JsonResponse(
+                {
+                    'error': f"merchant_reference: {params['merchant_reference']} is invalid. Unable to retrieve cart."
+                }, status=404)
 
         status_code = {
             Cart.Status.PAID: 200,
             Cart.Status.PROCESSING: 204,
-        }.get(self.cart.status, 404)
+        }.get(cart.status, 404)
 
         if status_code == 200:
             invoice = Invoice.objects.filter(
-                cart=self.cart,
+                cart=cart,
                 status=Invoice.InvoiceStatus.PAID,
-                related_transaction__gateway_transaction_id=transaction_id).first()
+                related_transaction__gateway_transaction_id=params['transaction_id']).first()
             if invoice:
                 return JsonResponse(
                     {
@@ -273,7 +291,7 @@ class PayFortStatusView(PayFortBaseView):
             data = {'error': error_msg}
             status_code = 204
         else:
-            data = {'error': f'cart is in status: {self.cart.status}.'}
+            data = {'error': f'cart is in status: {cart.status}.'}
 
         return JsonResponse(
             data=data,

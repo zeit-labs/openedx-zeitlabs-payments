@@ -4,6 +4,7 @@ URLs for zeitlabs_payments.
 from django.urls import include, re_path
 
 from zeitlabs_payments import views
+from zeitlabs_payments.providers.manual_payment import views as manual_payment_views
 
 app_name = 'zeitlabs_payments'
 
@@ -37,7 +38,7 @@ urlpatterns: list = [
     ),
 
     re_path(r'^api/cart/v1/cart/$', views.CartView.as_view(), name='cart-add'),
-    re_path(r'^api/payment/v1/manual/$', views.ManualPaymentView.as_view(), name='manual-payment'),
+    re_path(r'^api/payment/v1/manual/$', manual_payment_views.ManualPaymentView.as_view(), name='manual-payment'),
 
     re_path(
         r'^payment/v1/payfort/',
