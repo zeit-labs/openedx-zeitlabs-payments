@@ -460,32 +460,32 @@ class PayFortStatusViewTest(APITestCase):
 
     def test_unauthorized(self):
         """Verify that the view returns 404 when the user is not authenticated"""
-        response = self.client.post(self.url, data={})
-        self.assertEqual(response.status_code, 404)
+        response = self.client.get(self.url, data={})
+        self.assertEqual(response.status_code, 400)
 
-    def test_post_failed_for_invalid_merchant_ref(self):
+    def test_get_failed_for_invalid_merchant_ref(self):
         """Cart could not be found"""
         self.login_user(self.user)
-        response = self.client.post(self.url, data={
+        response = self.client.get(self.url, data={
             'merchant_reference': '1111-2222',
             'transaction_id': '1234'
         })
         assert response.status_code == 404
-        assert response.json()['error'] == 'Unable to retrieve cart.'
+        assert response.json()['error'] == 'merchant_reference: 1111-2222 is invalid. Unable to retrieve cart.'
 
-    def test_post_failed_for_missing_merchant_ref(self):
+    def test_get_failed_for_missing_merchant_ref(self):
         """Missing merchant reference"""
         self.login_user(self.user)
-        response = self.client.post(self.url, data={'transaction_id': '1234'})
-        assert response.status_code == 404
-        assert response.json()['error'] == 'Unable to retrieve cart.'
+        response = self.client.get(self.url, data={'transaction_id': '1234'})
+        assert response.status_code == 400
+        assert response.json()['error'] == 'Merchant Reference is required to verify payment status.'
 
-    def test_post_failed_for_missing_transaction_id(self):
+    def test_get_failed_for_missing_transaction_id(self):
         """Missing transaction_id"""
         self.login_user(self.user)
-        response = self.client.post(self.url, data={'merchant_reference': '1-1'})
+        response = self.client.get(self.url, data={'merchant_reference': '1-1'})
         assert response.status_code == 400
-        assert response.json()['error'] == 'Transaction id is required to verify payment status.'
+        assert response.json()['error'] == 'Transaction Id is required to verify payment status.'
 
     def test_paid_cart_with_invoice(self):
         """Cart is PAID and invoice exists"""
@@ -507,7 +507,7 @@ class PayFortStatusViewTest(APITestCase):
             total=self.course_item.price
         )
 
-        response = self.client.post(self.url, data={
+        response = self.client.get(self.url, data={
             'merchant_reference': f'{self.site.id}-{self.cart.id}',
             'transaction_id': 'tx123'
         })
@@ -525,7 +525,7 @@ class PayFortStatusViewTest(APITestCase):
         self.cart.status = Cart.Status.PAID
         self.cart.save()
 
-        response = self.client.post(self.url, data={
+        response = self.client.get(self.url, data={
             'merchant_reference': f'{self.site.id}-{self.cart.id}',
             'transaction_id': 'does-npt-matter'
         })
@@ -534,7 +534,7 @@ class PayFortStatusViewTest(APITestCase):
     def test_processing_cart(self):
         """Cart in PROCESSING status"""
         self.login_user(self.user)
-        response = self.client.post(self.url, data={
+        response = self.client.get(self.url, data={
             'merchant_reference': f'{self.site.id}-{self.cart.id}',
             'transaction_id': 'does-npt-matter'
         })
@@ -545,7 +545,7 @@ class PayFortStatusViewTest(APITestCase):
         self.login_user(self.user)
         self.cart.status = 'UNKNOWN'
         self.cart.save()
-        response = self.client.post(self.url, data={
+        response = self.client.get(self.url, data={
             'merchant_reference': f'{self.site.id}-{self.cart.id}',
             'transaction_id': 'does-not-matter'
         })

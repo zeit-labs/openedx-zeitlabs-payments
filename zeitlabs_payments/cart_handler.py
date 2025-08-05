@@ -40,7 +40,9 @@ class BaseCartHandler:
         """
         raise NotImplementedError('Subclasses must implement this.')
 
-    def validate_item_and_create_cart(self, user: get_user_model, catalog_item: CatalogueItem) -> Cart:
+    def validate_item_and_create_cart(
+        self, user: get_user_model, catalog_item: CatalogueItem, cancel_old_carts: bool = True
+    ) -> Cart:
         """
         Create an open cart for the given user.
         Before creating a new cart, this function will cancel all of the user's stale carts
@@ -51,7 +53,8 @@ class BaseCartHandler:
         :return: Cart instance
         """
         self.validate_add_to_cart(user, catalog_item)
-        cancel_old_pending_carts(user)
+        if cancel_old_carts:
+            cancel_old_pending_carts(user)
         cart = Cart.objects.create(user=user, status=Cart.Status.PENDING)
         logger.info(f'Created new pending cart {cart.id} for user {user}')
         CartItem.objects.create(
