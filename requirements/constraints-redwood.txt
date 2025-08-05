@@ -1,9 +1,4 @@
--c https://raw.githubusercontent.com/nelc/edx-platform/refs/heads/open-release/redwood.nelp/requirements/constraints.txt
-
--r constraints.txt
-
-# Nelc specific requirements
-eox-tenant<v12.0.0
+-c https://raw.githubusercontent.com/openedx/edx-platform/refs/heads/open-release/redwood.master/requirements/constraints.txt
 
 # edx-platform related requirements. Pinned to the versions used in Redwood.
 edx-api-doc-tools==1.8.0
@@ -15,3 +10,4 @@ django-mysql==4.13.0
 jsonfield==3.1.0
 python-dateutil==2.9.0.post0
 social-auth-app-django==5.4.1
+

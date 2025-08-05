@@ -1,7 +1,6 @@
 # Requirements for test runs.
--c constraints.txt
 
--r base.txt               # Core dependencies for this package
+-r base.in               # Core dependencies for this package
 
 # unit-test packages and dependencies
 code-annotations                # provides commands used by the pii_check make target.
