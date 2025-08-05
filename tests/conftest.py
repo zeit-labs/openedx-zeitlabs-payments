@@ -32,7 +32,7 @@ COURSES = {
                     'catalogue_item': {
                         'enabled': True,
                         'override': {
-                            'price': 50,  # catalogue item contains price different form course mode, should be okay
+                            'price': 50,  # catalogue item contains price different from course mode, should be okay
                         }
                     }
                 },
@@ -101,7 +101,7 @@ def base_data(django_db_setup, django_db_blocker):  # pylint: disable=unused-arg
                 email=f'user{i}@example.com',
             )
         for user_id in USERS['super_users']:
-            user.objects.filter(id=user_id).update(is_superuser=True)
+            user.objects.filter(id=user_id).update(is_superuser=True, is_staff=True)
         for user_id in USERS['staff_users']:
             user.objects.filter(id=user_id).update(is_staff=True)
         for user_id in USERS['inactive_users']:

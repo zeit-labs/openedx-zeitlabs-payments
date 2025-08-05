@@ -17,10 +17,12 @@ class CourseSerializer(serializers.ModelSerializer):
     course_name = serializers.SerializerMethodField()
     course_id = serializers.SerializerMethodField()
     course_image = serializers.SerializerMethodField()
+    org = serializers.SerializerMethodField()
+    run = serializers.SerializerMethodField()
 
     class Meta:
         model = CourseOverview
-        fields = ['course_id', 'course_name', 'course_image']
+        fields = ['course_id', 'course_name', 'course_image', 'org', 'run']
 
     def get_course_name(self, obj: CourseOverview) -> str:
         """
@@ -39,6 +41,24 @@ class CourseSerializer(serializers.ModelSerializer):
         :return: Course ID as string
         """
         return str(obj.id)
+
+    def get_org(self, obj: CourseOverview) -> str:
+        """
+        Return the org of the course.
+
+        :param obj: CourseOverview instance
+        :return: Course org as string
+        """
+        return str(obj.id.org)
+
+    def get_run(self, obj: CourseOverview) -> str:
+        """
+        Return the run of the course.
+
+        :param obj: CourseOverview instance
+        :return: course run as string
+        """
+        return str(obj.id.run)
 
     def get_course_image(self, obj: CourseOverview) -> Optional[str]:
         """
@@ -62,11 +82,15 @@ class CartItemSerializer(serializers.ModelSerializer):
     type = serializers.SerializerMethodField()
     currency = serializers.SerializerMethodField()
     courses = serializers.SerializerMethodField()
+    title = serializers.SerializerMethodField()
+    description = serializers.SerializerMethodField()
 
     class Meta:
         model = CartItem
         fields = [
             'sku',
+            'title',
+            'description',
             'type',
             'currency',
             'original_price',
@@ -102,6 +126,24 @@ class CartItemSerializer(serializers.ModelSerializer):
         :return: Currency string or None
         """
         return obj.catalogue_item.currency
+
+    def get_title(self, obj: CartItem) -> Optional[str]:
+        """
+        Return the title of the catalogue item.
+
+        :param obj: CartItem instance
+        :return: Title string or None
+        """
+        return obj.catalogue_item.title
+
+    def get_description(self, obj: CartItem) -> Optional[str]:
+        """
+        Return the description of the catalogue item.
+
+        :param obj: CartItem instance
+        :return: Description string or None
+        """
+        return obj.catalogue_item.description
 
     def get_courses(self, obj: CartItem) -> List[Any]:
         """

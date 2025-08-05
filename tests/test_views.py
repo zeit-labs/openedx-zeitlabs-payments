@@ -3,6 +3,7 @@
 from unittest.mock import patch
 
 import pytest
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.sites.models import Site
 from django.test import RequestFactory, TestCase
@@ -10,7 +11,8 @@ from django.urls import reverse
 from rest_framework import status as http_status
 from rest_framework.test import APITestCase
 
-from zeitlabs_payments.models import Cart, CatalogueItem
+from zeitlabs_payments.helpers import get_currency
+from zeitlabs_payments.models import Cart, CatalogueItem, Invoice, Transaction
 from zeitlabs_payments.views import InitiatePaymentView
 
 User = get_user_model()
@@ -155,7 +157,41 @@ class CartViewTest(BaseTestViewMixin):
 
         response = self.client.post(self.url, data={'sku': 'invalid'})
         self.assertEqual(response.status_code, http_status.HTTP_400_BAD_REQUEST)
-        assert response.data['error'] == 'Invalid SKU, iunable to find catalogue item.'
+        assert response.data['error'] == 'Invalid SKU, unable to find catalogue item.'
+
+    @patch.dict(
+        'zeitlabs_payments.views.CART_HANDLER', {}, clear=True
+    )
+    def test_post_failed_for_unsupported_item_type(self):
+        """Verify that """
+        user = User.objects.get(id=self.learner1_id)
+        course_item = CatalogueItem.objects.get(sku='custom-sku-1')
+
+        self.login_user(user)
+        response = self.client.post(self.url, data={
+            'sku': course_item.sku
+        })
+        self.assertEqual(response.status_code, http_status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['error'], 'Item with given SKU has unsupported type: paid_course.')
+
+    @patch(
+        'zeitlabs_payments.helpers.CourseEnrollment.is_enrolled'
+    )
+    def test_post_failed_for_add_to_cart_validation(self, mock_is_enrolled):
+        """Verify that """
+        user = User.objects.get(id=self.learner1_id)
+        course_item = CatalogueItem.objects.get(sku='custom-sku-1')
+        self.login_user(user)
+        mock_is_enrolled.return_value = True
+        response = self.client.post(self.url, data={
+            'sku': course_item.sku
+        })
+        self.assertEqual(response.status_code, http_status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['error'], 'Given SKU item does not match add to cart requirements')
+        self.assertEqual(response.data['details'], (
+            'Unable to add item to the cart as user: user3 does not fulfill enrollment conditions. '
+            'User is already enrolled in the course.'
+        ))
 
 
 @pytest.mark.usefixtures('base_data')
@@ -185,7 +221,7 @@ class InitiatePaymentViewTest(TestCase):
         bad_url = reverse('zeitlabs_payments:initiate-payment', args=[self.provider, str(1000)])
         response = self.client.get(bad_url)
         self.assertEqual(response.status_code, 400)
-        self.assertIn(b'Cart matching query does not exist.', response.content)
+        self.assertIn(b'Cart with ID 1000 does not exist.', response.content)
 
     def test_returns_400_if_cart_does_not_belong_to_user(self):
         self.client.force_login(self.other_user)
@@ -204,10 +240,11 @@ class InitiatePaymentViewTest(TestCase):
 
 class CheckoutViewTests(TestCase):
     """Checkout View Test."""
+    VIEW_NAME = 'zeitlabs_payments:checkout'
 
     def setUp(self):
         self.user = User.objects.get(id=3)
-        self.url = reverse('zeitlabs_payments:checkout')
+        self.url = reverse(self.VIEW_NAME)
 
     def test_redirects_if_not_logged_in(self):
         response = self.client.get(self.url)
@@ -221,10 +258,172 @@ class CheckoutViewTests(TestCase):
         self.assertIsNone(response.context['cart'])
         self.assertEqual(response.context['methods'], [])
 
-    def test_checkout_view_context_with_cart_and_methods(self):
-        user_cart = Cart.objects.create(user=self.user, status=Cart.Status.PENDING)
+    def test_checkout_view_without_sku(self):
+        user_last_cart = Cart.objects.create(user=self.user, status=Cart.Status.PENDING)
         self.client.force_login(self.user)
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context['cart']['id'], user_cart.id)
+        self.assertEqual(response.context['cart']['id'], user_last_cart.id)
         self.assertEqual(len(response.context['methods']), 1)
+
+    def test_checkout_view_with_sku_success(self):
+        user_existing_cart = Cart.objects.create(user=self.user, status=Cart.Status.PENDING)
+        self.client.force_login(self.user)
+        test_sku = 'custom-sku-1'
+        response = self.client.get(f'{self.url}?sku={test_sku}')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['cart']['items']), 1)
+        self.assertEqual(response.context['cart']['items'][0]['sku'], test_sku)
+        self.assertEqual(len(response.context['methods']), 1)
+        user_existing_cart.refresh_from_db()
+        self.assertEqual(user_existing_cart.status, Cart.Status.CANCELLED, 'Old pending cart should be cancelled.')
+
+    def test_checkout_view_with_sku_for_invalid_sku(self):
+        self.client.force_login(self.user)
+        test_sku = 'does-not-exist'
+        response = self.client.get(f'{self.url}?sku={test_sku}')
+        self.assertEqual(response.status_code, 404)
+
+    @patch.dict(
+        'zeitlabs_payments.views.CART_HANDLER', {}, clear=True
+    )
+    def test_checkout_view_with_sku_for_item_sku_with_unsuppported_type(self):
+        self.client.force_login(self.user)
+        response = self.client.get(f'{self.url}?sku=custom-sku-1')
+        self.assertEqual(response.status_code, 400)
+
+    @patch(
+        'zeitlabs_payments.helpers.CourseEnrollment.is_enrolled'
+    )
+    def test_checkout_view_with_sku_for_course_item_sku_already_enrolled(self, mock_enrolled):
+        mock_enrolled.return_value = True
+        self.client.force_login(self.user)
+        response = self.client.get(f'{self.url}?sku=custom-sku-1')
+        self.assertEqual(response.status_code, 400)
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures('base_data')
+class InvoiceViewTest(BaseTestViewMixin):
+    """Tests for InvoiceView"""
+
+    VIEW_NAME = 'zeitlabs_payments:invoice'
+
+    def test_get_success(self):
+        """
+        Verify the invoice page shows correct context when invoice has no related transaction.
+        """
+        user = User.objects.get(id=3)
+        self.login_user(user)
+        cart = Cart.objects.create(user=user, status=Cart.Status.PAID)
+        invoice = Invoice.objects.create(cart=cart, invoice_number='TEST-111111', total=100)
+        self.url_args = [invoice.invoice_number]
+        response = self.client.get(self.url)
+
+        assert response.status_code == 200
+        assert response.context['invoice'].invoice_number == 'TEST-111111'
+        assert response.context['payment_method'] == 'manual'
+        assert response.context['organization'] == settings.ORGANIZATION
+        assert response.context['tax_number'] == settings.CUSTOMER_NUMBER
+        assert response.context['currency'] == get_currency(cart)
+
+    def test_invoices_access(self):
+        """
+        Ensure invoice access rules:
+        - Admins can view all invoices
+        - Normal users can only view their own
+        """
+        admin_user = User.objects.get(id=1)
+        admin_user_cart = Cart.objects.create(user=admin_user, status=Cart.Status.PAID)
+        admin_user_invoice = Invoice.objects.create(cart=admin_user_cart, invoice_number='TEST-111111', total=100)
+
+        normal_user1 = User.objects.get(id=2)
+        normal_user1_cart = Cart.objects.create(user=normal_user1, status=Cart.Status.PAID)
+        normal_user1_invoice = Invoice.objects.create(cart=normal_user1_cart, invoice_number='TEST-22222', total=100)
+
+        normal_user2 = User.objects.get(id=3)
+        normal_user2_cart = Cart.objects.create(user=normal_user2, status=Cart.Status.PAID)
+        normal_user2_invoice = Invoice.objects.create(cart=normal_user2_cart, invoice_number='TEST-33333', total=200)
+
+        self.url_args = [normal_user2_invoice.invoice_number]
+        self.login_user(admin_user)
+        response = self.client.get(self.url)
+        assert response.status_code == 200, "Admin should be able to access other users' invoices"
+        assert response.context['invoice'].invoice_number == normal_user2_invoice.invoice_number
+        self.url_args = [admin_user_invoice.invoice_number]
+        response = self.client.get(self.url)
+        assert response.status_code == 200, 'Admin should be able to access their own invoice'
+        assert response.context['invoice'].invoice_number == admin_user_invoice.invoice_number
+
+        self.url_args = [normal_user1_invoice.invoice_number]
+        self.login_user(normal_user1)
+        response = self.client.get(self.url)
+        assert response.status_code == 200, 'Normal user should be able to access their own invoice'
+        assert response.context['invoice'].invoice_number == normal_user1_invoice.invoice_number
+        self.url_args = [normal_user2_invoice.invoice_number]
+        response = self.client.get(self.url)
+        assert response.status_code == 404, "Normal user should not be able to access another user's invoice"
+
+    def test_get_success_with_related_transaction(self):
+        """
+        Verify the invoice page shows correct payment_method when invoice has a related transaction.
+        """
+        user = User.objects.get(id=3)
+        self.login_user(user)
+        cart = Cart.objects.create(user=user, status=Cart.Status.PAID)
+        invoice = Invoice.objects.create(cart=cart, invoice_number='INV-222222', total=100)
+
+        transaction = Transaction.objects.create(
+            cart=cart,
+            amount=cart.total,
+            gateway='payfort',
+            gateway_transaction_id='TX-222'
+        )
+        invoice.related_transaction = transaction
+        invoice.save()
+
+        self.url_args = [invoice.invoice_number]
+        response = self.client.get(self.url)
+
+        assert response.status_code == 200
+        assert response.context['invoice'].invoice_number == 'INV-222222'
+        assert response.context['payment_method'] == 'payfort'
+        assert response.context['organization'] == settings.ORGANIZATION
+        assert response.context['tax_number'] == settings.CUSTOMER_NUMBER
+        assert response.context['currency'] == get_currency(cart)
+
+
+@pytest.mark.usefixtures('base_data')
+class PaymentSuccessViewTest(BaseTestViewMixin):
+    """Tests for PaymentErrorView"""
+    VIEW_NAME = 'zeitlabs_payments:payment-success'
+
+    def test_get_success(self):
+        """
+        Verify that the view renders correctly and includes merchant_reference in the context.
+        """
+        merchant_reference = 'ORDER-98765'
+        self.url_args = [merchant_reference]
+        response = self.client.get(self.url)
+
+        assert response.status_code == 200
+        assert 'merchant_reference' in response.context
+        assert response.context['merchant_reference'] == merchant_reference
+
+
+@pytest.mark.usefixtures('base_data')
+class PaymentErrorViewTest(BaseTestViewMixin):
+    """Tests for PaymentErrorView"""
+    VIEW_NAME = 'zeitlabs_payments:payment-error'
+
+    def test_get_success(self):
+        """
+        Verify that the view renders correctly and includes merchant_reference in the context.
+        """
+        merchant_reference = 'ORDER-98765'
+        self.url_args = [merchant_reference]
+        response = self.client.get(self.url)
+
+        assert response.status_code == 200
+        assert 'merchant_reference' in response.context
+        assert response.context['merchant_reference'] == merchant_reference

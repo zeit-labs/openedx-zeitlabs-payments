@@ -2,13 +2,14 @@
 import logging
 from typing import Any
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponseBadRequest
+from django.http import HttpResponse, HttpResponseBadRequest
+from django.shortcuts import get_object_or_404, render
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
-from django.shortcuts import render
 from django.views.generic import TemplateView
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -16,11 +17,14 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from zeitlabs_payments import models
+from zeitlabs_payments.cart_handler import CART_HANDLER
+from zeitlabs_payments.exceptions import InvalidCartError
+from zeitlabs_payments.helpers import get_currency
 from zeitlabs_payments.providers.registry import PROCESSORS, get_processor
 from zeitlabs_payments.serializers import CartSerializer
-from zeitlabs_payments.exceptions import InavlidCartError
 
 logger = logging.getLogger(__name__)
+User = get_user_model()
 
 
 class CheckoutView(LoginRequiredMixin, TemplateView):
@@ -35,20 +39,11 @@ class CheckoutView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs: Any) -> dict:
         """
-        Build and return the context data for the checkout page.
-
-        :param kwargs: Additional context parameters
-        :return: Context dictionary including cart and payment methods
+        Return Context dictionary including cart and payment methods.
         """
         context = super().get_context_data(**kwargs)
-        cart = None
         methods = []
-        cart = (
-            models.Cart.objects.filter(user=self.request.user, status='pending')
-            .order_by('-created_at')
-            .first()
-        )
-
+        cart = kwargs.get('cart')
         if cart:
             methods = [
                 processor.get_payment_method_metadata(cart)
@@ -63,6 +58,34 @@ class CheckoutView(LoginRequiredMixin, TemplateView):
             }
         )
         return context
+
+    def get(self, request: Any, *args: Any, **kwargs: Any) -> None:
+        """
+        Checkout View. If SKU provided create a new cart otherwise render last pending cart of user.
+        """
+        sku_code = request.GET.get('sku')
+        if sku_code:
+            catalog_item = get_object_or_404(models.CatalogueItem, sku=sku_code)
+            handler = CART_HANDLER.get(catalog_item.type)
+            if not handler:
+                return HttpResponse(f'Item with given SKU has unsupported type: {catalog_item.type}.', status=400)
+
+            try:
+                cart = handler.validate_item_and_create_cart(request.user, catalog_item)
+            except InvalidCartError as exc:
+                return HttpResponse(
+                    f'Given SKU item does not match add to cart requirements: {str(exc)}',
+                    status=400
+                )
+        else:
+            cart = (
+                models.Cart.objects.filter(user=request.user, status='pending')
+                .order_by('-created_at')
+                .first()
+            )
+
+        context = self.get_context_data(cart=cart)
+        return self.render_to_response(context)
 
 
 class InitiatePaymentView(LoginRequiredMixin, View):
@@ -90,7 +113,7 @@ class InitiatePaymentView(LoginRequiredMixin, View):
 
         try:
             cart = processor.get_cart(cart_id)
-        except InavlidCartError as exc:
+        except InvalidCartError as exc:
             logger.error(f'Cart not found with id: {cart_id} - {exc}')
             return HttpResponseBadRequest(f'Error: {str(exc)}')
 
@@ -138,38 +161,6 @@ class CartView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def create_cart(self, user: get_user_model, catalog_item: models.CatalogueItem) -> models.Cart:
-        """
-        Create an open cart for the given user.
-
-        :param user: User instance
-        :param catalog_item: CatalogueItem instance to add to cart
-        :return: Cart instance
-        """
-        pending_carts = models.Cart.objects.filter(user=user, status=models.Cart.Status.PENDING)
-        updated_count = pending_carts.update(status=models.Cart.Status.CANCELLED)
-        logger.debug(f'Cancelled {updated_count} previous pending carts for user {user}.')
-        for cart in pending_carts:
-            models.AuditLog.log(
-                action=models.AuditLog.AuditActions.CART_STATUS_UPDATED,
-                cart=cart,
-                context={
-                    'old_status': models.Cart.Status.PENDING,
-                    'new_status': models.Cart.Status.CANCELLED,
-                }
-            )
-
-        cart = models.Cart.objects.create(user=user, status=models.Cart.Status.PENDING)
-        logger.info(f'Created new pending cart {cart.id} for user {user}')
-        models.CartItem.objects.create(
-            cart=cart,
-            catalogue_item=catalog_item,
-            original_price=catalog_item.price,
-            final_price=catalog_item.price,
-        )
-        logger.info(f'Added catalogue item {catalog_item.sku} to cart {cart.id}')
-        return cart
-
     def get(self, request: Any) -> Response:
         """
         Retrieve last cart with pending state.
@@ -211,11 +202,27 @@ class CartView(APIView):
             logger.debug(f'Catalog item found for SKU {sku_code}')
         except models.CatalogueItem.DoesNotExist:
             return Response(
-                {'error': 'Invalid SKU, iunable to find catalogue item.'},
+                {'error': 'Invalid SKU, unable to find catalogue item.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        cart = self.create_cart(request.user, catalog_item)
+        handler = CART_HANDLER.get(catalog_item.type)
+        if not handler:
+            return Response(
+                {'error': f'Item with given SKU has unsupported type: {catalog_item.type}.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            cart = handler.validate_item_and_create_cart(request.user, catalog_item)
+        except InvalidCartError as exc:
+            return Response(
+                {
+                    'error': 'Given SKU item does not match add to cart requirements',
+                    'details': f'{str(exc)}'
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         serializer = CartSerializer(cart, context={'request': request})
         logger.info(f'Cart created for user {request.user} with SKU {sku_code}')
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -223,23 +230,53 @@ class CartView(APIView):
 
 class PaymentErrorView(TemplateView):
     """Render the template that shows the error message to the user when the payment handling is failed."""
-    template_name = "zeitlabs_payments/payment_error.html"
 
-    def get(self, request, *args, **kwargs):
-        """Handles the GET request."""
+    template_name = 'zeitlabs_payments/payment_error.html'
+
+    def get(self, request: Any, *args: Any, **kwargs: Any) -> Any:
+        """Handle the GET request."""
         context = {
-            "merchant_reference": args[0],
+            'merchant_reference': args[0],
         }
         return render(request, self.template_name, context)
 
 
 class PaymentSuccessView(TemplateView):
     """Render the template that shows the error message to the user when the payment handling is failed."""
-    template_name = "zeitlabs_payments/payment_successful.html"
 
-    def get(self, request, *args, **kwargs):
-        """Handles the GET request."""
+    template_name = 'zeitlabs_payments/payment_successful.html'
+
+    def get(self, request: Any, *args: Any, **kwargs: Any) -> Any:
+        """Handle the GET request."""
         context = {
-            "merchant_reference": args[0],
+            'merchant_reference': args[0],
+        }
+        return render(request, self.template_name, context)
+
+
+class InvoiceView(TemplateView):
+    """Render Invoice with given invoice number."""
+
+    permission_classes = [IsAuthenticated]
+    template_name = 'zeitlabs_payments/invoice.html'
+
+    def get(self, request: Any, *args: Any, **kwargs: Any) -> Any:
+        """Handle the GET request."""
+        invoice_number = args[0]
+        filters = {'invoice_number': invoice_number}
+        if not request.user.is_superuser:
+            filters['cart__user'] = request.user
+        invoice = get_object_or_404(models.Invoice, **filters)
+
+        payment_method = 'manual'
+        if getattr(invoice, 'related_transaction', None):
+            payment_method = invoice.related_transaction.gateway
+
+        context = {
+            'invoice': invoice,
+            'payment_method': payment_method,
+            'organization': settings.ORGANIZATION,
+            'tax_number': settings.CUSTOMER_NUMBER,
+            'currency': get_currency(invoice.cart)
         }
         return render(request, self.template_name, context)

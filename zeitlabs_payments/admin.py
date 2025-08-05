@@ -1,7 +1,9 @@
 """Django admin view for the models."""
+from typing import Any
+
 from django.contrib import admin
 
-from .models import Cart, CartItem, CatalogueItem, Transaction, WebhookEvent, AuditLog
+from .models import AuditLog, Cart, CartItem, CatalogueItem, Invoice, InvoiceItem, Transaction, WebhookEvent
 
 
 @admin.register(Cart)
@@ -94,6 +96,55 @@ class AuditLogAdmin(admin.ModelAdmin):
     readonly_fields = ('cart', 'action', 'gateway', 'details', 'created_at')
     ordering = ('-created_at',)
 
-    def has_add_permission(self, request):
-        """Disallow adding logs manually"""
+    def has_add_permission(self, request: Any) -> bool:
+        """Disallow adding logs manually."""
         return False
+
+
+class InvoiceItemInline(admin.TabularInline):
+    model = InvoiceItem
+    extra = 0
+    readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(Invoice)
+class InvoiceAdmin(admin.ModelAdmin):
+    """
+    Admin for Invoice model.
+    """
+
+    list_display = (
+        'invoice_number',
+        'cart',
+        'status',
+        'total',
+        'discount_total',
+        'currency',
+        'paid_at',
+        'created_at',
+        'updated_at',
+    )
+    list_filter = ('status', 'currency')
+    search_fields = ('invoice_number', 'cart__id')
+    inlines = [InvoiceItemInline]
+    readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(InvoiceItem)
+class InvoiceItemAdmin(admin.ModelAdmin):
+    """
+    Admin for InvoiceItem model.
+    """
+
+    list_display = (
+        'invoice',
+        'cart_item',
+        'original_price',
+        'discount_amount',
+        'price',
+        'quantity',
+        'created_at',
+        'updated_at',
+    )
+    search_fields = ('invoice__invoice_number',)
+    readonly_fields = ('created_at', 'updated_at')
