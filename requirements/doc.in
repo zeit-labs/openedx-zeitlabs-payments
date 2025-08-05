@@ -1,7 +1,6 @@
 # Requirements for documentation validation
--c constraints.txt
 
--r test.txt               # Core and testing dependencies for this package
+-r test.in               # Core and testing dependencies for this package
 
 doc8                      # reStructuredText style checker
 sphinx-book-theme         # Common theme for all Open edX projects
