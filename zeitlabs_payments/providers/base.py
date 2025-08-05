@@ -11,6 +11,7 @@ from django.utils import timezone
 from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as _
 
+from zeitlabs_payments.cart_handler import CART_HANDLER
 from zeitlabs_payments.exceptions import (
     CartFulfillmentError,
     DuplicateTransactionError,
@@ -18,7 +19,6 @@ from zeitlabs_payments.exceptions import (
     InvalidCartError,
     InvoiceError,
 )
-from zeitlabs_payments.fulfillment import FULFILLMENT_HANDLERS
 from zeitlabs_payments.helpers import (
     generate_invoice_number,
     get_currency,
@@ -185,6 +185,7 @@ class BaseProcessor:
         currency: str,
         reason: str,
         response: dict = None,
+        record_webhook_event: bool = True,
     ) -> Transaction:
         """
         Retrieve a Site instance from a string or integer site ID.
@@ -195,7 +196,7 @@ class BaseProcessor:
         """
         if Transaction.objects.filter(gateway_transaction_id=transaction_id).exists():
             logger.warning(f'Duplicate transaction detected while cart: {cart.id} processing.')
-            raise DuplicateTransactionError('Transaction already exist with given transaction_id: {transaction_id}')
+            raise DuplicateTransactionError(f'Transaction already exist with given transaction_id: {transaction_id}')
         transaction_record = Transaction.objects.create(
             cart=cart,
             type=Transaction.TransactionType.PAYMENT,
@@ -212,12 +213,14 @@ class BaseProcessor:
         )
         logger.info(f'Transaction recorded successfully: {transaction_record.id}')
 
-        WebhookEvent.objects.create(
-            gateway=self.SLUG,
-            event_type='direct-feedback',
-            payload=response,
-            related_transaction=transaction_record
-        )
+        if record_webhook_event:
+            WebhookEvent.objects.create(
+                gateway=self.SLUG,
+                event_type='direct-feedback',
+                payload=response,
+                related_transaction=transaction_record
+            )
+
         cart.status = Cart.Status.PAID
         cart.save(update_fields=['status'])
 
@@ -242,7 +245,7 @@ class BaseProcessor:
         """
         for item in cart.items.all():
             logger.debug(f'Processing item {item.id} of type {item.catalogue_item.type} in cart {cart.id}.')
-            handler = FULFILLMENT_HANDLERS.get(item.catalogue_item.type)
+            handler = CART_HANDLER.get(item.catalogue_item.type)
 
             if not handler:
                 logger.error(

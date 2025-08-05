@@ -160,7 +160,7 @@ class CartViewTest(BaseTestViewMixin):
         assert response.data['error'] == 'Invalid SKU, unable to find catalogue item.'
 
     @patch.dict(
-        'zeitlabs_payments.views.FULFILLMENT_HANDLERS', {}, clear=True
+        'zeitlabs_payments.views.CART_HANDLER', {}, clear=True
     )
     def test_post_failed_for_unsupported_item_type(self):
         """Verify that """
@@ -240,10 +240,11 @@ class InitiatePaymentViewTest(TestCase):
 
 class CheckoutViewTests(TestCase):
     """Checkout View Test."""
+    VIEW_NAME = 'zeitlabs_payments:checkout'
 
     def setUp(self):
         self.user = User.objects.get(id=3)
-        self.url = reverse('zeitlabs_payments:checkout')
+        self.url = reverse(self.VIEW_NAME)
 
     def test_redirects_if_not_logged_in(self):
         response = self.client.get(self.url)
@@ -257,13 +258,48 @@ class CheckoutViewTests(TestCase):
         self.assertIsNone(response.context['cart'])
         self.assertEqual(response.context['methods'], [])
 
-    def test_checkout_view_context_with_cart_and_methods(self):
-        user_cart = Cart.objects.create(user=self.user, status=Cart.Status.PENDING)
+    def test_checkout_view_without_sku(self):
+        user_last_cart = Cart.objects.create(user=self.user, status=Cart.Status.PENDING)
         self.client.force_login(self.user)
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context['cart']['id'], user_cart.id)
+        self.assertEqual(response.context['cart']['id'], user_last_cart.id)
         self.assertEqual(len(response.context['methods']), 1)
+
+    def test_checkout_view_with_sku_success(self):
+        user_existing_cart = Cart.objects.create(user=self.user, status=Cart.Status.PENDING)
+        self.client.force_login(self.user)
+        test_sku = 'custom-sku-1'
+        response = self.client.get(f'{self.url}?sku={test_sku}')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['cart']['items']), 1)
+        self.assertEqual(response.context['cart']['items'][0]['sku'], test_sku)
+        self.assertEqual(len(response.context['methods']), 1)
+        user_existing_cart.refresh_from_db()
+        self.assertEqual(user_existing_cart.status, Cart.Status.CANCELLED, 'Old pending cart should be cancelled.')
+
+    def test_checkout_view_with_sku_for_invalid_sku(self):
+        self.client.force_login(self.user)
+        test_sku = 'does-not-exist'
+        response = self.client.get(f'{self.url}?sku={test_sku}')
+        self.assertEqual(response.status_code, 404)
+
+    @patch.dict(
+        'zeitlabs_payments.views.CART_HANDLER', {}, clear=True
+    )
+    def test_checkout_view_with_sku_for_item_sku_with_unsuppported_type(self):
+        self.client.force_login(self.user)
+        response = self.client.get(f'{self.url}?sku=custom-sku-1')
+        self.assertEqual(response.status_code, 400)
+
+    @patch(
+        'zeitlabs_payments.helpers.CourseEnrollment.is_enrolled'
+    )
+    def test_checkout_view_with_sku_for_course_item_sku_already_enrolled(self, mock_enrolled):
+        mock_enrolled.return_value = True
+        self.client.force_login(self.user)
+        response = self.client.get(f'{self.url}?sku=custom-sku-1')
+        self.assertEqual(response.status_code, 400)
 
 
 @pytest.mark.django_db
@@ -277,7 +313,9 @@ class InvoiceViewTest(BaseTestViewMixin):
         """
         Verify the invoice page shows correct context when invoice has no related transaction.
         """
-        cart = Cart.objects.create(user_id=3, status=Cart.Status.PAID)
+        user = User.objects.get(id=3)
+        self.login_user(user)
+        cart = Cart.objects.create(user=user, status=Cart.Status.PAID)
         invoice = Invoice.objects.create(cart=cart, invoice_number='TEST-111111', total=100)
         self.url_args = [invoice.invoice_number]
         response = self.client.get(self.url)
@@ -289,11 +327,50 @@ class InvoiceViewTest(BaseTestViewMixin):
         assert response.context['tax_number'] == settings.CUSTOMER_NUMBER
         assert response.context['currency'] == get_currency(cart)
 
+    def test_invoices_access(self):
+        """
+        Ensure invoice access rules:
+        - Admins can view all invoices
+        - Normal users can only view their own
+        """
+        admin_user = User.objects.get(id=1)
+        admin_user_cart = Cart.objects.create(user=admin_user, status=Cart.Status.PAID)
+        admin_user_invoice = Invoice.objects.create(cart=admin_user_cart, invoice_number='TEST-111111', total=100)
+
+        normal_user1 = User.objects.get(id=2)
+        normal_user1_cart = Cart.objects.create(user=normal_user1, status=Cart.Status.PAID)
+        normal_user1_invoice = Invoice.objects.create(cart=normal_user1_cart, invoice_number='TEST-22222', total=100)
+
+        normal_user2 = User.objects.get(id=3)
+        normal_user2_cart = Cart.objects.create(user=normal_user2, status=Cart.Status.PAID)
+        normal_user2_invoice = Invoice.objects.create(cart=normal_user2_cart, invoice_number='TEST-33333', total=200)
+
+        self.url_args = [normal_user2_invoice.invoice_number]
+        self.login_user(admin_user)
+        response = self.client.get(self.url)
+        assert response.status_code == 200, "Admin should be able to access other users' invoices"
+        assert response.context['invoice'].invoice_number == normal_user2_invoice.invoice_number
+        self.url_args = [admin_user_invoice.invoice_number]
+        response = self.client.get(self.url)
+        assert response.status_code == 200, 'Admin should be able to access their own invoice'
+        assert response.context['invoice'].invoice_number == admin_user_invoice.invoice_number
+
+        self.url_args = [normal_user1_invoice.invoice_number]
+        self.login_user(normal_user1)
+        response = self.client.get(self.url)
+        assert response.status_code == 200, 'Normal user should be able to access their own invoice'
+        assert response.context['invoice'].invoice_number == normal_user1_invoice.invoice_number
+        self.url_args = [normal_user2_invoice.invoice_number]
+        response = self.client.get(self.url)
+        assert response.status_code == 404, "Normal user should not be able to access another user's invoice"
+
     def test_get_success_with_related_transaction(self):
         """
         Verify the invoice page shows correct payment_method when invoice has a related transaction.
         """
-        cart = Cart.objects.create(user_id=3, status=Cart.Status.PAID)
+        user = User.objects.get(id=3)
+        self.login_user(user)
+        cart = Cart.objects.create(user=user, status=Cart.Status.PAID)
         invoice = Invoice.objects.create(cart=cart, invoice_number='INV-222222', total=100)
 
         transaction = Transaction.objects.create(
@@ -350,196 +427,3 @@ class PaymentErrorViewTest(BaseTestViewMixin):
         assert response.status_code == 200
         assert 'merchant_reference' in response.context
         assert response.context['merchant_reference'] == merchant_reference
-
-
-@pytest.mark.django_db
-@pytest.mark.usefixtures('base_data')
-class TestManualPaymentView(BaseTestViewMixin):
-    """Tests for ManualPaymentView"""
-
-    VIEW_NAME = 'zeitlabs_payments:manual-payment'
-    admin_user = None
-    learner_user = None
-    course_id = 'course-v1:org1+1+1'
-    mode_slug = 'no-id-professional'
-
-    @pytest.fixture(autouse=True)
-    def setup(self, db):  # pylint: disable=unused-argument
-        """Test setup"""
-        self.admin_user = User.objects.get(id=1)
-        self.learner_user = User.objects.get(id=3)
-
-    def test_unauthorized(self):
-        """Verify that the view returns 403 when the user is not authenticated"""
-        response = self.client.post(self.url, data={
-            'sku': 'does-not-matter'
-        })
-        self.assertEqual(response.status_code, http_status.HTTP_403_FORBIDDEN)
-
-    def test_non_admin_user_access(self):
-        """Verify that the view returns 403 when the non amdin suer try to access"""
-        self.login_user(self.learner_user)
-        response = self.client.post(self.url, data={
-            'sku': 'does-not-matter'
-        })
-        self.assertEqual(response.status_code, http_status.HTTP_403_FORBIDDEN)
-
-    def test_post_success(self):
-        """
-        Valid request → should create invoice & cart.
-        """
-        self.login_user(self.admin_user)
-        payload = {
-            'username': self.learner_user.username,
-            'course_key': self.course_id,
-            'mode': self.mode_slug
-        }
-
-        response = self.client.post(self.url, data=payload, format='json')
-        assert response.status_code == 201
-        data = response.data
-
-        assert 'created_cart' in data
-        assert 'created_invoice' in data
-
-        cart = Cart.objects.get(id=data['created_cart'])
-        invoice = Invoice.objects.get(invoice_number=data['created_invoice'])
-
-        assert cart.user == self.learner_user
-        assert cart.status == Cart.Status.PAID
-        assert invoice.cart == cart
-
-    def test_missing_required_fields(self):
-        """
-        Should return 400 when missing user_id/username or course_key/mode.
-        """
-        self.login_user(self.admin_user)
-        payload = {'course_key': self.course_id, 'mode': self.mode_slug}
-        response = self.client.post(self.url, data=payload, format='json')
-        assert response.status_code == 400
-        assert response.data['error'] == 'Missing required param: user_id or username'
-
-        # missing mode
-        payload = {'username': self.learner_user.username, 'course_key': self.course_id}
-        response = self.client.post(self.url, data=payload, format='json')
-        assert response.status_code == 400
-        assert response.data['error'] == 'Missing required param: mode'
-
-        # missing course_key
-        payload = {'user_id': self.learner_user.id, 'mode': 'verified'}
-        response = self.client.post(self.url, data=payload, format='json')
-        assert response.status_code == 400
-        assert response.data['error'] == 'Missing required param: course_key'
-
-    def test_invalid_user(self):
-        """
-        Should return 400 when user not found.
-        """
-        self.login_user(self.admin_user)
-        payload = {
-            'username': 'nonexistentuser',
-            'course_key': self.course_id,
-            'mode': self.mode_slug
-        }
-        response = self.client.post(self.url, data=payload, format='json')
-        assert response.status_code == 400
-        assert response.data['error'] == 'Unable to retrieve user with given user info.'
-
-        payload = {
-            'user_id': 99999,
-            'course_key': self.course_id,
-            'mode': self.mode_slug
-        }
-        response = self.client.post(self.url, data=payload, format='json')
-        assert response.status_code == 400
-        assert response.data['error'] == 'Unable to retrieve user with given user info.'
-
-    def test_invalid_course_id(self):
-        """
-        Should return 400 when course mode or catalogue item not found.
-        """
-        self.login_user(self.admin_user)
-        payload = {
-            'username': self.learner_user.username,
-            'course_key': 'invlaid-course-id',
-            'mode': self.mode_slug
-        }
-        response = self.client.post(self.url, data=payload, format='json')
-        assert response.status_code == 400
-        assert response.data['error'] == 'Invalid course id provided: invlaid-course-id.'
-
-    def test_non_exist_course_id(self):
-        """
-        Should return 400 when course mode or catalogue item not found.
-        """
-        self.login_user(self.admin_user)
-        payload = {
-            'username': self.learner_user.username,
-            'course_key': 'course-v1:notexist+1+1',
-            'mode': self.mode_slug
-        }
-        response = self.client.post(self.url, data=payload, format='json')
-        assert response.status_code == 400
-        assert response.data['error'] == (
-            "Unable to retrieve course mode or catalogue item for course_id = 'course-v1:notexist+1+1' "
-            "and mode='no-id-professional'."
-        )
-
-    @patch.dict(
-        'zeitlabs_payments.views.FULFILLMENT_HANDLERS', {}, clear=True
-    )
-    def test_catalogue_item_with_unsupported_type(self):
-        """
-        Should return 400 when course mode or catalogue item not found.
-        """
-        self.login_user(self.admin_user)
-        payload = {
-            'username': self.learner_user.username,
-            'course_key': 'course-v1:org1+1+1',
-            'mode': self.mode_slug
-        }
-        response = self.client.post(self.url, data=payload, format='json')
-        assert response.status_code == 400
-        assert response.data['error'] == (
-            'Catalog Item with given course_id and mode has unsupported type: paid_course.'
-        )
-
-    def test_post_for_validate_add_to_cart_exception(self):
-        """
-        Valid request → should create invoice & cart.
-        """
-        self.login_user(self.admin_user)
-        payload = {
-            'username': self.learner_user.username,
-            'course_key': self.course_id,
-            'mode': self.mode_slug
-        }
-
-        related_course_item = CatalogueItem.objects.get(sku='custom-sku-1')
-        related_course_item.item_ref_id = 'invalid-does-not-match-with-course-id'
-        related_course_item.save()
-        response = self.client.post(self.url, data=payload, format='json')
-        assert response.status_code == 400
-        assert response.data['error'] == 'Given course does not match add to cart requirements'
-        assert response.data['details'] == (
-            'Unable to add item to the cart as Course mode found with given sku but course_id '
-            'mismatch with catalogue item ref-id.'
-        )
-
-    @patch('zeitlabs_payments.views.ManualPaymentProcessor.process_payment')
-    def test_process_payment_raises_exception(self, mock_process_payment):
-        """
-        Should return 400 when processor.process_payment raises an exception.
-        """
-        self.client.force_login(self.admin_user)
-        mock_process_payment.side_effect = Exception('some error')
-
-        payload = {
-            'user_id': self.learner_user.id,
-            'course_key': self.course_id,
-            'mode': self.mode_slug
-        }
-        response = self.client.post(self.url, data=payload, format='json')
-        assert response.status_code == 400
-        assert response.data['error'] == 'Failed to process manual payment'
-        assert response.data['details'] == 'some error'

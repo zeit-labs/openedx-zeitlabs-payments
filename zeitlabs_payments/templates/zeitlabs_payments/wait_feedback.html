@@ -25,16 +25,15 @@
 
     function checkStatus() {
       attempts++;
-      const urlencoded = new URLSearchParams();
-      urlencoded.append("transaction_id", "{{ ecommerce_transaction_id }}");
-      urlencoded.append("merchant_reference", "{{ merchant_reference }}");
-
-      fetch(statusUrl, {
-        method: "POST",
+      const params = new URLSearchParams({
+        transaction_id: "{{ ecommerce_transaction_id }}",
+        merchant_reference: "{{ merchant_reference }}"
+      });
+      fetch(`${statusUrl}?${params.toString()}`, {
+        method: "GET",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded"
         },
-        body: urlencoded,
         redirect: "follow"
       })
       .then(response => {

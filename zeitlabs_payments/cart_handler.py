@@ -8,16 +8,16 @@ from common.djangoapps.student.models import CourseEnrollment, CourseEnrollmentE
 from django.contrib.auth import get_user_model
 
 from zeitlabs_payments.exceptions import CartFulfillmentError, InvalidCartError
-from zeitlabs_payments.helpers import check_user_enroll_conditions
-from zeitlabs_payments.models import AuditLog, CartItem, CatalogueItem
+from zeitlabs_payments.helpers import cancel_old_pending_carts, check_user_enroll_conditions
+from zeitlabs_payments.models import AuditLog, Cart, CartItem, CatalogueItem
 
 logger = logging.getLogger(__name__)
 
 
-FULFILLMENT_HANDLERS = {}
+CART_HANDLER = {}
 
 
-class BaseFulfillmentStrategy:
+class BaseCartHandler:
     """
     Base class/interface for fulfillment strategy handlers.
     """
@@ -40,6 +40,32 @@ class BaseFulfillmentStrategy:
         """
         raise NotImplementedError('Subclasses must implement this.')
 
+    def validate_item_and_create_cart(
+        self, user: get_user_model, catalog_item: CatalogueItem, cancel_old_carts: bool = True
+    ) -> Cart:
+        """
+        Create an open cart for the given user.
+        Before creating a new cart, this function will cancel all of the user's stale carts
+        that are in the 'pending' state, ensuring the user has only one active pending cart at a time.
+
+        :param user: User instance
+        :param catalog_item: CatalogueItem instance to add to cart
+        :return: Cart instance
+        """
+        self.validate_add_to_cart(user, catalog_item)
+        if cancel_old_carts:
+            cancel_old_pending_carts(user)
+        cart = Cart.objects.create(user=user, status=Cart.Status.PENDING)
+        logger.info(f'Created new pending cart {cart.id} for user {user}')
+        CartItem.objects.create(
+            cart=cart,
+            catalogue_item=catalog_item,
+            original_price=catalog_item.price,
+            final_price=catalog_item.price,
+        )
+        logger.info(f'Added catalogue item {catalog_item.sku} to cart {cart.id}')
+        return cart
+
 
 def register_handler(item_type: str) -> Any:
     """
@@ -48,14 +74,14 @@ def register_handler(item_type: str) -> Any:
     :param item_type: The type of catalogue item to register the handler for.
     :return: The class decorator function.
     """
-    def wrapper(cls: Any) -> BaseFulfillmentStrategy:
-        FULFILLMENT_HANDLERS[item_type] = cls()
+    def wrapper(cls: Any) -> BaseCartHandler:
+        CART_HANDLER[item_type] = cls()
         return cls
     return wrapper
 
 
 @register_handler(CatalogueItem.ItemType.PAID_COURSE)
-class PaidCourseFulfillment(BaseFulfillmentStrategy):
+class PaidCourseCartHandler(BaseCartHandler):
     """
     Fulfillment handler for paid course catalogue items.
     """
