@@ -254,10 +254,9 @@ class PaymentSuccessView(TemplateView):
         return render(request, self.template_name, context)
 
 
-class InvoiceView(TemplateView):
+class InvoiceView(LoginRequiredMixin, TemplateView):
     """Render Invoice with given invoice number."""
 
-    permission_classes = [IsAuthenticated]
     template_name = 'zeitlabs_payments/invoice.html'
 
     def get(self, request: Any, *args: Any, **kwargs: Any) -> Any:

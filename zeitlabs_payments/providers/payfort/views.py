@@ -63,8 +63,12 @@ class PayFortBaseView(View):
             logger.error(f'Payfort Error! merchant_reference: {reference} is invalid. Unable to extract site.')
             return None
 
+    @method_decorator(csrf_exempt)
+    def dispatch(self, request: Any, *args: Any, **kwargs: Any) -> Any:
+        """Dispatch the request to the appropriate handler."""
+        return super().dispatch(request, *args, **kwargs)
 
-@method_decorator(csrf_exempt, name='dispatch')
+
 class PayFortReturnView(PayFortBaseView):
     """
     Payfort redirection view after payment.
@@ -121,7 +125,6 @@ class PayFortReturnView(PayFortBaseView):
         return render(request, 'zeitlabs_payments/payment_error.html')
 
 
-@method_decorator(csrf_exempt, name='dispatch')
 class PayfortFeedbackView(PayFortBaseView):
     """
     Callback endpoint for PayFort to notify about payment status.
