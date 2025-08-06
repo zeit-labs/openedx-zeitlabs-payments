@@ -327,6 +327,12 @@ class InvoiceViewTest(BaseTestViewMixin):
         assert response.context['tax_number'] == settings.CUSTOMER_NUMBER
         assert response.context['currency'] == get_currency(cart)
 
+    def test_unauthorized(self):
+        """Verify that the view returns 302 when the user is not authenticated"""
+        self.url_args = ['does-not-matter']
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 302)
+
     def test_invoices_access(self):
         """
         Ensure invoice access rules:
