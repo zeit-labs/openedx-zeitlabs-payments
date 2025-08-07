@@ -70,7 +70,7 @@ class ManualPaymentProcessor(BaseProcessor):
             invoice = self.create_invoice(cart, request, transaction_record)
             self.fulfill_cart(cart)
             AuditLog.log(
-                action=AuditLog.AuditActions.CART_FULFIlED,
+                action=AuditLog.AuditActions.CART_FULFILLED,
                 cart=cart,
                 gateway=self.SLUG,
                 context={}

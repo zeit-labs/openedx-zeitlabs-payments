@@ -86,17 +86,17 @@ class AuditLog(TimeStampedModel):
     class AuditActions:
         """Audit log actions."""
 
-        CART_FULFILLMENT_ERROR = 'CartFulfillmentError'
-        USER_ENROLLED = 'UserEnrolled'
-        USER_ENROLLED_ERROR = 'UserEnrolledError'
-        REDIRECT_TO_PAYMENT = 'RedirectToPaymentGateway'
-        DUPLICATE_TRANSACTION = 'DuplicateTransactionDetected'
-        BAD_RESPONSE_SIGNATURE = 'BadResponseSignature'
-        RECEIVED_RESPONSE = 'ReceivedGatewayResponse'
-        RESPONSE_INVALID_CART = 'ResponseForInvalidCart'
-        TRANSACTION_ROLLED_BACK = 'TransactionRolledBack'
-        CART_STATUS_UPDATED = 'CartStatusUpdated'
-        CART_FULFIlED = 'CartFulfilled'
+        CART_FULFILLMENT_ERROR = 'cart_fulfillment_error'
+        USER_ENROLLED = 'user_enrolled'
+        USER_ENROLLED_ERROR = 'user_enrolled_error'
+        REDIRECT_TO_PAYMENT = 'redirect_to_payment_gateway'
+        DUPLICATE_TRANSACTION = 'duplicate_transaction_detected'
+        BAD_RESPONSE_SIGNATURE = 'bad_response_signature'
+        RECEIVED_RESPONSE = 'received_gateway_response'
+        RESPONSE_INVALID_CART = 'response_for_invalid_cart'
+        TRANSACTION_ROLLED_BACK = 'transaction_rolled_back'
+        CART_STATUS_UPDATED = 'cart_status_updated'
+        CART_FULFILLED = 'cart_fulfilled'
 
     TEMPLATES = {
         AuditActions.CART_FULFILLMENT_ERROR: (
@@ -127,8 +127,8 @@ class AuditLog(TimeStampedModel):
         AuditActions.CART_STATUS_UPDATED: (
             'Status updated for cart from: {old_status} to: {new_status}.'
         ),
-        AuditActions.CART_FULFIlED: (
-            'Cart fullfilled successfully.'
+        AuditActions.CART_FULFILLED: (
+            'Cart fulfilled successfully.'
         )
     }
 

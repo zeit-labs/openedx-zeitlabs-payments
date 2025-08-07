@@ -189,9 +189,12 @@ class PayfortFeedbackTestView(TestCase):
         self.cart.save()
         request = self.request_factory.post(self.url, self.valid_response)
         request.user = self.user
-        assert not AuditLog.objects.filter(gateway='payfort', action='ResponseForInvalidCart').exists()
+        assert not AuditLog.objects.filter(
+            gateway='payfort',
+            action=AuditLog.AuditActions.RESPONSE_INVALID_CART,
+        ).exists()
         response = PayfortFeedbackView.as_view()(request)
-        assert AuditLog.objects.filter(gateway='payfort', action='ResponseForInvalidCart').exists()
+        assert AuditLog.objects.filter(gateway='payfort', action=AuditLog.AuditActions.RESPONSE_INVALID_CART).exists()
         assert response.status_code == 200
 
     @patch('zeitlabs_payments.providers.payfort.views.logger')
