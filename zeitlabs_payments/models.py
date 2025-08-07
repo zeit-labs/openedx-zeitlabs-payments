@@ -187,8 +187,12 @@ class Coupon(TimeStampedModel):
     discount_type = models.CharField(max_length=20, choices=DiscountType.choices)
     discount_value = models.DecimalField(max_digits=10, decimal_places=2)
     max_usage = models.PositiveIntegerField()
-    usage_count = models.PositiveIntegerField(default=0)  # TODO: move to usage table
     expires_at = models.DateTimeField(blank=True, null=True)
+
+    @property
+    def usage_count(self) -> int:
+        """Get the number of times this coupon has been used."""
+        return self.usages.count()
 
 
 class CouponUsage(TimeStampedModel):
