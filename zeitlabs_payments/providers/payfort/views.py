@@ -81,6 +81,7 @@ class PayFortReturnView(PayFortBaseView):
     def post(self, request: Any) -> HttpResponse:
         """Handle the POST request from PayFort after processing payment page."""
         data = request.POST.dict()
+        logger.info('PayFortReturnView: data received')
         try:
             verify_signature(
                 self.payment_processor.response_sha_phrase,
