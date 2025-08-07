@@ -18,40 +18,6 @@ class TimeStampedModel(models.Model):
         abstract = True
 
 
-class Transaction(TimeStampedModel):
-    """Transaction model."""
-
-    class TransactionType(models.TextChoices):
-        """Transaction types."""
-
-        PAYMENT = 'payment'
-        REFUND = 'refund'
-
-    cart = models.ForeignKey('Cart', on_delete=models.SET_NULL, related_name='transactions', null=True)
-    type = models.CharField(max_length=20, choices=TransactionType.choices)
-    status = models.CharField(max_length=50)
-    gateway = models.CharField(max_length=50)
-    gateway_transaction_id = models.CharField(max_length=255)
-    method = models.CharField(max_length=50)
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
-    currency = models.CharField(max_length=10)
-    response = models.JSONField(blank=True, null=True)
-    reason = models.TextField(blank=True, null=True)
-    initiator_user = models.ForeignKey(
-        User, on_delete=models.SET_NULL, null=True, blank=True
-    )
-
-
-class WebhookEvent(TimeStampedModel):
-    """WebhookEvent model."""
-
-    gateway = models.CharField(max_length=50)
-    event_type = models.CharField(max_length=100)
-    payload = models.JSONField()
-    related_transaction = models.ForeignKey(Transaction, on_delete=models.SET_NULL, null=True, blank=True)
-    handled = models.BooleanField(default=False)
-
-
 class Cart(TimeStampedModel):
     """Cart model."""
 
@@ -78,6 +44,40 @@ class Cart(TimeStampedModel):
     def discount_total(self) -> int:
         """Calculate discount total."""
         return sum(item.discount_amount for item in self.items.all())
+
+
+class Transaction(TimeStampedModel):
+    """Transaction model."""
+
+    class TransactionType(models.TextChoices):
+        """Transaction types."""
+
+        PAYMENT = 'payment'
+        REFUND = 'refund'
+
+    cart = models.ForeignKey(Cart, on_delete=models.SET_NULL, related_name='transactions', null=True)
+    type = models.CharField(max_length=20, choices=TransactionType.choices)
+    status = models.CharField(max_length=50)
+    gateway = models.CharField(max_length=50)
+    gateway_transaction_id = models.CharField(max_length=255)
+    method = models.CharField(max_length=50)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    currency = models.CharField(max_length=10)
+    response = models.JSONField(blank=True, null=True)
+    reason = models.TextField(blank=True, null=True)
+    initiator_user = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True
+    )
+
+
+class WebhookEvent(TimeStampedModel):
+    """WebhookEvent model."""
+
+    gateway = models.CharField(max_length=50)
+    event_type = models.CharField(max_length=100)
+    payload = models.JSONField()
+    related_transaction = models.ForeignKey(Transaction, on_delete=models.SET_NULL, null=True, blank=True)
+    handled = models.BooleanField(default=False)
 
 
 class AuditLog(TimeStampedModel):
@@ -133,7 +133,7 @@ class AuditLog(TimeStampedModel):
     }
 
     action = models.CharField(max_length=255)
-    cart = models.ForeignKey('Cart', on_delete=models.CASCADE, related_name='audits', null=True)
+    cart = models.ForeignKey(Cart, on_delete=models.CASCADE, related_name='audits', null=True)
     gateway = models.CharField(max_length=50, blank=True, null=True)
     details = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
