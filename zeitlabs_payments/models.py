@@ -131,7 +131,7 @@ class AuditLog(TimeStampedModel):
         )
     }
 
-    action = models.CharField(max_length=255)
+    action = models.CharField(max_length=32)
     cart = models.ForeignKey(Cart, on_delete=models.CASCADE, related_name='audits', null=True)
     gateway = models.CharField(max_length=50, blank=True, null=True)
     details = models.TextField(blank=True, null=True)
