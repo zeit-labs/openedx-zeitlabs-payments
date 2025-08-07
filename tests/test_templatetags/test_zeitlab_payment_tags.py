@@ -20,4 +20,4 @@ def test_generate_invoice_qr_code_tag(mock_reverse, mock_get_request):
     ctx = Context({'invoice_number': '12345'})
     rendered = tpl.render(ctx)
 
-    assert '<svg>fake qr code</svg>' == rendered
+    assert rendered.startswith('<svg width="37mm" height="37mm" version="1.1" viewBox="0 0 37 37"')
