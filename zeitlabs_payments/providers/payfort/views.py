@@ -184,7 +184,7 @@ class PayfortFeedbackView(PayFortBaseView):
                 logger.info(f'Recording payment transaction for cart {self.cart.id}.')
                 transaction_record = self.payment_processor.handle_payment(
                     cart=self.cart,
-                    user=request.user if request.user.is_authenticated else None,
+                    user=None,
                     transaction_status=data['response_message'],
                     transaction_id=data['fort_id'],
                     method=data['payment_option'],
