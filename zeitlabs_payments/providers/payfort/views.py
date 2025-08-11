@@ -223,7 +223,7 @@ class PayfortFeedbackView(PayFortBaseView):
             invoice = self.payment_processor.create_invoice(self.cart, request, transaction_record)
             self.payment_processor.fulfill_cart(self.cart)
             AuditLog.log(
-                action=AuditLog.AuditActions.CART_FULFIlED,
+                action=AuditLog.AuditActions.CART_FULFILLED,
                 cart=self.cart,
                 gateway=self.payment_processor.SLUG,
                 context={}

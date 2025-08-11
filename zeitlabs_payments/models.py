@@ -18,6 +18,33 @@ class TimeStampedModel(models.Model):
         abstract = True
 
 
+class Cart(TimeStampedModel):
+    """Cart model."""
+
+    class Status(models.TextChoices):
+        """Cart states."""
+
+        PENDING = 'pending'
+        PROCESSING = 'processing'
+        PAID = 'paid'
+        CANCELLED = 'cancelled'
+        REFUND_REQUESTED = 'refund_requested'
+        REFUNDED = 'refunded'
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='carts')
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+
+    @property
+    def total(self) -> int:
+        """Calculate total."""
+        return sum(item.final_price for item in self.items.all())
+
+    @property
+    def discount_total(self) -> int:
+        """Calculate discount total."""
+        return sum(item.discount_amount for item in self.items.all())
+
+
 class Transaction(TimeStampedModel):
     """Transaction model."""
 
@@ -27,14 +54,14 @@ class Transaction(TimeStampedModel):
         PAYMENT = 'payment'
         REFUND = 'refund'
 
-    cart = models.ForeignKey('Cart', on_delete=models.SET_NULL, related_name='transactions', null=True)
+    cart = models.ForeignKey(Cart, on_delete=models.SET_NULL, related_name='transactions', null=True)
     type = models.CharField(max_length=20, choices=TransactionType.choices)
     status = models.CharField(max_length=50)
     gateway = models.CharField(max_length=50)
     gateway_transaction_id = models.CharField(max_length=255)
     method = models.CharField(max_length=50)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
-    currency = models.CharField(max_length=10)
+    currency = models.CharField(max_length=3)
     response = models.JSONField(blank=True, null=True)
     reason = models.TextField(blank=True, null=True)
     initiator_user = models.ForeignKey(
@@ -52,51 +79,23 @@ class WebhookEvent(TimeStampedModel):
     handled = models.BooleanField(default=False)
 
 
-class Cart(TimeStampedModel):
-    """Cart model."""
-
-    class Status(models.TextChoices):
-        """Cart states."""
-
-        PENDING = 'pending'
-        PROCESSING = 'processing'
-        PAID = 'paid'
-        CANCELLED = 'cancelled'
-        REFUND_REQUESTED = 'refund_requested'
-        REFUNDED = 'refunded'
-
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='carts')
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    @property
-    def total(self) -> int:
-        """Calculate total."""
-        return sum(item.final_price for item in self.items.all())
-
-    @property
-    def discount_total(self) -> int:
-        """Calculate discount total."""
-        return sum(item.discount_amount for item in self.items.all())
-
-
 class AuditLog(TimeStampedModel):
     """AuditLog model."""
 
     class AuditActions:
         """Audit log actions."""
 
-        CART_FULFILLMENT_ERROR = 'CartFulfillmentError'
-        USER_ENROLLED = 'UserEnrolled'
-        USER_ENROLLED_ERROR = 'UserEnrolledError'
-        REDIRECT_TO_PAYMENT = 'RedirectToPaymentGateway'
-        DUPLICATE_TRANSACTION = 'DuplicateTransactionDetected'
-        BAD_RESPONSE_SIGNATURE = 'BadResponseSignature'
-        RECEIVED_RESPONSE = 'ReceivedGatewayResponse'
-        RESPONSE_INVALID_CART = 'ResponseForInvalidCart'
-        TRANSACTION_ROLLED_BACK = 'TransactionRolledBack'
-        CART_STATUS_UPDATED = 'CartStatusUpdated'
-        CART_FULFIlED = 'CartFulfilled'
+        CART_FULFILLMENT_ERROR = 'cart_fulfillment_error'
+        USER_ENROLLED = 'user_enrolled'
+        USER_ENROLLED_ERROR = 'user_enrolled_error'
+        REDIRECT_TO_PAYMENT = 'redirect_to_payment_gateway'
+        DUPLICATE_TRANSACTION = 'duplicate_transaction_detected'
+        BAD_RESPONSE_SIGNATURE = 'bad_response_signature'
+        RECEIVED_RESPONSE = 'received_gateway_response'
+        RESPONSE_INVALID_CART = 'response_for_invalid_cart'
+        TRANSACTION_ROLLED_BACK = 'transaction_rolled_back'
+        CART_STATUS_UPDATED = 'cart_status_updated'
+        CART_FULFILLED = 'cart_fulfilled'
 
     TEMPLATES = {
         AuditActions.CART_FULFILLMENT_ERROR: (
@@ -127,16 +126,15 @@ class AuditLog(TimeStampedModel):
         AuditActions.CART_STATUS_UPDATED: (
             'Status updated for cart from: {old_status} to: {new_status}.'
         ),
-        AuditActions.CART_FULFIlED: (
-            'Cart fullfilled successfully.'
+        AuditActions.CART_FULFILLED: (
+            'Cart fulfilled successfully.'
         )
     }
 
-    action = models.CharField(max_length=255)
-    cart = models.ForeignKey('Cart', on_delete=models.CASCADE, related_name='audits', null=True)
+    action = models.CharField(max_length=32)
+    cart = models.ForeignKey(Cart, on_delete=models.CASCADE, related_name='audits', null=True)
     gateway = models.CharField(max_length=50, blank=True, null=True)
     details = models.TextField(blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
 
     @classmethod
     def log(cls, *, action: str, context: dict = None, cart: Cart = None, gateway: str = None) -> None:
@@ -189,9 +187,12 @@ class Coupon(TimeStampedModel):
     discount_type = models.CharField(max_length=20, choices=DiscountType.choices)
     discount_value = models.DecimalField(max_digits=10, decimal_places=2)
     max_usage = models.PositiveIntegerField()
-    usage_count = models.PositiveIntegerField(default=0)  # TODO: move to usage table
     expires_at = models.DateTimeField(blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+
+    @property
+    def usage_count(self) -> int:
+        """Get the number of times this coupon has been used."""
+        return self.usages.count()
 
 
 class CouponUsage(TimeStampedModel):
@@ -200,7 +201,6 @@ class CouponUsage(TimeStampedModel):
     coupon = models.ForeignKey(Coupon, on_delete=models.CASCADE, related_name='usages')
     count = models.PositiveIntegerField(default=1)
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class CatalogueItem(TimeStampedModel):
@@ -218,8 +218,7 @@ class CatalogueItem(TimeStampedModel):
     description = models.TextField(blank=True, null=True)
     item_ref_id = models.CharField(max_length=255)
     price = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
-    currency = models.CharField(max_length=10, blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    currency = models.CharField(max_length=3, blank=True, null=True)
 
 
 class CartItem(TimeStampedModel):
@@ -248,7 +247,7 @@ class Invoice(TimeStampedModel):
     status = models.CharField(max_length=20, choices=InvoiceStatus.choices, default=InvoiceStatus.DRAFT)
     total = models.DecimalField(max_digits=10, decimal_places=2)
     discount_total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    currency = models.CharField(max_length=10)
+    currency = models.CharField(max_length=3)
     paid_at = models.DateTimeField(blank=True, null=True)
     related_transaction = models.ForeignKey(Transaction, on_delete=models.SET_NULL, null=True, blank=True)
 
@@ -271,5 +270,4 @@ class CreditMemo(TimeStampedModel):
     total = models.DecimalField(max_digits=10, decimal_places=2)
     reason = models.TextField()
     gateway_refund_transaction_id = models.CharField(max_length=255)
-    created_at = models.DateTimeField(auto_now_add=True)
     transaction = models.ForeignKey(Transaction, on_delete=models.SET_NULL, null=True, blank=True)

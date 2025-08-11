@@ -72,7 +72,7 @@ class TestManualPaymentProcessor:
 
         # Verify AuditLog entry
         assert AuditLog.objects.filter(
-            action=AuditLog.AuditActions.CART_FULFIlED,
+            action=AuditLog.AuditActions.CART_FULFILLED,
             cart=self.cart,
             gateway='manual'
         ).exists()

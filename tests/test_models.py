@@ -48,7 +48,7 @@ class TestAuditLogModel:
             'sku': 'SKU-123',
         }
 
-        with pytest.raises(ValidationError, match="Missing template parameters for action 'CartFulfillmentError'"):
+        with pytest.raises(ValidationError, match="Missing template parameters for action 'cart_fulfillment_error'"):
             AuditLog.log(
                 action=AuditLog.AuditActions.CART_FULFILLMENT_ERROR,
                 context=incomplete_context,
