@@ -11,11 +11,6 @@ def plugin_settings(settings: Any) -> None:
         'PAYFORT_SETTINGS',
         {},
     )
-    settings.ECOMMERCE_PUBLIC_URL_ROOT = getattr(
-        settings,
-        'ECOMMERCE_PUBLIC_URL_ROOT',
-        '',
-    )
     settings.INVOICE_PREFIX = getattr(
         settings,
         'INVOICE_PREFIX',
@@ -30,4 +25,7 @@ def plugin_settings(settings: Any) -> None:
         settings,
         'CUSTOMER_NUMBER',
         '',
+    )
+    settings.OVERRIDE_ECOMMERCE_SERVICE_CHECKOUT_PAGE = (
+        'zeitlabs_payments.pluggable_override_func.override_ecommerce_checkout_page'
     )
