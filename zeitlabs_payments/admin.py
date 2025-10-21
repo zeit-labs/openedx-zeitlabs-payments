@@ -6,7 +6,18 @@ from django.http import HttpResponse
 from django.shortcuts import render
 from django.urls import path, reverse
 
-from .models import AuditLog, Cart, CartItem, CatalogueItem, Invoice, InvoiceItem, TaxRule, Transaction, WebhookEvent
+from .models import (
+    AuditLog,
+    Cart,
+    CartItem,
+    CatalogueItem,
+    Invoice,
+    InvoiceItem,
+    TaxRule,
+    Transaction,
+    WebhookEvent,
+    MigrationMap,
+)
 from .providers.registry import PROCESSORS
 
 
@@ -38,7 +49,7 @@ class CatalogueItemAdmin(admin.ModelAdmin):
     Admin configuration for the CatalogueItem model.
     """
 
-    list_display = ('id', 'sku', 'type', 'price', 'currency')
+    list_display = ('id', 'sku', 'type', 'price', 'currency', 'item_ref_id')
     list_filter = ('type',)
     search_fields = ('sku',)
 
@@ -243,6 +254,15 @@ class PaymentProcessorAdminPage:
             return app_list
 
         admin.site.get_app_list = custom_get_app_list
+
+
+@admin.register(MigrationMap)
+class MigrationMapAdmin(admin.ModelAdmin):
+    list_display = ('id', 'source_table', 'source_id', 'target_model', 'target_id', 'succeeded', 'migrated_at', 'notes')
+    list_filter = ('succeeded', 'source_table', 'target_model', 'migrated_at')
+    search_fields = ('source_id', 'target_id', 'notes')
+    ordering = ('-migrated_at',)
+    readonly_fields = ('migrated_at',)
 
 
 # Instantiate once to register everything

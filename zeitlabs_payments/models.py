@@ -364,3 +364,108 @@ class TaxRule(TimeStampedModel):
         if self.tax_type == self.TaxType.PERCENT:
             return f'{self.name} - {self.tax_value}%'
         return f'{self.name} - {self.tax_value}'
+
+
+class MigrationMap(models.Model):
+    """
+        MigrationMap model.
+        Tracks the mapping of legacy Ecommerce records to new Zeitlabs Payments entities.
+
+        Each entry represents a single migration attempt and stores:
+        - source_table: legacy table name
+        - source_id: primary identifier from the old system
+        - target_model: Django model name in the new system
+        - target_id: created record ID (NULL if failed)
+        - succeeded: boolean status of the migration attempt
+        - migrated_at: timestamp of the attempt
+        - notes: optional error or context details
+
+        Multiple attempts may exist for the same source_id.
+        A migration is considered successful if any attempt succeeded.
+    """
+    source_table = models.CharField(max_length=100)
+    source_id = models.CharField(max_length=100)
+
+    target_model = models.CharField(max_length=100)
+    target_id = models.CharField(max_length=100, null=True, blank=True)
+
+    succeeded = models.BooleanField(default=False)
+
+    migrated_at = models.DateTimeField(auto_now_add=True)
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['source_table', 'source_id', 'succeeded']),
+            models.Index(fields=['source_table', 'source_id', '-migrated_at']),
+        ]
+        ordering = ["-migrated_at"]
+
+    def __str__(self):
+        """Represent object as string."""
+        status = 'succeeded' if self.succeeded else 'failed'
+        return f'{status} {self.source_table}:{self.source_id} -> {self.target_model}({self.target_id})'
+
+    def clean(self):
+        """
+        Enforce that successful migrations MUST have a target_id and source_id.
+        """
+        if not self.source_id:
+            raise ValidationError("source_id cannot be empty.")
+        if self.succeeded:
+            if not self.target_id:
+                raise ValidationError("target_id cannot be empty when succeeded=True.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def record_success(cls, source_table: str, source_id, target_model: str, target_id):
+        """
+        Record a successful migration attempt.
+        """
+        return cls.objects.create(
+            source_table=source_table,
+            source_id=str(source_id) if source_id else None,
+            target_model=target_model,
+            target_id=str(target_id) if target_id else None,
+            succeeded=True,
+            notes=""
+        )
+
+    @classmethod
+    def record_failure(cls, source_table: str, source_id, target_model: str, error_msg: str):
+        """
+        Record a failed migration attempt with an error message.
+        """
+        return cls.objects.create(
+            source_table=source_table,
+            source_id=str(source_id) if source_id else None,
+            target_model=target_model,
+            target_id=None,
+            succeeded=False,
+            notes=error_msg
+        )
+
+    @classmethod
+    def has_succeeded(cls, source_table: str, source_id):
+        """
+        Returns True if a successful migration already exists.
+        Useful to prevent duplicate reprocessing.
+        """
+        return cls.objects.filter(
+            source_table=source_table,
+            source_id=str(source_id),
+            succeeded=True,
+        ).exists()
+
+    @classmethod
+    def last_attempt(cls, source_table: str, source_id):
+        """
+        Fetch the most recent attempt for reporting.
+        """
+        return cls.objects.filter(
+            source_table=source_table,
+            source_id=str(source_id)
+        ).order_by("-migrated_at").first()
