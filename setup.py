@@ -128,6 +128,11 @@ if sys.argv[-1] == 'tag':
 README = open(os.path.join(os.path.dirname(__file__), 'README.rst'), encoding="utf8").read()
 CHANGELOG = open(os.path.join(os.path.dirname(__file__), 'CHANGELOG.md'), encoding="utf8").read()
 
+# --- Packages logic: include test_utils only for test/develop installs ---
+packages = find_packages(include=['zeitlabs_payments', 'zeitlabs_payments.*'])
+# if 'test' in sys.argv or 'develop' in sys.argv:
+#     packages += find_packages(include=['test_utils', 'test_utils.*'])
+
 setup(
     name='zeitlabs-payments',
     version=VERSION,
@@ -135,11 +140,10 @@ setup(
     long_description=README + '\n\n' + CHANGELOG,
     author='Zeitlabs Project',
     url='https://github.com/zeit-labs/zeitlabs-payments',
-    packages=find_packages(
-        include=['zeitlabs_payments', 'zeitlabs_payments.*'],
-        exclude=["*tests"],
-    ),
-
+    packages=packages,
+    extras_require={
+        "test": find_packages(include=['test_utils', 'test_utils.*']),
+    },
     include_package_data=True,
     install_requires=load_requirements('requirements/base.in'),
     python_requires=">=3.11",
