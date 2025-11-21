@@ -10,6 +10,7 @@ numpy                           # required by deepdiff
 pytest-cov                      # pytest extension for code coverage statistics
 pytest-django                   # pytest extension for better Django support
 types-python-dateutil           # needed for mypy to understand python-dateutil
+python-dotenv                   # for loading environment variables from .env files during tests
 
 
 # edx-platform related requirements

@@ -14,7 +14,6 @@ if MASTER_DB_FLAG:
     print('⚠️  WARNING: I_KNOW_I_AM_CONNECTING_TO_REAL_DB is set; real DB credentials may be used!')
     load_dotenv()
 
-
 def db_setting(key, default):
     if not MASTER_DB_FLAG:
         return default
@@ -38,6 +37,9 @@ DATABASES = {
         'PORT': db_setting('DB_PORT', ''),
     },
 }
+
+USE_TZ = True
+TIME_ZONE = db_setting('TIME_ZONE', 'UTC')
 
 INSTALLED_APPS = (
     'django.contrib.admin',

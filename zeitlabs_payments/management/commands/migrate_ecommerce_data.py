@@ -32,14 +32,9 @@ class Command(BaseCommand):
         parser.add_argument("--db-password", type=str, default="")
         parser.add_argument("--db-host", type=str, default="mysql")
         parser.add_argument("--db-port", type=str, default="3306")
+        parser.add_argument("--db-time-zone", type=str, default="UTC")
 
         parser.add_argument("--no-dry-run", action="store_true", help="Execute the migration (default is dry-run).")
-
-        parser.add_argument(
-            "--test-connection",
-            action="store_true",
-            help="Only test the DB connection and print sample data."
-        )
 
         parser.add_argument(
             "--retry-failed",
@@ -48,7 +43,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        self.no_dry_run = not options["no_dry_run"]
+        self.no_dry_run = options["no_dry_run"]
         if self.no_dry_run:
             self.stdout.write(self.style.WARNING("⚠️  Running in EXECUTION mode (not dry-run)!"))
         else:
@@ -63,13 +58,17 @@ class Command(BaseCommand):
             'PASSWORD': options['db_password'],
             'HOST': options['db_host'],
             'PORT': options['db_port'],
+            'TIME_ZONE': options['db_time_zone'],
+            'CONN_MAX_AGE': 0,
+            'CONN_HEALTH_CHECKS': False,
+            'AUTOCOMMIT': True,
+            'ATOMIC_REQUESTS': False,
+            'OPTIONS': {},
         }
 
-        if options["test_connection"]:
-            if 'ecommerce' in connections:
-                connections['ecommerce'].close()
-            self.test_db_connection()
-            return
+        if 'ecommerce' in connections:
+            connections['ecommerce'].close()
+        self.test_db_connection()
 
         self.stdout.write(
             self.style.SUCCESS(
@@ -85,16 +84,16 @@ class Command(BaseCommand):
     def test_db_connection(self):
         """Simple and reliable test for the ecommerce database."""
         self.stdout.write(self.style.WARNING("🔍 Testing Ecommerce DB connection..."))
-        try:
-            with connections['ecommerce'].cursor() as cursor:
-                cursor.execute("SELECT 1;")
-                row = cursor.fetchone()
-                if row and row[0] == 1:
-                    self.stdout.write(self.style.SUCCESS("✅ Connection successful!"))
-                else:
-                    self.stdout.write(self.style.ERROR("⚠️ Connection test query failed."))
-        except Exception as e:
-            raise CommandError(f"❌ Could not connect to database: {e}")
+
+        with connections['ecommerce'].cursor() as cursor:
+            cursor.execute("SELECT 1;")
+            row = cursor.fetchone()
+            if row and row[0] == 1:
+                self.stdout.write(self.style.SUCCESS("✅ Connection successful!"))
+            else:
+                self.stdout.write(self.style.ERROR("⚠️ Connection test query failed."))
+
+        self.stdout.write(self.style.WARNING("🔍 Ecommerce DB connection test completed."))
 
     def should_skip(self, table: str, source_id: int) -> bool:
         """
