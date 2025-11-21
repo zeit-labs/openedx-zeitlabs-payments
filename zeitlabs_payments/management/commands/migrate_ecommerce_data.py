@@ -33,6 +33,8 @@ class Command(BaseCommand):
         parser.add_argument("--db-host", type=str, default="mysql")
         parser.add_argument("--db-port", type=str, default="3306")
 
+        parser.add_argument("--no-dry-run", action="store_true", help="Execute the migration (default is dry-run).")
+
         parser.add_argument(
             "--test-connection",
             action="store_true",
@@ -46,6 +48,12 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        self.no_dry_run = not options["no_dry_run"]
+        if self.no_dry_run:
+            self.stdout.write(self.style.WARNING("⚠️  Running in EXECUTION mode (not dry-run)!"))
+        else:
+            self.stdout.write(self.style.WARNING("ℹ️  Running in DRY-RUN mode (no data will be written)."))
+
         self.batch_size = options["batch_size"]
         self.retry_failed = options["retry_failed"]
         connections.databases['ecommerce'] = {
@@ -175,37 +183,38 @@ class Command(BaseCommand):
                         continue
 
                     try:
-                        with db_transaction.atomic():
-                            item = CatalogueItem.objects.create(
-                                sku=partner_sku,
-                                type=CatalogueItem.ItemType.PAID_COURSE,
-                                title=title,
-                                description=description or "",
-                                item_ref_id=course_id,
-                                price=price or 0,
-                                currency=price_currency or "SAR",
-                                created_at=date_created,
-                            )
+                        if not self.no_dry_run:
+                            with db_transaction.atomic():
+                                item = CatalogueItem.objects.create(
+                                    sku=partner_sku,
+                                    type=CatalogueItem.ItemType.PAID_COURSE,
+                                    title=title,
+                                    description=description or "",
+                                    item_ref_id=course_id,
+                                    price=price or 0,
+                                    currency=price_currency or "SAR",
+                                    created_at=date_created,
+                                )
 
-                            MigrationMap.record_success(
-                                source_table=source_table,
-                                source_id=stock_rec_id,
-                                target_model=target_model,
-                                target_id=item.id,
-                            )
+                                MigrationMap.record_success(
+                                    source_table=source_table,
+                                    source_id=stock_rec_id,
+                                    target_model=target_model,
+                                    target_id=item.id,
+                                )
 
                         successes += 1
 
                     except Exception as e:
                         error_msg = f"{type(e).__name__}: {e}"
                         self.stderr.write(f"❌ ERROR stock_id={stock_rec_id} ({error_msg})")
-
-                        MigrationMap.record_failure(
-                            source_table=source_table,
-                            source_id=stock_rec_id,
-                            target_model=target_model,
-                            error_msg=error_msg,
-                        )
+                        if not self.no_dry_run:
+                            MigrationMap.record_failure(
+                                source_table=source_table,
+                                source_id=stock_rec_id,
+                                target_model=target_model,
+                                error_msg=error_msg,
+                            )
 
                         failures += 1
                         continue
@@ -308,32 +317,33 @@ class Command(BaseCommand):
                     if basket_id not in seen_carts:
                         if not self.should_skip(source_table_cart, basket_id):
                             try:
-                                with db_transaction.atomic():
-                                    cart = Cart.objects.create(
-                                        id=basket_id,
-                                        user=user_map.get(owner_username),
-                                        status=cart_status,
-                                        created_at=date_created,
-                                    )    
-                                    MigrationMap.record_success(
-                                        source_table=source_table_cart,
-                                        source_id=basket_id,
-                                        target_model=target_cart_model,
-                                        target_id=cart.id,
-                                    )
-                                    seen_carts[basket_id] = cart
+                                if not self.no_dry_run:
+                                    with db_transaction.atomic():
+                                        cart = Cart.objects.create(
+                                            id=basket_id,
+                                            user=user_map.get(owner_username),
+                                            status=cart_status,
+                                            created_at=date_created,
+                                        )
+                                        MigrationMap.record_success(
+                                            source_table=source_table_cart,
+                                            source_id=basket_id,
+                                            target_model=target_cart_model,
+                                            target_id=cart.id,
+                                        )
+                                        seen_carts[basket_id] = cart
                                 cart_successes += 1
 
                             except Exception as e:
                                 error_msg = f"{type(e).__name__}: {e}"
                                 self.stderr.write(f"❌ CART ERROR id={basket_id} ({error_msg})")
-
-                                MigrationMap.record_failure(
-                                    source_table=source_table_cart,
-                                    source_id=basket_id,
-                                    target_model=target_cart_model,
-                                    error_msg=error_msg,
-                                )
+                                if not self.no_dry_run:
+                                    MigrationMap.record_failure(
+                                        source_table=source_table_cart,
+                                        source_id=basket_id,
+                                        target_model=target_cart_model,
+                                        error_msg=error_msg,
+                                    )
                                 cart_failures += 1
                                 is_cart_processing_failed = True
                         else:
@@ -351,12 +361,13 @@ class Command(BaseCommand):
 
                     item_attempts += 1
                     if is_cart_processing_failed:
-                        MigrationMap.record_failure(
-                            source_table=source_table_cart_item,
-                            source_id=line_id,
-                            target_model=target_item_model,
-                            error_msg='Unable to process cart item due to cart creation failure.',
-                        )
+                        if not self.no_dry_run:
+                            MigrationMap.record_failure(
+                                source_table=source_table_cart_item,
+                                source_id=line_id,
+                                target_model=target_item_model,
+                                error_msg='Unable to process cart item due to cart creation failure.',
+                            )
                         item_failures += 1
                         continue
 
@@ -373,31 +384,33 @@ class Command(BaseCommand):
                         item_skipped += 1
                     else:
                         try:
-                            with db_transaction.atomic():
-                                tax_amount = (price_incl_tax or 0) - (price_excl_tax or 0)
-                                item = CartItem.objects.create(
-                                    cart=seen_carts[basket_id],
-                                    original_price=price_excl_tax or 0,
-                                    final_price=price_incl_tax or 0,
-                                    tax_amount=tax_amount,
-                                    catalogue_item=sku_to_item.get(partner_sku),
-                                )
-                                MigrationMap.record_success(
-                                    source_table=source_table_cart_item,
-                                    source_id=line_id,
-                                    target_model=target_item_model,
-                                    target_id=item.id,
-                                )
+                            if not self.no_dry_run:
+                                with db_transaction.atomic():
+                                    tax_amount = (price_incl_tax or 0) - (price_excl_tax or 0)
+                                    item = CartItem.objects.create(
+                                        cart=seen_carts[basket_id],
+                                        original_price=price_excl_tax or 0,
+                                        final_price=price_incl_tax or 0,
+                                        tax_amount=tax_amount,
+                                        catalogue_item=sku_to_item.get(partner_sku),
+                                    )
+                                    MigrationMap.record_success(
+                                        source_table=source_table_cart_item,
+                                        source_id=line_id,
+                                        target_model=target_item_model,
+                                        target_id=item.id,
+                                    )
                             item_successes += 1
                         except Exception as e:
                             error_msg = f"{type(e).__name__}: {e}"
                             self.stderr.write(f"❌ CARTITEM ERROR id={line_id} ({error_msg})")
-                            MigrationMap.record_failure(
-                                source_table=source_table_cart_item,
-                                source_id=line_id,
-                                target_model=target_item_model,
-                                error_msg=error_msg,
-                            )
+                            if not self.no_dry_run:
+                                MigrationMap.record_failure(
+                                    source_table=source_table_cart_item,
+                                    source_id=line_id,
+                                    target_model=target_item_model,
+                                    error_msg=error_msg,
+                                )
                             item_failures += 1
 
                 self.log_progress(
@@ -470,32 +483,34 @@ class Command(BaseCommand):
                         continue
 
                     try:
-                        with db_transaction.atomic():
-                            log = AuditLog.objects.create(
-                                cart_id=basket_id,
-                                gateway=processor_name,
-                                action="received_gateway_response",
-                                details=response,
-                            )
+                        if not self.no_dry_run:
+                            with db_transaction.atomic():
+                                log = AuditLog.objects.create(
+                                    cart_id=basket_id,
+                                    gateway=processor_name,
+                                    action="received_gateway_response",
+                                    details=response,
+                                )
 
-                            MigrationMap.record_success(
-                                source_table=source_table,
-                                source_id=resp_id,
-                                target_model=target_model,
-                                target_id=log.id,
-                            )
+                                MigrationMap.record_success(
+                                    source_table=source_table,
+                                    source_id=resp_id,
+                                    target_model=target_model,
+                                    target_id=log.id,
+                                )
                         successes += 1
 
                     except Exception as e:
                         error_msg = f"{type(e).__name__}: {e}"
                         self.stderr.write(f"❌ ERROR payment response id={resp_id} ({error_msg})")
 
-                        MigrationMap.record_failure(
-                            source_table=source_table,
-                            source_id=resp_id,
-                            target_model=target_model,
-                            error_msg=error_msg,
-                        )
+                        if not self.no_dry_run:
+                            MigrationMap.record_failure(
+                                source_table=source_table,
+                                source_id=resp_id,
+                                target_model=target_model,
+                                error_msg=error_msg,
+                            )
                         failures += 1
                         continue
 
@@ -524,7 +539,7 @@ class Command(BaseCommand):
         skipped = 0
         attempts = 0
         query = """
-            SELECT 
+            SELECT
                 pe.id,
                 o.basket_id,
                 pe.processor_name,
@@ -533,13 +548,13 @@ class Command(BaseCommand):
                 o.currency,
                 pe.date_created,
                 et.name
-            FROM 
+            FROM
                 order_paymentevent AS pe
-            JOIN 
-                order_order AS o 
+            JOIN
+                order_order AS o
                 ON pe.order_id = o.id
-            JOIN 
-                order_paymenteventtype AS et 
+            JOIN
+                order_paymenteventtype AS et
                 ON pe.event_type_id = et.id;
 
 
@@ -561,35 +576,36 @@ class Command(BaseCommand):
                         continue
 
                     try:
-                        with db_transaction.atomic():
-                            log = Transaction.objects.create(
-                                cart_id=basket_id,
-                                gateway=processor_name,
-                                gateway_transaction_id=reference,
-                                type="payment",
-                                status=event_name,
-                                amount=amount,
-                                currency=currency,
-                                created_at=date_created,
-                            )
-                            MigrationMap.record_success(
-                                source_table=source_table,
-                                source_id=event_id,
-                                target_model=target_model,
-                                target_id=log.id,
-                            )
+                        if not self.no_dry_run:
+                            with db_transaction.atomic():
+                                log = Transaction.objects.create(
+                                    cart_id=basket_id,
+                                    gateway=processor_name,
+                                    gateway_transaction_id=reference,
+                                    type="payment",
+                                    status=event_name,
+                                    amount=amount,
+                                    currency=currency,
+                                    created_at=date_created,
+                                )
+                                MigrationMap.record_success(
+                                    source_table=source_table,
+                                    source_id=event_id,
+                                    target_model=target_model,
+                                    target_id=log.id,
+                                )
                         successes += 1
 
                     except Exception as e:
                         error_msg = f"{type(e).__name__}: {e}"
                         self.stderr.write(f"❌ ERROR payment event id={event_id} ({error_msg})")
-
-                        MigrationMap.record_failure(
-                            source_table=source_table,
-                            source_id=event_id,
-                            target_model=target_model,
-                            error_msg=error_msg,
-                        )
+                        if not self.no_dry_run:
+                            MigrationMap.record_failure(
+                                source_table=source_table,
+                                source_id=event_id,
+                                target_model=target_model,
+                                error_msg=error_msg,
+                            )
                         failures += 1
                         continue
 
@@ -641,18 +657,18 @@ class Command(BaseCommand):
                 l.partner_sku,
                 pe.reference AS payment_reference,
                 pe.processor_name AS payment_processor
-            FROM 
+            FROM
                 basket_basket AS b
-            LEFT JOIN 
-                order_order AS o 
+            LEFT JOIN
+                order_order AS o
                 ON b.id = o.basket_id
-            INNER JOIN 
-                order_line AS l 
+            INNER JOIN
+                order_line AS l
                 ON o.id = l.order_id
-            LEFT JOIN 
-                order_paymentevent AS pe 
+            LEFT JOIN
+                order_paymentevent AS pe
                 ON o.id = pe.order_id
-            ORDER BY 
+            ORDER BY
                 b.id;
         """
 
@@ -700,42 +716,43 @@ class Command(BaseCommand):
                     if order_id not in seen_invoices:
                         if not self.should_skip(source_table_invoice, order_id):
                             try:
-                                with db_transaction.atomic():
-                                    invoice = Invoice.objects.create(
-                                        id=order_id,
-                                        invoice_number=order_number,
-                                        cart_id=basket_id,
-                                        status=order_status,
-                                        gross_total=order_total_excl_tax,
-                                        total=order_total_incl_tax,
-                                        tax_total=order_total_incl_tax - order_total_excl_tax,
-                                        currency=currency,
-                                        paid_at=order_date,
-                                        related_transaction=transactions.filter(
-                                            gateway_transaction_id=payment_reference,
-                                            gateway=payment_processor,
-                                            cart_id=basket_id
-                                        ).first()
-                                    )
-                                    MigrationMap.record_success(
-                                        source_table=source_table_invoice,
-                                        source_id=order_id,
-                                        target_model=target_invoice_model,
-                                        target_id=invoice.id,
-                                    )
-                                    seen_invoices[order_id] = invoice
+                                if not self.no_dry_run:
+                                    with db_transaction.atomic():
+                                        invoice = Invoice.objects.create(
+                                            id=order_id,
+                                            invoice_number=order_number,
+                                            cart_id=basket_id,
+                                            status=order_status,
+                                            gross_total=order_total_excl_tax,
+                                            total=order_total_incl_tax,
+                                            tax_total=order_total_incl_tax - order_total_excl_tax,
+                                            currency=currency,
+                                            paid_at=order_date,
+                                            related_transaction=transactions.filter(
+                                                gateway_transaction_id=payment_reference,
+                                                gateway=payment_processor,
+                                                cart_id=basket_id
+                                            ).first()
+                                        )
+                                        MigrationMap.record_success(
+                                            source_table=source_table_invoice,
+                                            source_id=order_id,
+                                            target_model=target_invoice_model,
+                                            target_id=invoice.id,
+                                        )
+                                        seen_invoices[order_id] = invoice
                                 invoice_successes += 1
 
                             except Exception as e:
                                 error_msg = f"{type(e).__name__}: {e}"
                                 self.stderr.write(f"❌ INVOICE ERROR id={order_id} ({error_msg})")
-
-                                MigrationMap.record_failure(
-                                    source_table=source_table_invoice,
-                                    source_id=order_id,
-                                    target_model=target_invoice_model,
-                                    error_msg=error_msg,
-                                )
+                                if not self.no_dry_run:
+                                    MigrationMap.record_failure(
+                                        source_table=source_table_invoice,
+                                        source_id=order_id,
+                                        target_model=target_invoice_model,
+                                        error_msg=error_msg,
+                                    )
                                 invoice_failures += 1
                                 is_invoice_processing_failed = True
                         else:
@@ -753,12 +770,13 @@ class Command(BaseCommand):
 
                     item_attempts += 1
                     if is_invoice_processing_failed:
-                        MigrationMap.record_failure(
-                            source_table=source_table_invoice_item,
-                            source_id=line_id,
-                            target_model=target_item_model,
-                            error_msg='Unable to process invoice item due to invoice creation failure.',
-                        )
+                        if not self.no_dry_run:
+                            MigrationMap.record_failure(
+                                source_table=source_table_invoice_item,
+                                source_id=line_id,
+                                target_model=target_item_model,
+                                error_msg='Unable to process invoice item due to invoice creation failure.',
+                            )
                         item_failures += 1
                         continue
 
@@ -766,32 +784,34 @@ class Command(BaseCommand):
                         item_skipped += 1
                     else:
                         try:
-                            with db_transaction.atomic():
-                                item = InvoiceItem.objects.create(
-                                    invoice=seen_invoices[order_id],
-                                    cart_item=cart_items.filter(cart_id=basket_id, catalogue_item__sku=sku).first(),
-                                    original_price=line_price_excl_tax,
-                                    discount_amount=discount or 0,
-                                    tax_amount=line_price_incl_tax - line_price_excl_tax,
-                                    price=unit_price_incl_tax,
-                                    quantity=quantity,
-                                )
-                                MigrationMap.record_success(
-                                    source_table=source_table_invoice_item,
-                                    source_id=line_id,
-                                    target_model=target_item_model,
-                                    target_id=item.id,
-                                )
+                            if not self.no_dry_run:
+                                with db_transaction.atomic():
+                                    item = InvoiceItem.objects.create(
+                                        invoice=seen_invoices[order_id],
+                                        cart_item=cart_items.filter(cart_id=basket_id, catalogue_item__sku=sku).first(),
+                                        original_price=line_price_excl_tax,
+                                        discount_amount=discount or 0,
+                                        tax_amount=line_price_incl_tax - line_price_excl_tax,
+                                        price=unit_price_incl_tax,
+                                        quantity=quantity,
+                                    )
+                                    MigrationMap.record_success(
+                                        source_table=source_table_invoice_item,
+                                        source_id=line_id,
+                                        target_model=target_item_model,
+                                        target_id=item.id,
+                                    )
                             item_successes += 1
                         except Exception as e:
                             error_msg = f"{type(e).__name__}: {e}"
                             self.stderr.write(f"❌ INVOICE ITEM ERROR id={line_id} ({error_msg})")
-                            MigrationMap.record_failure(
-                                source_table=source_table_invoice_item,
-                                source_id=line_id,
-                                target_model=target_item_model,
-                                error_msg=error_msg,
-                            )
+                            if not self.no_dry_run:
+                                MigrationMap.record_failure(
+                                    source_table=source_table_invoice_item,
+                                    source_id=line_id,
+                                    target_model=target_item_model,
+                                    error_msg=error_msg,
+                                )
                             item_failures += 1
                 self.log_progress(
                     attempts=len(seen_invoices),
