@@ -4,7 +4,21 @@ These settings are here to use during tests, because django requires them.
 In a real-world use case, apps in this project are installed into other
 Django applications, so these settings will not be used.
 """
+import os
 from os.path import abspath, dirname, join
+
+from dotenv import load_dotenv
+
+MASTER_DB_FLAG = os.getenv('I_KNOW_I_AM_CONNECTING_TO_REAL_DB', '').lower() in ('1', 'true', 'yes')
+if MASTER_DB_FLAG:
+    print('⚠️  WARNING: I_KNOW_I_AM_CONNECTING_TO_REAL_DB is set; real DB credentials may be used!')
+    load_dotenv()
+
+
+def db_setting(key, default):
+    if not MASTER_DB_FLAG:
+        return default
+    return os.getenv(key, default)
 
 
 def root(*args):
@@ -16,13 +30,13 @@ def root(*args):
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': 'default.db',
-        'USER': '',
-        'PASSWORD': '',
-        'HOST': '',
-        'PORT': '',
-    }
+        'ENGINE': db_setting('DB_ENGINE', 'django.db.backends.sqlite3'),
+        'NAME': db_setting('DB_NAME', 'default.db'),
+        'USER': db_setting('DB_USER', ''),
+        'PASSWORD': db_setting('DB_PASSWORD', ''),
+        'HOST': db_setting('DB_HOST', ''),
+        'PORT': db_setting('DB_PORT', ''),
+    },
 }
 
 INSTALLED_APPS = (
