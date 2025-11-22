@@ -45,14 +45,14 @@ class Command(BaseCommand):
         reason = 'already succeeded' if retry_failed else 'already attempted'
         self.log_info(f'SKIP {table} id={source_id} ({reason})')
 
-    def log_migration_success(self, table: str, source_id: int, target_model: str, target_id: int | None, dry_run: bool):
-        if dry_run:
-            self.log_info(f'DRY-RUN SUCCESS {table} id={source_id} -> {target_model} (simulated)')
-        else:
+    def log_migration_success(self, table: str, source_id: int, target_model: str, target_id: int | None):
+        if self.no_dry_run:
             self.log_info(f'SUCCESS {table} id={source_id} -> {target_model} id={target_id}')
+        else:
+            self.log_info(f'DRY-RUN SUCCESS {table} id={source_id} -> {target_model} (simulated)')
 
     def log_migration_failure(self, table: str, source_id: int, exc: Exception):
-        self.log_info(f'FAIL {table} id={source_id} ({type(exc).__name__})')
+        self.log_warning(f'❌ FAIL {table} id={source_id} ({str(exc)})')
 
     def log_progress(self, label, attempts: int, successes: int, failures: int, skipped: int, final_summary=False):
         """
@@ -234,15 +234,15 @@ class Command(BaseCommand):
                                     target_model=target_model,
                                     target_id=item.id,
                                 )
-                                self.log_migration_success(source_table, stock_rec_id, target_model, item.id, False)
+                                self.log_migration_success(source_table, stock_rec_id, target_model, item.id)
                         else:
-                            self.log_migration_success(source_table, stock_rec_id, target_model, None, True)
+                            self.log_migration_success(source_table, stock_rec_id, target_model, None)
 
                         successes += 1
 
                     except Exception as e:
                         error_msg = f"{type(e).__name__}: {e}"
-                        self.stderr.write(f"❌ ERROR stock_id={stock_rec_id} ({error_msg})")
+                        self.log_error(f"❌ ERROR stock_id={stock_rec_id} ({error_msg})")
                         self.log_migration_failure(source_table, stock_rec_id, e)
 
                         if self.no_dry_run:
@@ -288,7 +288,7 @@ class Command(BaseCommand):
                 b.id AS basket_id,
                 b.date_created,
                 b.owner_id,
-                u.username,
+                u.lms_user_id,
                 CASE
                     WHEN o.status = 'Complete' THEN 'paid'
                     WHEN b.status = 'Frozen' THEN 'processing'
@@ -316,16 +316,16 @@ class Command(BaseCommand):
                 if not rows:
                     break
 
-                # preload SKUs + usernames
+                # preload SKUs + lms_user_ids
                 skus = {row[9] for row in rows if row[9]}
-                usernames = {row[3] for row in rows if row[3]}
+                lms_user_ids = {row[3] for row in rows if row[3]}
                 sku_to_item = {
                     item.sku: item
                     for item in CatalogueItem.objects.filter(sku__in=skus)
                 }
                 user_map = {
-                    u.username: u
-                    for u in User.objects.filter(username__in=usernames)
+                    u.id: u
+                    for u in User.objects.filter(id__in=lms_user_ids)
                 }
                 basket_ids = {row[0] for row in rows if row[0]}
                 existing_carts = Cart.objects.filter(id__in=basket_ids)
@@ -334,7 +334,7 @@ class Command(BaseCommand):
                     basket_id,
                     date_created,
                     owner_id,
-                    owner_username,
+                    owner_lms_user_id,
                     cart_status,
                     line_id,
                     quantity,
@@ -374,7 +374,7 @@ class Command(BaseCommand):
                                     with db_transaction.atomic():
                                         cart = Cart.objects.create(
                                             id=basket_id,
-                                            user=user_map.get(owner_username),
+                                            user=user_map.get(owner_lms_user_id),
                                             status=cart_status,
                                             created_at=date_created,
                                         )
@@ -384,14 +384,14 @@ class Command(BaseCommand):
                                             target_model=target_cart_model,
                                             target_id=cart.id,
                                         )
-                                        self.log_migration_success(source_table_cart, basket_id, target_cart_model, cart.id, False)
+                                        self.log_migration_success(source_table_cart, basket_id, target_cart_model, cart.id)
                                         seen_carts[basket_id] = cart
                                 else:
-                                    self.log_migration_success(source_table_cart, basket_id, target_cart_model, None, True)
+                                    self.log_migration_success(source_table_cart, basket_id, target_cart_model, None)
                                 cart_successes += 1
                             except Exception as e:
                                 error_msg = f"{type(e).__name__}: {e}"
-                                self.stderr.write(f"❌ CART ERROR id={basket_id} ({error_msg})")
+                                self.log_error(f"❌ CART ERROR id={basket_id} ({error_msg})")
                                 self.log_migration_failure(source_table_cart, basket_id, e)
 
                                 if self.no_dry_run:
@@ -414,7 +414,7 @@ class Command(BaseCommand):
                                     "It appears as migrated in CartMigrationMap but cannot be found "
                                     "in the existing Cart records"
                                 )
-                                self.stderr.write(f"❌ CART ERROR id={basket_id} ({error_msg})")
+                                self.log_error(f"❌ CART ERROR id={basket_id} ({error_msg})")
                                 is_cart_processing_failed = True
 
                     if is_cart_processing_failed:
@@ -449,13 +449,13 @@ class Command(BaseCommand):
                                         target_model=target_item_model,
                                         target_id=item.id,
                                     )
-                                    self.log_migration_success(source_table_cart_item, line_id, target_item_model, item.id, False)
+                                    self.log_migration_success(source_table_cart_item, line_id, target_item_model, item.id)
                             else:
-                                self.log_migration_success(source_table_cart_item, line_id, target_item_model, None, True)
+                                self.log_migration_success(source_table_cart_item, line_id, target_item_model, None)
                             item_successes += 1
                         except Exception as e:
                             error_msg = f"{type(e).__name__}: {e}"
-                            self.stderr.write(f"❌ CARTITEM ERROR id={line_id} ({error_msg})")
+                            self.log_error(f"❌ CARTITEM ERROR id={line_id} ({error_msg})")
                             self.log_migration_failure(source_table_cart_item, line_id, e)
 
                             if self.no_dry_run:
@@ -554,13 +554,13 @@ class Command(BaseCommand):
                                     target_model=target_model,
                                     target_id=log.id,
                                 )
-                                self.log_migration_success(source_table, resp_id, target_model, log.id, False)
+                                self.log_migration_success(source_table, resp_id, target_model, log.id)
                         else:
-                            self.log_migration_success(source_table, resp_id, target_model, None, True)
+                            self.log_migration_success(source_table, resp_id, target_model, None)
                         successes += 1
                     except Exception as e:
                         error_msg = f"{type(e).__name__}: {e}"
-                        self.stderr.write(f"❌ ERROR payment response id={resp_id} ({error_msg})")
+                        self.log_error(f"❌ ERROR payment response id={resp_id} ({error_msg})")
                         self.log_migration_failure(source_table, resp_id, e)
 
                         if self.no_dry_run:
@@ -655,13 +655,13 @@ class Command(BaseCommand):
                                     target_model=target_model,
                                     target_id=log.id,
                                 )
-                                self.log_migration_success(source_table, event_id, target_model, log.id, False)
+                                self.log_migration_success(source_table, event_id, target_model, log.id)
                         else:
-                            self.log_migration_success(source_table, event_id, target_model, None, True)
+                            self.log_migration_success(source_table, event_id, target_model, None)
                         successes += 1
                     except Exception as e:
                         error_msg = f"{type(e).__name__}: {e}"
-                        self.stderr.write(f"❌ ERROR payment event id={event_id} ({error_msg})")
+                        self.log_error(f"❌ ERROR payment event id={event_id} ({error_msg})")
                         self.log_migration_failure(source_table, event_id, e)
 
                         if self.no_dry_run:
@@ -812,14 +812,14 @@ class Command(BaseCommand):
                                             target_model=target_invoice_model,
                                             target_id=invoice.id,
                                         )
-                                        self.log_migration_success(source_table_invoice, order_id, target_invoice_model, invoice.id, False)
+                                        self.log_migration_success(source_table_invoice, order_id, target_invoice_model, invoice.id)
                                         seen_invoices[order_id] = invoice
                                 else:
-                                    self.log_migration_success(source_table_invoice, order_id, target_invoice_model, None, True)
+                                    self.log_migration_success(source_table_invoice, order_id, target_invoice_model, None)
                                 invoice_successes += 1
                             except Exception as e:
                                 error_msg = f"{type(e).__name__}: {e}"
-                                self.stderr.write(f"❌ INVOICE ERROR id={order_id} ({error_msg})")
+                                self.log_error(f"❌ INVOICE ERROR id={order_id} ({error_msg})")
                                 self.log_migration_failure(source_table_invoice, order_id, e)
 
                                 if self.no_dry_run:
@@ -842,7 +842,7 @@ class Command(BaseCommand):
                                     "It appears as migrated in MigrationMap but cannot be found "
                                     "in the existing Invoice records"
                                 )
-                                self.stderr.write(f"❌ INVOICE ERROR id={order_id} ({error_msg})")
+                                self.log_error(f"❌ INVOICE ERROR id={order_id} ({error_msg})")
                                 is_invoice_processing_failed = True
 
                     if is_invoice_processing_failed:
@@ -872,13 +872,13 @@ class Command(BaseCommand):
                                         target_model=target_item_model,
                                         target_id=item.id,
                                     )
-                                    self.log_migration_success(source_table_invoice_item, line_id, target_item_model, item.id, False)
+                                    self.log_migration_success(source_table_invoice_item, line_id, target_item_model, item.id)
                             else:
-                                self.log_migration_success(source_table_invoice_item, line_id, target_item_model, None, True)
+                                self.log_migration_success(source_table_invoice_item, line_id, target_item_model, None)
                             item_successes += 1
                         except Exception as e:
                             error_msg = f"{type(e).__name__}: {e}"
-                            self.stderr.write(f"❌ INVOICE ITEM ERROR id={line_id} ({error_msg})")
+                            self.log_error(f"❌ INVOICE ITEM ERROR id={line_id} ({error_msg})")
                             self.log_migration_failure(source_table_invoice_item, line_id, e)
 
                             if self.no_dry_run:
