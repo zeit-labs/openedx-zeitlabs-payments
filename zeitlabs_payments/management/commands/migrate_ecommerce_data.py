@@ -11,6 +11,7 @@ from zeitlabs_payments.models import (
 from datetime import datetime
 from django.db import connections
 from django.db.utils import OperationalError
+import pytz
 
 User = get_user_model()
 BATCH_SIZE = 1000
@@ -19,9 +20,17 @@ BATCH_SIZE = 1000
 class Command(BaseCommand):
     help = "Migrate Ecommerce data into zeitlabs payments data"
 
-    def log_msg(self, style_func_name: str, message: str):
+    def _log_to_file(self, message: str):
+        """Utility function to log messages to file if enabled."""
+        timestamp = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
+        self.log_file.write(f'[{timestamp}] {message}\n')
+        self.log_file.flush()
+
+    def log_msg(self, style_func_name: str, message: str, log_to_file: bool = True):
         """Utility function to log messages with styles."""
         self.stdout.write(getattr(self.style, style_func_name)(message))
+        if log_to_file and self.log_file:
+            self._log_to_file(f'{style_func_name}: {message}')
 
     def log_warning(self, message: str):
         self.log_msg("WARNING", message)
@@ -30,8 +39,10 @@ class Command(BaseCommand):
         self.log_msg("NOTICE", message)
 
     def log_debug(self, message: str):
-        if self.enable_debug_logging:
-            self.log_info(message=message)
+        if self.enable_debug_printing:
+            self.log_msg("NOTICE", message=message, log_to_file=False)
+        if self.enable_debug_file_logging and self.log_file:
+            self._log_to_file(f'DEBUG: {message}')
 
     def log_error(self, message: str):
         self.log_msg("ERROR", message)
@@ -43,11 +54,11 @@ class Command(BaseCommand):
         self.log_msg("MIGRATE_HEADING", message)
 
     def log_attempt(self, table: str, source_id: int):
-        self.log_info(f'ATTEMPT {table} id={source_id}')
+        self.log_debug(f'ATTEMPT {table} id={source_id}')
 
-    def log_skip(self, table: str, source_id: int, retry_failed: bool):
-        reason = 'already succeeded' if retry_failed else 'already attempted'
-        self.log_info(f'SKIP {table} id={source_id} ({reason})')
+    def log_skip(self, table: str, source_id: int):
+        reason = 'already succeeded' if self.retry_failed else 'already attempted'
+        self.log_debug(f'SKIP {table} id={source_id} ({reason})')
 
     def log_migration_success(self, table: str, source_id: int, target_model: str, target_id: int | None):
         if self.no_dry_run:
@@ -93,7 +104,9 @@ class Command(BaseCommand):
         parser.add_argument("--db-time-zone", type=str, default="UTC")
 
         parser.add_argument("--no-dry-run", action="store_true", help="Execute the migration (default is dry-run).")
-        parser.add_argument("--log-debug", action="store_true", help="Enable debug logging.")
+        parser.add_argument("--debug-printing", action="store_true", help="Enable debug printing on console.")
+        parser.add_argument("--debug-file-logging", action="store_true", help="Enable debug logging to file.")
+        parser.add_argument("--file-log-name", type=str, default="", help="Log file name for debug logging.")
 
         parser.add_argument(
             "--retry-failed",
@@ -102,6 +115,20 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        self.enable_debug_printing = options["debug_printing"]
+        self.enable_debug_file_logging = options["debug_file_logging"]
+        self.debug_file_name = options["file_log_name"]
+        if self.enable_debug_file_logging and not self.debug_file_name:
+            raise CommandError("When --debug-file-logging is set, --file-log-name must also be provided.")
+        if self.enable_debug_file_logging:
+            self.log_file = open(self.debug_file_name, "a")
+            self.log_warning(f"📝 Debug file logging enabled: {self.debug_file_name}")
+        else:
+            self.log_file = None
+
+        self.log_heading('================================================')
+        self.log_heading('🛠️  Starting Ecommerce Data Migration Command  *')
+        self.log_heading('================================================')
         self.no_dry_run = options["no_dry_run"]
         if self.no_dry_run:
             self.log_warning("⚠️  Running in EXECUTION mode (not dry-run)!")
@@ -109,8 +136,13 @@ class Command(BaseCommand):
             self.log_warning("ℹ️  Running in DRY-RUN mode (no data will be written).")
 
         self.batch_size = options["batch_size"]
+
         self.retry_failed = options["retry_failed"]
-        self.enable_debug_logging = options["log_debug"]
+        if self.retry_failed:
+            self.log_warning("🔄  Retry mode enabled: only previously succeeded entries will be skipped.")
+        else:
+            self.log_warning("⏭️  Standard mode: all previously attempted entries will be skipped.")
+
         connections.databases['ecommerce'] = {
             'ENGINE': options['db_engine'],
             'NAME': options['db_name'],
@@ -164,7 +196,7 @@ class Command(BaseCommand):
         if self.retry_failed:
             return MigrationMap.has_succeeded(source_table=table, source_id=source_id)
         else:
-            return MigrationMap.last_attempt(source_table=table, source_id=source_id)
+            return MigrationMap.already_attempted(source_table=table, source_id=source_id)
 
     def migrate_catalogue_items(self):
         self.log_info("\n==========> Migrating Catalogue Items")
@@ -217,7 +249,7 @@ class Command(BaseCommand):
 
                     if self.should_skip(source_table, stock_rec_id):
                         skipped += 1
-                        self.log_skip(source_table, stock_rec_id, self.retry_failed)
+                        self.log_skip(source_table, stock_rec_id)
                         continue
 
                     try:
@@ -368,9 +400,9 @@ class Command(BaseCommand):
                     ):
                         cart_skipped += 1
                         item_skipped += 1
-                        self.log_skip(source_table_cart, basket_id, self.retry_failed)
+                        self.log_skip(source_table_cart, basket_id)
                         if line_id is not None:
-                            self.log_skip(source_table_cart_item, line_id, self.retry_failed)
+                            self.log_skip(source_table_cart_item, line_id)
                         continue
 
                     if basket_id not in seen_carts:
@@ -411,7 +443,7 @@ class Command(BaseCommand):
                                 is_cart_processing_failed = True
                         else:
                             cart_skipped += 1
-                            self.log_skip(source_table_cart, basket_id, self.retry_failed)
+                            self.log_skip(source_table_cart, basket_id)
                             try:
                                 seen_carts[basket_id] = existing_carts.get(id=basket_id)
                             except Cart.DoesNotExist:
@@ -431,12 +463,12 @@ class Command(BaseCommand):
 
                     if line_id is None:
                         # ...existing code...
-                        self.log_migration_failure(source_table_cart_item, -1, Exception('missing line'))
+                        self.log_migration_failure(source_table_cart_item, -1, Exception(f'missing line for basket {basket_id}'))
                         continue
 
                     if self.should_skip(source_table_cart_item, line_id):
                         item_skipped += 1
-                        self.log_skip(source_table_cart_item, line_id, self.retry_failed)
+                        self.log_skip(source_table_cart_item, line_id)
                     else:
                         try:
                             if self.no_dry_run:
@@ -541,7 +573,7 @@ class Command(BaseCommand):
 
                     if self.should_skip(source_table, resp_id):
                         skipped += 1
-                        self.log_skip(source_table, resp_id, self.retry_failed)
+                        self.log_skip(source_table, resp_id)
                         continue
 
                     try:
@@ -639,7 +671,7 @@ class Command(BaseCommand):
 
                     if self.should_skip(source_table, event_id):
                         skipped += 1
-                        self.log_skip(source_table, event_id, self.retry_failed)
+                        self.log_skip(source_table, event_id)
                         continue
 
                     try:
@@ -747,6 +779,7 @@ class Command(BaseCommand):
             cursor.execute(query)
             seen_invoices = {}
 
+            default_time_zone = pytz.timezone(connections['ecommerce'].settings_dict.get('TIME_ZONE', 'UTC'))
             while True:
                 rows = cursor.fetchmany(self.batch_size)
                 if not rows:
@@ -787,8 +820,8 @@ class Command(BaseCommand):
                     ):
                         invoice_skipped += 1
                         item_skipped += 1
-                        self.log_skip(source_table_invoice, order_id, self.retry_failed)
-                        self.log_skip(source_table_invoice_item, line_id, self.retry_failed)
+                        self.log_skip(source_table_invoice, order_id)
+                        self.log_skip(source_table_invoice_item, line_id)
                         continue
 
                     if order_id not in seen_invoices:
@@ -805,7 +838,7 @@ class Command(BaseCommand):
                                             total=order_total_incl_tax,
                                             tax_total=order_total_incl_tax - order_total_excl_tax,
                                             currency=currency,
-                                            paid_at=order_date,
+                                            paid_at=timezone.make_aware(order_date, default_time_zone),
                                             related_transaction=transactions.filter(
                                                 gateway_transaction_id=payment_reference,
                                                 gateway=payment_processor,
@@ -839,7 +872,7 @@ class Command(BaseCommand):
                                 is_invoice_processing_failed = True
                         else:
                             invoice_skipped += 1
-                            self.log_skip(source_table_invoice, order_id, self.retry_failed)
+                            self.log_skip(source_table_invoice, order_id)
                             try:
                                 seen_invoices[order_id] = existing_invoices.get(id=order_id)
                             except Invoice.DoesNotExist:
@@ -858,7 +891,7 @@ class Command(BaseCommand):
 
                     if self.should_skip(source_table_invoice_item, line_id):
                         item_skipped += 1
-                        self.log_skip(source_table_invoice_item, line_id, self.retry_failed)
+                        self.log_skip(source_table_invoice_item, line_id)
                     else:
                         try:
                             if self.no_dry_run:

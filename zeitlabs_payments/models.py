@@ -461,6 +461,17 @@ class MigrationMap(models.Model):
         ).exists()
 
     @classmethod
+    def already_attempted(cls, source_table: str, source_id):
+        """
+        Returns True if a migration attempt already exists.
+        Useful to prevent duplicate reprocessing.
+        """
+        return cls.objects.filter(
+            source_table=source_table,
+            source_id=str(source_id),
+        ).exists()
+
+    @classmethod
     def last_attempt(cls, source_table: str, source_id):
         """
         Fetch the most recent attempt for reporting.
