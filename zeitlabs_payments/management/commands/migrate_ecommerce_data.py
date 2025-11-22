@@ -108,6 +108,8 @@ class Command(BaseCommand):
         parser.add_argument("--debug-file-logging", action="store_true", help="Enable debug logging to file.")
         parser.add_argument("--file-log-name", type=str, default="", help="Log file name for debug logging.")
 
+        parser.add_argument("--disable-migration-map", action="store_true", help="Disable use of MigrationMap (not recommended).")
+
         parser.add_argument(
             "--retry-failed",
             action="store_true",
@@ -142,6 +144,10 @@ class Command(BaseCommand):
             self.log_warning("🔄  Retry mode enabled: only previously succeeded entries will be skipped.")
         else:
             self.log_warning("⏭️  Standard mode: all previously attempted entries will be skipped.")
+
+        self.disable_migration_map = options["disable_migration_map"]
+        if self.disable_migration_map:
+            self.log_warning("⚠️  MigrationMap usage is DISABLED. This may lead to duplicate data! use with caution.")
 
         connections.databases['ecommerce'] = {
             'ENGINE': options['db_engine'],
@@ -193,10 +199,51 @@ class Command(BaseCommand):
         When --retry-failed is OFF:
             Skip ones that already had ANY attempt.
         """
+        if self.disable_migration_map:
+            return False
+
         if self.retry_failed:
             return MigrationMap.has_succeeded(source_table=table, source_id=source_id)
         else:
             return MigrationMap.already_attempted(source_table=table, source_id=source_id)
+
+    def _save_migration_map(self, table: str, source_id: int, target_model: str, target_id: int | None, succeeded: bool, error_msg: str = ""):
+        if self.disable_migration_map:
+            return
+
+        if succeeded:
+            MigrationMap.record_success(
+                source_table=table,
+                source_id=source_id,
+                target_model=target_model,
+                target_id=target_id,
+            )
+        else:
+            MigrationMap.record_failure(
+                source_table=table,
+                source_id=source_id,
+                target_model=target_model,
+                error_msg=error_msg,
+            )
+
+    def save_success_audit(self, source_table: str, source_id: int, target_model: str, target_id: int):
+        self._save_migration_map(
+            table=source_table,
+            source_id=source_id,
+            target_model=target_model,
+            target_id=target_id,
+            succeeded=True
+        )
+
+    def save_failure_audit(self, source_table: str, source_id: int, target_model: str, error_msg: str):
+        self._save_migration_map(
+            table=source_table,
+            source_id=source_id,
+            target_model=target_model,
+            target_id=None,
+            succeeded=False,
+            error_msg=error_msg,
+        )
 
     def migrate_catalogue_items(self):
         self.log_info("\n==========> Migrating Catalogue Items")
@@ -266,7 +313,7 @@ class Command(BaseCommand):
                                     created_at=date_created,
                                 )
 
-                                MigrationMap.record_success(
+                                self.save_success_audit(
                                     source_table=source_table,
                                     source_id=stock_rec_id,
                                     target_model=target_model,
@@ -284,7 +331,7 @@ class Command(BaseCommand):
                         self.log_migration_failure(source_table, stock_rec_id, e)
 
                         if self.no_dry_run:
-                            MigrationMap.record_failure(
+                            self.save_failure_audit(
                                 source_table=source_table,
                                 source_id=stock_rec_id,
                                 target_model=target_model,
@@ -416,7 +463,7 @@ class Command(BaseCommand):
                                             status=cart_status,
                                             created_at=date_created,
                                         )
-                                        MigrationMap.record_success(
+                                        self.save_success_audit(
                                             source_table=source_table_cart,
                                             source_id=basket_id,
                                             target_model=target_cart_model,
@@ -433,7 +480,7 @@ class Command(BaseCommand):
                                 self.log_migration_failure(source_table_cart, basket_id, e)
 
                                 if self.no_dry_run:
-                                    MigrationMap.record_failure(
+                                    self.save_failure_audit(
                                         source_table=source_table_cart,
                                         source_id=basket_id,
                                         target_model=target_cart_model,
@@ -481,7 +528,7 @@ class Command(BaseCommand):
                                         tax_amount=tax_amount,
                                         catalogue_item=sku_to_item.get(partner_sku),
                                     )
-                                    MigrationMap.record_success(
+                                    self.save_success_audit(
                                         source_table=source_table_cart_item,
                                         source_id=line_id,
                                         target_model=target_item_model,
@@ -497,7 +544,7 @@ class Command(BaseCommand):
                             self.log_migration_failure(source_table_cart_item, line_id, e)
 
                             if self.no_dry_run:
-                                MigrationMap.record_failure(
+                                self.save_failure_audit(
                                     source_table=source_table_cart_item,
                                     source_id=line_id,
                                     target_model=target_item_model,
@@ -586,7 +633,7 @@ class Command(BaseCommand):
                                     details=response,
                                 )
 
-                                MigrationMap.record_success(
+                                self.save_success_audit(
                                     source_table=source_table,
                                     source_id=resp_id,
                                     target_model=target_model,
@@ -602,7 +649,7 @@ class Command(BaseCommand):
                         self.log_migration_failure(source_table, resp_id, e)
 
                         if self.no_dry_run:
-                            MigrationMap.record_failure(
+                            self.save_failure_audit(
                                 source_table=source_table,
                                 source_id=resp_id,
                                 target_model=target_model,
@@ -687,7 +734,7 @@ class Command(BaseCommand):
                                     currency=currency,
                                     created_at=date_created,
                                 )
-                                MigrationMap.record_success(
+                                self.save_success_audit(
                                     source_table=source_table,
                                     source_id=event_id,
                                     target_model=target_model,
@@ -703,7 +750,7 @@ class Command(BaseCommand):
                         self.log_migration_failure(source_table, event_id, e)
 
                         if self.no_dry_run:
-                            MigrationMap.record_failure(
+                            self.save_failure_audit(
                                 source_table=source_table,
                                 source_id=event_id,
                                 target_model=target_model,
@@ -845,7 +892,7 @@ class Command(BaseCommand):
                                                 cart_id=basket_id
                                             ).first()
                                         )
-                                        MigrationMap.record_success(
+                                        self.save_success_audit(
                                             source_table=source_table_invoice,
                                             source_id=order_id,
                                             target_model=target_invoice_model,
@@ -862,7 +909,7 @@ class Command(BaseCommand):
                                 self.log_migration_failure(source_table_invoice, order_id, e)
 
                                 if self.no_dry_run:
-                                    MigrationMap.record_failure(
+                                    self.save_failure_audit(
                                         source_table=source_table_invoice,
                                         source_id=order_id,
                                         target_model=target_invoice_model,
@@ -905,7 +952,7 @@ class Command(BaseCommand):
                                         price=unit_price_incl_tax,
                                         quantity=quantity,
                                     )
-                                    MigrationMap.record_success(
+                                    self.save_success_audit(
                                         source_table=source_table_invoice_item,
                                         source_id=line_id,
                                         target_model=target_item_model,
@@ -921,7 +968,7 @@ class Command(BaseCommand):
                             self.log_migration_failure(source_table_invoice_item, line_id, e)
 
                             if self.no_dry_run:
-                                MigrationMap.record_failure(
+                                self.save_failure_audit(
                                     source_table=source_table_invoice_item,
                                     source_id=line_id,
                                     target_model=target_item_model,
