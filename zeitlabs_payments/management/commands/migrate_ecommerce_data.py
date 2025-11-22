@@ -29,6 +29,10 @@ class Command(BaseCommand):
     def log_info(self, message: str):
         self.log_msg("NOTICE", message)
 
+    def log_debug(self, message: str):
+        if self.enable_debug_logging:
+            self.log_info(message=message)
+
     def log_error(self, message: str):
         self.log_msg("ERROR", message)
 
@@ -47,9 +51,9 @@ class Command(BaseCommand):
 
     def log_migration_success(self, table: str, source_id: int, target_model: str, target_id: int | None):
         if self.no_dry_run:
-            self.log_info(f'SUCCESS {table} id={source_id} -> {target_model} id={target_id}')
+            self.log_debug(f'SUCCESS {table} id={source_id} -> {target_model} id={target_id}')
         else:
-            self.log_info(f'DRY-RUN SUCCESS {table} id={source_id} -> {target_model} (simulated)')
+            self.log_debug(f'DRY-RUN SUCCESS {table} id={source_id} -> {target_model} (simulated)')
 
     def log_migration_failure(self, table: str, source_id: int, exc: Exception):
         self.log_warning(f'❌ FAIL {table} id={source_id} ({str(exc)})')
@@ -59,7 +63,7 @@ class Command(BaseCommand):
         Logs periodic progress with timestamp.
         """
         if not final_summary:
-            self.log_info(
+            self.log_debug(
                 f"[{datetime.now().strftime('%H:%M:%S')}] "
                 f"{label} Processed {attempts} items... (✔ {successes}, ❌ {failures}, ↩ {skipped})"
             )
@@ -89,6 +93,7 @@ class Command(BaseCommand):
         parser.add_argument("--db-time-zone", type=str, default="UTC")
 
         parser.add_argument("--no-dry-run", action="store_true", help="Execute the migration (default is dry-run).")
+        parser.add_argument("--log-debug", action="store_true", help="Enable debug logging.")
 
         parser.add_argument(
             "--retry-failed",
@@ -105,6 +110,7 @@ class Command(BaseCommand):
 
         self.batch_size = options["batch_size"]
         self.retry_failed = options["retry_failed"]
+        self.enable_debug_logging = options["log_debug"]
         connections.databases['ecommerce'] = {
             'ENGINE': options['db_engine'],
             'NAME': options['db_name'],
@@ -353,7 +359,7 @@ class Command(BaseCommand):
                     else:
                         # Line absent; still count an attempt for audit consistency
                         item_attempts += 1
-                        self.log_info(f'ATTEMPT {source_table_cart_item} (no line present) basket_id={basket_id}')
+                        self.log_debug(f'ATTEMPT {source_table_cart_item} (no line present) basket_id={basket_id}')
 
                     is_cart_processing_failed = False
                     if (
