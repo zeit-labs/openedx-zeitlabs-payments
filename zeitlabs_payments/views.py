@@ -5,7 +5,7 @@ from typing import Any
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponse, HttpResponseBadRequest
+from django.http import HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, render
 from django.utils.decorators import method_decorator
 from django.views import View
@@ -65,16 +65,31 @@ class CheckoutView(LoginRequiredMixin, TemplateView):
         """
         sku_code = request.GET.get('sku')
         if sku_code:
-            catalog_item = get_object_or_404(models.CatalogueItem, sku=sku_code)
+            try:
+                catalog_item = models.CatalogueItem.objects.get(sku=sku_code)
+            except models.CatalogueItem.DoesNotExist:
+                return render(
+                    request,
+                    'zeitlabs_payments/invalid_cart.html',
+                    {'error_message': f'Item with sku: {sku_code} does not exist.'},
+                    status=404
+                )
+
             handler = CART_HANDLER.get(catalog_item.type)
             if not handler:
-                return HttpResponse(f'Item with given SKU has unsupported type: {catalog_item.type}.', status=400)
-
+                return render(
+                    request,
+                    'zeitlabs_payments/invalid_cart.html',
+                    {'error_message': f'Item has unsupported type: {catalog_item.type}.'},
+                    status=400
+                )
             try:
                 cart = handler.validate_item_and_create_cart(request.user, catalog_item)
             except InvalidCartError as exc:
-                return HttpResponse(
-                    f'Given SKU item does not match add to cart requirements: {str(exc)}',
+                return render(
+                    request,
+                    'zeitlabs_payments/invalid_cart.html',
+                    {'error_message': str(exc)},
                     status=400
                 )
         else:

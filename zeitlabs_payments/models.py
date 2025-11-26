@@ -233,7 +233,7 @@ class CatalogueItem(TimeStampedModel):
         PAID_COURSE = 'paid_course'
         # TODO add other types here like 'section_of_course', 'fremium_course', etc.
 
-    sku = models.CharField(max_length=255)
+    sku = models.CharField(max_length=255, unique=True)
     type = models.CharField(max_length=20, choices=ItemType.choices)
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)

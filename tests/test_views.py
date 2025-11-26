@@ -277,6 +277,8 @@ class CheckoutViewTests(TestCase):
         self.client.force_login(self.user)
         test_sku = 'does-not-exist'
         response = self.client.get(f'{self.url}?sku={test_sku}')
+        self.assertTemplateUsed(response, 'zeitlabs_payments/invalid_cart.html')
+        self.assertEqual(response.context['error_message'], 'Item with sku: does-not-exist does not exist.')
         self.assertEqual(response.status_code, 404)
 
     @patch.dict(
@@ -285,6 +287,11 @@ class CheckoutViewTests(TestCase):
     def test_checkout_view_with_sku_for_item_sku_with_unsuppported_type(self):
         self.client.force_login(self.user)
         response = self.client.get(f'{self.url}?sku=custom-sku-1')
+        self.assertTemplateUsed(response, 'zeitlabs_payments/invalid_cart.html')
+        self.assertEqual(
+            response.context['error_message'],
+            'Item has unsupported type: paid_course.'
+        )
         self.assertEqual(response.status_code, 400)
 
     @patch(
@@ -294,6 +301,12 @@ class CheckoutViewTests(TestCase):
         mock_enrolled.return_value = True
         self.client.force_login(self.user)
         response = self.client.get(f'{self.url}?sku=custom-sku-1')
+        self.assertTemplateUsed(response, 'zeitlabs_payments/invalid_cart.html')
+        self.assertEqual(
+            response.context['error_message'],
+            'Unable to add item to the cart as user: user3 does not fulfill enrollment '
+            'conditions. User is already enrolled in the course.'
+        )
         self.assertEqual(response.status_code, 400)
 
 

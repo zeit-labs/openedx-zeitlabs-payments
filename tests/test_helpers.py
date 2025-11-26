@@ -9,10 +9,11 @@ from common.djangoapps.student.models import AlreadyEnrolledError, CourseFullErr
 from django.contrib.auth import get_user_model
 from django.contrib.sites.models import Site
 
-from zeitlabs_payments.exceptions import GatewayError
+from zeitlabs_payments.exceptions import DuplicateCartError, GatewayError
 from zeitlabs_payments.helpers import (
     MAX_ORDER_DESCRIPTION_LENGTH_DEFAULT,
     cancel_old_pending_carts,
+    check_duplicate_cart_with_item,
     check_user_enroll_conditions,
     generate_invoice_number,
     get_course_id,
@@ -442,7 +443,7 @@ def test_check_user_enroll_conditions_failures(patch_target, return_value, expec
 
 
 @pytest.mark.django_db
-def test_cancel_old_pending_carts_without_patch():
+def test_cancel_old_pending_carts():
     user = User.objects.get(id=3)
     pending_cart_1 = Cart.objects.create(user=user, status=Cart.Status.PENDING)
     pending_cart_2 = Cart.objects.create(user=user, status=Cart.Status.PENDING)
@@ -464,3 +465,119 @@ def test_cancel_old_pending_carts_without_patch():
     updated_ids = {pending_cart_1.id, pending_cart_2.id}
     logged_ids = set(audit_logs.values_list('cart_id', flat=True))
     assert logged_ids == updated_ids, 'Audit logs should only exist for carts that were updated from PENDING'
+
+
+@pytest.mark.django_db
+def test_no_duplicate_cart_found():
+    """No duplicate → should NOT raise."""
+    user = User.objects.get(id=3)
+    course_mode = CourseMode.objects.get(sku='custom-sku-1')
+    check_duplicate_cart_with_item(user, course_mode)
+
+
+@pytest.mark.django_db
+def test_duplicate_exists_but_different_status():
+    """Duplicate exists but NOT in PROCESSING → should NOT raise."""
+    user = User.objects.get(id=3)
+    course_mode = CourseMode.objects.get(sku='custom-sku-1')
+    item = CatalogueItem.objects.get(sku='custom-sku-1')
+    cart = Cart.objects.create(user=user, status=Cart.Status.PENDING)
+    cart.items.create(catalogue_item=item, original_price=item.price, final_price=item.price)
+    # Default checks only PROCESSING
+    check_duplicate_cart_with_item(user, course_mode)
+
+
+@pytest.mark.django_db
+def test_duplicate_exists_but_different_item_type():
+    """Duplicate exists but item_type filter mismatch → should NOT raise."""
+    user = User.objects.get(id=3)
+    course_mode = CourseMode.objects.get(sku='custom-sku-1')
+    item = CatalogueItem.objects.get(sku='custom-sku-1')
+    cart = Cart.objects.create(user=user, status=Cart.Status.PROCESSING)
+    cart.items.create(
+        catalogue_item=item,
+        original_price=item.price,
+        final_price=item.price
+    )
+    item.type = 'other_type'
+    item.save()
+
+    # Requesting a specific item_type; mismatch → no exception
+    check_duplicate_cart_with_item(user, course_mode, item_type=item.ItemType.PAID_COURSE)
+
+
+@pytest.mark.django_db
+def test_duplicate_exists_with_matching_item_type():
+    """Duplicate exists and item_type matches → should raise."""
+    user = User.objects.get(id=3)
+    course_mode = CourseMode.objects.get(sku='custom-sku-1')
+    item = CatalogueItem.objects.get(sku='custom-sku-1')
+    cart = Cart.objects.create(user=user, status=Cart.Status.PROCESSING)
+    cart.items.create(
+        catalogue_item=item,
+        original_price=item.price,
+        final_price=item.price
+    )
+
+    with pytest.raises(DuplicateCartError):
+        check_duplicate_cart_with_item(user, course_mode, item_type=item.ItemType.PAID_COURSE)
+
+
+@pytest.mark.django_db
+def test_duplicate_exists_but_different_course():
+    """Cart has item, but a different course → should NOT raise."""
+    user = User.objects.get(id=3)
+    course_mode_requested = CourseMode.objects.get(sku='custom-sku-1')
+    requested_item_ref = str(course_mode_requested.course.id)
+
+    another_item = CatalogueItem.objects.exclude(item_ref_id=requested_item_ref).first()
+    cart = Cart.objects.create(user=user, status=Cart.Status.PROCESSING)
+    cart.items.create(
+        catalogue_item=another_item,
+        original_price=another_item.price,
+        final_price=another_item.price
+    )
+
+    check_duplicate_cart_with_item(user, course_mode_requested)
+
+
+@pytest.mark.django_db
+def test_duplicate_exists_when_custom_status_provided():
+    """Check duplicate only for the explicitly provided status."""
+    user = User.objects.get(id=3)
+    course_mode = CourseMode.objects.get(sku='custom-sku-1')
+    item = CatalogueItem.objects.get(sku='custom-sku-1')
+
+    cart = Cart.objects.create(user=user, status=Cart.Status.PENDING)
+    cart.items.create(
+        catalogue_item=item,
+        original_price=item.price,
+        final_price=item.price
+    )
+
+    # Should raise when checking PENDING explicitly
+    with pytest.raises(DuplicateCartError):
+        check_duplicate_cart_with_item(user, course_mode, status=Cart.Status.PENDING)
+
+
+@pytest.mark.django_db
+def test_multiple_carts_but_one_matching():
+    """Only one cart matches criteria → should raise."""
+    user = User.objects.get(id=3)
+    course_mode = CourseMode.objects.get(sku='custom-sku-1')
+    item = CatalogueItem.objects.get(sku='custom-sku-1')
+
+    # Non-matching cart
+    cart1 = Cart.objects.create(user=user, status=Cart.Status.PENDING)
+    cart1.items.create(catalogue_item=item, original_price=item.price, final_price=item.price)
+
+    # Matching cart
+    cart2 = Cart.objects.create(user=user, status=Cart.Status.PROCESSING)
+    cart2.items.create(catalogue_item=item, original_price=item.price, final_price=item.price)
+
+    with pytest.raises(DuplicateCartError) as exc:
+        check_duplicate_cart_with_item(user, course_mode)
+
+    assert str(exc.value) == (
+        f'Duplicate cart found ID: {cart2.id}, state: {Cart.Status.PROCESSING}.'
+    )

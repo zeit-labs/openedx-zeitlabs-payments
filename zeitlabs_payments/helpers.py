@@ -19,7 +19,7 @@ from django.contrib.auth import get_user_model
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
 from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
 
-from zeitlabs_payments.exceptions import GatewayError
+from zeitlabs_payments.exceptions import DuplicateCartError, GatewayError
 from zeitlabs_payments.models import AuditLog, Cart, CartItem, CatalogueItem, Invoice
 
 logger = logging.getLogger(__name__)
@@ -297,4 +297,35 @@ def cancel_old_pending_carts(user: get_user_model) -> None:
                 'old_status': Cart.Status.PENDING,
                 'new_status': Cart.Status.CANCELLED,
             }
+        )
+
+
+def check_duplicate_cart_with_item(
+    user: get_user_model,
+    course_mode: CourseMode,
+    status: str = None,
+    item_type: str = None
+) -> None:
+    """
+    Check if there is existing cart.
+
+    Raise DuplicateCartError if user already has a cart (in given status)
+    containing an item with the same course.
+    """
+    if not status:
+        status = Cart.Status.PROCESSING
+
+    filters = {
+        'user': user,
+        'status': status,
+        'items__catalogue_item__item_ref_id': str(course_mode.course.id),
+    }
+    if item_type:
+        filters['items__catalogue_item__type'] = item_type
+
+    duplicate_cart = Cart.objects.filter(**filters).first()
+
+    if duplicate_cart:
+        raise DuplicateCartError(
+            f'Duplicate cart found ID: {duplicate_cart.id}, state: {status}.'
         )

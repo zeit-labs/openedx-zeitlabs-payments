@@ -50,27 +50,20 @@ class TestPaidCourseCartHandler:
     """
     Tests for PaidCourseCartHandler.
     """
-    fulfillment = learner_user = valid_catalog_item = valid_cart = valid_cart_item = course_mode = None
+    fulfillment = learner_user = catalog_item = course_mode = None
 
     def setup_method(self):
         """setup."""
         self.fulfillment = PaidCourseCartHandler()
         self.learner_user = User.objects.get(id=3)
-        self.valid_catalog_item = CatalogueItem.objects.get(sku='custom-sku-1')
-
-        self.valid_cart = Cart.objects.create(user=self.learner_user, status=Cart.Status.PROCESSING)
-        self.valid_cart_item = self.valid_cart.items.create(
-            catalogue_item=self.valid_catalog_item,
-            original_price=self.valid_catalog_item.price,
-            final_price=self.valid_catalog_item.price
-        )
-        self.course_mode = CourseMode.objects.get(sku=self.valid_catalog_item.sku)
+        self.catalog_item = CatalogueItem.objects.get(sku='custom-sku-1')
+        self.course_mode = CourseMode.objects.get(sku=self.catalog_item.sku)
 
     def test_validate_add_to_cart_success(self):
         """
         Should not raise when CourseMode exists and all course conditions pass.
         """
-        self.fulfillment.validate_add_to_cart(self.learner_user, self.valid_catalog_item)
+        self.fulfillment.validate_add_to_cart(self.learner_user, self.catalog_item)
 
     @pytest.mark.parametrize(
         'sku, expected_msg',
@@ -141,22 +134,52 @@ class TestPaidCourseCartHandler:
 
         with patch(patch_target, return_value=return_value):
             with pytest.raises(InvalidCartError, match=expected_msg):
-                self.fulfillment.validate_add_to_cart(self.learner_user, self.valid_catalog_item)
+                self.fulfillment.validate_add_to_cart(self.learner_user, self.catalog_item)
+
+    def test_validate_add_to_cart_duplicate_cart_failure(self):
+        """
+        Should raise InvalidCartError when there is existing cart with smae course.
+        """
+        existing_cart = Cart.objects.create(user=self.learner_user, status=Cart.Status.PROCESSING)
+        existing_cart.items.create(
+            catalogue_item=self.catalog_item,
+            original_price=self.catalog_item.price,
+            final_price=self.catalog_item.price
+        )
+        assert existing_cart.status == Cart.Status.PROCESSING
+        with pytest.raises(InvalidCartError) as exc:
+            self.fulfillment.validate_add_to_cart(self.learner_user, self.catalog_item)
+        assert str(exc.value) == (
+            'Unable to add item to the cart as user has existing cart with same course. '
+            f'Duplicate cart found ID: {existing_cart.id}, state: {Cart.Status.PROCESSING}.'
+        )
+
+        existing_cart.status = Cart.Status.PENDING
+        existing_cart.save()
+
+        # should not raise exception as there is no duplicate cart exist in processing state.
+        self.fulfillment.validate_add_to_cart(self.learner_user, self.catalog_item)
 
     @patch('zeitlabs_payments.cart_handler.CourseEnrollment.enroll')
     def test_fulfill_success(self, mock_enroll):
         """
         Should enroll user successfully and log events.
         """
+        cart = Cart.objects.create(user=self.learner_user, status=Cart.Status.PROCESSING)
+        cart_item = cart.items.create(
+            catalogue_item=self.catalog_item,
+            original_price=self.catalog_item.price,
+            final_price=self.catalog_item.price
+        )
         assert not AuditLog.objects.filter(
             action=AuditLog.AuditActions.USER_ENROLLED,
-            cart=self.valid_cart,
+            cart=cart,
             details=(
                 'User enrolled to the course: course-v1:org1+1+1 with mode: no-id-professional '
                 'during cart fulfillment for catalogue_item: 1.'
             )
         ).exists()
-        self.fulfillment.fulfill(self.valid_cart_item, 'processor')
+        self.fulfillment.fulfill(cart_item, 'processor')
         mock_enroll.assert_called_once_with(
             self.learner_user,
             self.course_mode.course.id,
@@ -165,7 +188,7 @@ class TestPaidCourseCartHandler:
         )
         assert AuditLog.objects.filter(
             action=AuditLog.AuditActions.USER_ENROLLED,
-            cart=self.valid_cart,
+            cart=cart,
             details=(
                 'User enrolled to the course: course-v1:org1+1+1 with mode: no-id-professional '
                 'during cart fulfillment for catalogue_item: 1.'
@@ -176,16 +199,22 @@ class TestPaidCourseCartHandler:
         """
         Should log and raise CartFulfillmentError when CourseMode is missing.
         """
+        cart = Cart.objects.create(user=self.learner_user, status=Cart.Status.PROCESSING)
+        cart_item = cart.items.create(
+            catalogue_item=self.catalog_item,
+            original_price=self.catalog_item.price,
+            final_price=self.catalog_item.price
+        )
         self.course_mode.delete()
         with pytest.raises(CartFulfillmentError, match='CourseMode not found'):
-            self.fulfillment.fulfill(self.valid_cart_item, 'processor')
+            self.fulfillment.fulfill(cart_item, 'processor')
 
         assert AuditLog.objects.filter(
             action=AuditLog.AuditActions.CART_FULFILLMENT_ERROR,
-            cart=self.valid_cart,
+            cart=cart,
             details=(
-                f'Error during cart fulfillment for item: {self.valid_cart_item.id}, catalogue_item:'
-                f' {self.valid_catalog_item.id} due to invalid SKU: {self.valid_catalog_item.sku} or unsupported type.'
+                f'Error during cart fulfillment for item: {cart_item.id}, catalogue_item:'
+                f' {cart_item.id} due to invalid SKU: {self.catalog_item.sku} or unsupported type.'
             )
         ).exists()
 
@@ -193,16 +222,22 @@ class TestPaidCourseCartHandler:
         """
         Should log and raise CartFulfillmentError when ref_id does not match with course mode.
         """
-        self.valid_catalog_item.item_ref_id = 'invalid-does-not-match-with-course-mode'
+        self.catalog_item.item_ref_id = 'invalid-does-not-match-with-course-mode'
+        cart = Cart.objects.create(user=self.learner_user, status=Cart.Status.PROCESSING)
+        cart_item = cart.items.create(
+            catalogue_item=self.catalog_item,
+            original_price=self.catalog_item.price,
+            final_price=self.catalog_item.price
+        )
         with pytest.raises(CartFulfillmentError, match='Course Mode found but item ref id mismatched.'):
-            self.fulfillment.fulfill(self.valid_cart_item, 'processor')
+            self.fulfillment.fulfill(cart_item, 'processor')
 
         assert AuditLog.objects.filter(
             action=AuditLog.AuditActions.CART_FULFILLMENT_ERROR,
-            cart=self.valid_cart,
+            cart=cart,
             details=(
-                f'Error during cart fulfillment for item: {self.valid_cart_item.id}, catalogue_item:'
-                f' {self.valid_catalog_item.id} due to invalid SKU: {self.valid_catalog_item.sku} or unsupported type.'
+                f'Error during cart fulfillment for item: {cart_item.id}, catalogue_item:'
+                f' {self.catalog_item.id} due to invalid SKU: {self.catalog_item.sku} or unsupported type.'
             )
         ).exists()
 
@@ -211,14 +246,20 @@ class TestPaidCourseCartHandler:
         """
         Should log and raise CartFulfillmentError when enrollment fails.
         """
+        cart = Cart.objects.create(user=self.learner_user, status=Cart.Status.PROCESSING)
+        cart_item = cart.items.create(
+            catalogue_item=self.catalog_item,
+            original_price=self.catalog_item.price,
+            final_price=self.catalog_item.price
+        )
         mock_enroll.side_effect = CourseEnrollmentException('Enrollment failed')
 
         with pytest.raises(CartFulfillmentError, match='Unexpected enrollment error'):
-            self.fulfillment.fulfill(self.valid_cart_item, 'processor')
+            self.fulfillment.fulfill(cart_item, 'processor')
 
         assert AuditLog.objects.filter(
             action=AuditLog.AuditActions.USER_ENROLLED_ERROR,
-            cart=self.valid_cart,
+            cart=cart,
             details=(
                 'Unable to complete user enrollment to course: course-v1:org1+1+1 with mode: no-id-professional '
                 'during cart fulfillment for catalogue_item: 1.'

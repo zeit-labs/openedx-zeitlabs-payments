@@ -7,8 +7,12 @@ from common.djangoapps.course_modes.models import CourseMode
 from common.djangoapps.student.models import CourseEnrollment, CourseEnrollmentException
 from django.contrib.auth import get_user_model
 
-from zeitlabs_payments.exceptions import CartFulfillmentError, InvalidCartError
-from zeitlabs_payments.helpers import cancel_old_pending_carts, check_user_enroll_conditions
+from zeitlabs_payments.exceptions import CartFulfillmentError, DuplicateCartError, InvalidCartError
+from zeitlabs_payments.helpers import (
+    cancel_old_pending_carts,
+    check_duplicate_cart_with_item,
+    check_user_enroll_conditions,
+)
 from zeitlabs_payments.models import AuditLog, Cart, CartItem, CatalogueItem, TaxRule
 
 logger = logging.getLogger(__name__)
@@ -113,8 +117,15 @@ class PaidCourseCartHandler(BaseCartHandler):
                     ' mismatch with catalogue item ref-id.'
                 )
             check_user_enroll_conditions(user, course_mode)
+            check_duplicate_cart_with_item(
+                user, course_mode, status=Cart.Status.PROCESSING, item_type=catalogue_item.ItemType.PAID_COURSE
+            )
         except CourseMode.DoesNotExist as exc:
             raise InvalidCartError('Unable to add item to the cart as CourseMode not found') from exc
+        except DuplicateCartError as exc:
+            raise InvalidCartError(
+                f'Unable to add item to the cart as user has existing cart with same course. {str(exc)}'
+            ) from exc
         except CourseEnrollmentException as exc:
             raise InvalidCartError(
                 f'Unable to add item to the cart as user: {user} does not fulfill enrollment conditions. {str(exc)}'

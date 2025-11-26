@@ -13,6 +13,10 @@ class InvalidCartError(Exception):
     """Custom exception raised when cart is invalid."""
 
 
+class DuplicateCartError(Exception):
+    """Custom exception raised when cart is duplicate."""
+
+
 class InvoiceError(Exception):
     """Custom exception raised for invoice errors."""
 
