@@ -197,11 +197,20 @@ class BaseProcessor:
         record_webhook_event: bool = True,
     ) -> Transaction:
         """
-        Retrieve a Site instance from a string or integer site ID.
+        Handle payment processing and create a transaction record.
 
-        :param site_id: The site ID, as string or integer.
-        :return: Site instance if found.
-        :raises GatewayError: If the site does not exist or the ID is invalid.
+        :param cart: The cart being paid for.
+        :param user: The user making the payment.
+        :param transaction_status: Status of the transaction (e.g., 'success', 'failed').
+        :param transaction_id: Unique identifier from the payment gateway.
+        :param method: Payment method used (e.g., 'credit_card', 'bank_transfer').
+        :param amount: Payment amount as string.
+        :param currency: Currency code (e.g., 'SAR', 'USD').
+        :param reason: Reason or description for the transaction.
+        :param response: Optional raw response from payment gateway.
+        :param record_webhook_event: Whether to record webhook event.
+        :return: Transaction instance.
+        :raises DuplicateTransactionError: If transaction with same ID already exists.
         """
         if Transaction.objects.filter(gateway_transaction_id=transaction_id).exists():
             logger.warning(f'Duplicate transaction detected while cart: {cart.id} processing.')
