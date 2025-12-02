@@ -186,8 +186,8 @@ class CartView(APIView):
         last_pending_cart = models.Cart.objects.filter(
             user=request.user, status=models.Cart.Status.PENDING
         ).order_by('-created_at').first()
-        serializer = CartSerializer(last_pending_cart, context={'request': request})
         if last_pending_cart:
+            serializer = CartSerializer(last_pending_cart, context={'request': request})
             data = serializer.data
         else:
             data = {'details': f'No pending cart found for user: {request.user}'}

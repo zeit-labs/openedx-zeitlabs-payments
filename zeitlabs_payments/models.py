@@ -39,22 +39,22 @@ class Cart(TimeStampedModel):
     @property
     def total(self) -> Decimal:
         """Calculate total."""
-        return sum(item.final_price for item in self.items.all())
+        return sum((item.final_price for item in self.items.all()), Decimal('0'))
 
     @property
     def discount_total(self) -> Decimal:
         """Calculate discount total."""
-        return sum(item.discount_amount for item in self.items.all())
+        return sum((item.discount_amount for item in self.items.all()), Decimal('0'))
 
     @property
     def tax_total(self) -> Decimal:
         """Calculate tax total."""
-        return sum(item.tax_amount for item in self.items.all())
+        return sum((item.tax_amount for item in self.items.all()), Decimal('0'))
 
     @property
     def gross_total(self) -> Decimal:
-        """Calculate raw total before appling any discount and tax."""
-        return sum(item.original_price for item in self.items.all())
+        """Calculate raw total before applying any discount and tax."""
+        return sum((item.original_price for item in self.items.all()), Decimal('0'))
 
     @classmethod
     def valid_statuses(cls) -> list[str]:
