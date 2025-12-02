@@ -37,22 +37,22 @@ class Cart(TimeStampedModel):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
 
     @property
-    def total(self) -> int:
+    def total(self) -> Decimal:
         """Calculate total."""
         return sum(item.final_price for item in self.items.all())
 
     @property
-    def discount_total(self) -> int:
+    def discount_total(self) -> Decimal:
         """Calculate discount total."""
         return sum(item.discount_amount for item in self.items.all())
 
     @property
-    def tax_total(self) -> int:
+    def tax_total(self) -> Decimal:
         """Calculate tax total."""
         return sum(item.tax_amount for item in self.items.all())
 
     @property
-    def gross_total(self) -> int:
+    def gross_total(self) -> Decimal:
         """Calculate raw total before appling any discount and tax."""
         return sum(item.original_price for item in self.items.all())
 
@@ -334,6 +334,9 @@ class TaxRule(TimeStampedModel):
         if not tax_rule:
             return Decimal('0.00')
 
+        if base_price is None:
+            return Decimal('0.00')
+
         if tax_rule.tax_type == cls.TaxType.PERCENT:
             tax_amount = (base_price * tax_rule.tax_value) / Decimal('100')
         else:
@@ -347,6 +350,9 @@ class TaxRule(TimeStampedModel):
         Return a tuple: (tax_rule, tax_amount) for the given price.
         kwargs can be used for filtering by location, user, or product in future.
         """
+        if base_price is None:
+            return None, Decimal('0.00')
+
         # Get last active rule
         tax_rule = cls.objects.filter(is_active=True).order_by('-id').first()
         tax_amount = cls.calculate_tax(base_price, tax_rule)
