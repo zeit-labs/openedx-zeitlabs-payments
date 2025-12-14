@@ -110,9 +110,12 @@ def get_currency(cart: Cart) -> str:
     """
     valid_currency = get_settings().valid_currency
     for item in cart.items.all():
-        if item.catalogue_item.currency and item.catalogue_item.currency != valid_currency:
-            raise Exception(f'Currency not supported: {item.catalogue_item.currency}')
-    return valid_currency
+        if item.catalogue_item.currency and item.catalogue_item.currency.upper() != valid_currency.upper():
+            raise Exception(
+                f'Currency not supported: {item.catalogue_item.currency}. '
+                f'Expected: {valid_currency}'
+            )
+    return valid_currency.upper()
 
 
 def get_language(request: Optional[Any]) -> str:

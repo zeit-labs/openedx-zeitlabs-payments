@@ -1,7 +1,7 @@
 """
 URLs for zeitlabs_payments.
 """
-from django.urls import re_path
+from django.urls import include, re_path
 
 from zeitlabs_payments import views
 from zeitlabs_payments.providers.manual_payment import views as manual_payment_views
@@ -39,4 +39,7 @@ urlpatterns: list = [
 
     re_path(r'^api/cart/v1/cart/$', views.CartView.as_view(), name='cart-add'),
     re_path(r'^api/payment/v1/manual/$', manual_payment_views.ManualPaymentView.as_view(), name='manual-payment'),
+
+    # Stripe payment provider URLs
+    re_path(r'^payments/stripe/', include('zeitlabs_payments.providers.stripe_payment.urls')),
 ]

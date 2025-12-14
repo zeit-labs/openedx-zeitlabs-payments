@@ -25,6 +25,8 @@ class ZeitlabsPaymentsConfig(AppConfig):
         'url_config': {
             'lms.djangoapp': {
                 'namespace': 'zeitlabs_payments',
+                'regex': r'^',
+                'relative_path': 'urls',
             },
         },
     }

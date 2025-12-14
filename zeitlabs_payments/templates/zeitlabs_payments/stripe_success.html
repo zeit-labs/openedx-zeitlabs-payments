@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Your payment was successful">
+    <title>Payment Successful - Thank You!</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+        }
+
+        .success-container {
+            background: white;
+            padding: 50px 40px;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 600px;
+            width: 100%;
+            text-align: center;
+            animation: fadeInUp 0.6s ease-out;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .success-icon {
+            width: 100px;
+            height: 100px;
+            background: linear-gradient(135deg, #28a745, #20c997);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 0 auto 30px;
+            animation: scaleIn 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            position: relative;
+        }
+
+        .success-icon::before {
+            content: '';
+            position: absolute;
+            width: 120px;
+            height: 120px;
+            border: 3px solid rgba(40, 167, 69, 0.3);
+            border-radius: 50%;
+            animation: ripple 2s ease-out infinite;
+        }
+
+        .success-icon::after {
+            content: '✓';
+            color: white;
+            font-size: 60px;
+            font-weight: bold;
+            line-height: 1;
+        }
+
+        @keyframes scaleIn {
+            0% {
+                transform: scale(0) rotate(-180deg);
+                opacity: 0;
+            }
+            50% {
+                transform: scale(1.2) rotate(20deg);
+            }
+            100% {
+                transform: scale(1) rotate(0deg);
+                opacity: 1;
+            }
+        }
+
+        @keyframes ripple {
+            0% {
+                transform: scale(1);
+                opacity: 1;
+            }
+            100% {
+                transform: scale(1.5);
+                opacity: 0;
+            }
+        }
+
+        h1 {
+            color: #28a745;
+            margin-bottom: 12px;
+            font-size: 36px;
+            font-weight: 700;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 18px;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+
+        .details {
+            background: linear-gradient(to bottom, #f8f9fa, #ffffff);
+            padding: 28px;
+            border-radius: 12px;
+            margin: 30px 0;
+            text-align: left;
+            border: 1px solid #e9ecef;
+        }
+
+        .details h3 {
+            margin: 0 0 20px 0;
+            color: #333;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .details h3::before {
+            content: '📄';
+            font-size: 24px;
+        }
+
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid #e9ecef;
+            align-items: center;
+        }
+
+        .detail-row:last-child {
+            border-bottom: none;
+        }
+
+        .detail-label {
+            color: #666;
+            font-weight: 500;
+            font-size: 15px;
+        }
+
+        .detail-value {
+            color: #333;
+            font-weight: 600;
+            font-size: 15px;
+        }
+
+        .amount-highlight {
+            background: linear-gradient(135deg, rgba(40, 167, 69, 0.1) 0%, rgba(32, 201, 151, 0.1) 100%);
+            padding: 16px 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border: 2px solid #28a745;
+        }
+
+        .amount-highlight .detail-value {
+            color: #28a745;
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #d4edda;
+            color: #155724;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .status-badge::before {
+            content: '✓';
+            font-size: 16px;
+        }
+
+        .info-message {
+            background: #e7f3ff;
+            border-left: 4px solid #0066cc;
+            padding: 16px 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            text-align: left;
+            color: #004085;
+        }
+
+        .info-message::before {
+            content: 'ℹ️ ';
+            margin-right: 8px;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 16px 40px;
+            font-size: 18px;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.3s ease;
+            margin: 10px 8px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%);
+        }
+
+        .btn-secondary:hover {
+            box-shadow: 0 8px 20px rgba(108, 117, 125, 0.4);
+        }
+
+        .actions {
+            margin-top: 30px;
+        }
+
+        @media (max-width: 600px) {
+            .success-container {
+                padding: 40px 24px;
+            }
+
+            h1 {
+                font-size: 28px;
+            }
+
+            .subtitle {
+                font-size: 16px;
+            }
+
+            .success-icon {
+                width: 80px;
+                height: 80px;
+            }
+
+            .success-icon::after {
+                font-size: 50px;
+            }
+
+            .btn {
+                width: 100%;
+                margin: 8px 0;
+            }
+
+            .detail-row {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 4px;
+            }
+        }
+
+        /* Accessibility improvements */
+        .btn:focus {
+            outline: 3px solid #667eea;
+            outline-offset: 2px;
+        }
+
+        .visually-hidden {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="success-container">
+        <div class="success-icon" role="img" aria-label="Success checkmark"></div>
+        <h1>Payment Successful!</h1>
+        <p class="subtitle">Thank you for your payment. Your transaction has been completed successfully and you will receive a confirmation email shortly.</p>
+        
+        <div class="details" role="region" aria-label="Transaction details">
+            <h3>Transaction Details</h3>
+            <div class="detail-row">
+                <span class="detail-label">Cart ID:</span>
+                <span class="detail-value">#{{ cart.id }}</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Session ID:</span>
+                <span class="detail-value">{{ session_id|truncatechars:30 }}</span>
+            </div>
+            <div class="detail-row amount-highlight">
+                <span class="detail-label">Amount Paid:</span>
+                <span class="detail-value">{{ amount_total }} {{ currency }}</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Payment Status:</span>
+                <span class="status-badge">{{ payment_status|title }}</span>
+            </div>
+            {% if cart.user %}
+            <div class="detail-row">
+                <span class="detail-label">Customer Email:</span>
+                <span class="detail-value">{{ cart.user.email }}</span>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="info-message">
+            A detailed receipt has been sent to your email address. Please keep it for your records.
+        </div>
+
+        <div class="actions">
+            <a href="/" class="btn" aria-label="Return to homepage">Return to Home</a>
+            {% if cart.user %}
+            <a href="/dashboard" class="btn btn-secondary" aria-label="View your dashboard">View Dashboard</a>
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+        // Confetti effect on load (optional)
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('Payment successful! Transaction ID: {{ session_id }}');
+        });
+    </script>
+</body>
+</html>

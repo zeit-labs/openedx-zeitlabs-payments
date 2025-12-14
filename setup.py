@@ -161,5 +161,9 @@ setup(
         'lms.djangoapp': [
             'zeitlabs_payments = zeitlabs_payments.apps:ZeitlabsPaymentsConfig',
         ],
+        'zeitlabs_payments.v1': [
+            'manual = zeitlabs_payments.providers.manual_payment:ManualPaymentProcessor',
+            'stripe = zeitlabs_payments.providers.stripe_payment:StripeProcessor',
+        ],
     },
 )

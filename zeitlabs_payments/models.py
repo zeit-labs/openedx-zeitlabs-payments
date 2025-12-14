@@ -115,6 +115,7 @@ class AuditLog(TimeStampedModel):
         INVALID_TRANSACTION = 'invalid_transaction'
         CART_STATUS_UPDATED = 'cart_status_updated'
         CART_FULFILLED = 'cart_fulfilled'
+        PAYMENT_CANCELLED = 'payment_cancelled'
 
     TEMPLATES = {
         AuditActions.CART_FULFILLMENT_ERROR: (
@@ -150,6 +151,9 @@ class AuditLog(TimeStampedModel):
         ),
         AuditActions.CART_FULFILLED: (
             'Cart fulfilled successfully.'
+        ),
+        AuditActions.PAYMENT_CANCELLED: (
+            'Payment cancelled by user. Reason: {reason}'
         )
     }
 

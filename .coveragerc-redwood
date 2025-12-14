@@ -7,3 +7,4 @@ omit =
     */migrations/*
     */static/*
     */common_production.py
+    */settings_example.py

@@ -22,6 +22,8 @@ def test_app_config():
         'url_config': {
             'lms.djangoapp': {
                 'namespace': 'zeitlabs_payments',
+                'regex': '^',
+                'relative_path': 'urls',
             },
         },
     }, 'The app is not compatible with edx-platform plugins!'
