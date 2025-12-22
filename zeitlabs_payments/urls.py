@@ -26,6 +26,11 @@ urlpatterns: list = [
         name='payment-error'
     ),
     re_path(
+        r'^payment/v1/decline/(.+)/$',
+        views.PaymentDeclineView.as_view(),
+        name='payment-decline'
+    ),
+    re_path(
         r'^payment/v1/success/(.+)/$',
         views.PaymentSuccessView.as_view(),
         name='payment-success'

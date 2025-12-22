@@ -258,6 +258,20 @@ class PaymentErrorView(TemplateView):
         return render(request, self.template_name, context)
 
 
+class PaymentDeclineView(TemplateView):
+    """Render the template that shows the error message to the user when the payment handling is failed."""
+
+    template_name = 'zeitlabs_payments/payment_decline.html'
+
+    def get(self, request: Any, *args: Any, **kwargs: Any) -> Any:
+        """Handle the GET request."""
+        context = {
+            'merchant_reference': args[0],
+            'test': 'abcd hello'
+        }
+        return render(request, self.template_name, context)
+
+
 class PaymentSuccessView(TemplateView):
     """Render the template that shows the error message to the user when the payment handling is failed."""
 

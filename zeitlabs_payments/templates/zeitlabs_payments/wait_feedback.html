@@ -51,6 +51,13 @@
           } else {
             window.location.href = errorUrl;
           }
+        } else if (status === 400) {
+          if (data.error) {
+            statusMessage.textContent = data.error;
+          }
+          else {
+            window.location.href = errorUrl;
+          }
         } else {
           window.location.href = errorUrl;
         }

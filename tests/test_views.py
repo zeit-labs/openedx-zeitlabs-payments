@@ -465,3 +465,21 @@ class PaymentErrorViewTest(BaseTestViewMixin):
         assert response.status_code == 200
         assert 'merchant_reference' in response.context
         assert response.context['merchant_reference'] == merchant_reference
+
+
+@pytest.mark.usefixtures('base_data')
+class PaymentDeclineViewTest(BaseTestViewMixin):
+    """Tests for PaymentDeclineView"""
+    VIEW_NAME = 'zeitlabs_payments:payment-decline'
+
+    def test_get_decline(self):
+        """
+        Verify that the view renders correctly and includes merchant_reference in the context.
+        """
+        merchant_reference = 'ORDER-98765'
+        self.url_args = [merchant_reference]
+        response = self.client.get(self.url)
+
+        assert response.status_code == 200
+        assert 'merchant_reference' in response.context
+        assert response.context['merchant_reference'] == merchant_reference

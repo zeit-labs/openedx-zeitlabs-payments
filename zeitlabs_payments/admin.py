@@ -224,8 +224,8 @@ class PaymentProcessorAdminPage:
         """Patch admin apps list and add append custom model 'Payment Processors' under zeitlabs_payments app."""
         original_get_app_list = admin.site.get_app_list
 
-        def custom_get_app_list(request: Any, app_label: str | None = None) -> list:
-            app_list = list(original_get_app_list(request, app_label))
+        def custom_get_app_list(request: Any) -> list:
+            app_list = list(original_get_app_list(request))
 
             # find the app dict for zeitlabs_payments, if it exists and add custom Processor Link/app
             zp_app = next((app for app in app_list if app.get('app_label') == 'zeitlabs_payments'), None)

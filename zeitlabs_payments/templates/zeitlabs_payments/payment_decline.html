@@ -1,5 +1,6 @@
 {% extends "main_django.html" %}
 {% load i18n %}
+{% load static %}
 
 {% block body %}
 <style>
@@ -14,7 +15,7 @@
         margin: 10vh auto;
     }
     .message-box h1 {
-        color: #d9534f;
+        color: #f0ad4e;
         margin-bottom: 1rem;
     }
     .message-box p {
@@ -23,29 +24,34 @@
     .message-box a {
         display: inline-block;
         padding: 0.5rem 1rem;
-        background-color: #d9534f;
+        background-color: #f0ad4e;
         color: #fff;
         text-decoration: none;
         border-radius: 4px;
         margin-top: 1rem;
     }
     .message-box a:hover {
-        background-color: #c9302c;
-    }
+        background-color: #ee961a;
+    }    
 </style>
 
-<div class="message-box">
-    <h1>{% trans "Something went wrong while fullfilling Payment" %}</h1>
-    <p>{% trans "We couldn’t process your transaction completely at this time." %}</p>
-    {% if merchant_reference %}
+<div class="payment-failed">
+    <div class="message-box">
+        <h1>{% trans "Payment Declined" %}</h1>
+        <p>
+            {% trans "Your payment was declined by the payment provider and could not be completed." %}
+        </p>
+        {% if merchant_reference %}
         <p>
             {% blocktrans with ref=merchant_reference %}
                 Your reference number is: {{ ref }}
             {% endblocktrans %}
         </p>
-    {% endif %}
-
-    <p>{% trans "Contact us for further support." %}</p>
-    <a href="/contact-support">{% trans "Contact Support" %}</a>
+        {% endif %}
+        <p>
+            {% trans "Please try again or use a different payment method." %}
+        </p>
+        {{ test }}
+    </div>
 </div>
 {% endblock %}

@@ -7,10 +7,10 @@ from django.contrib.auth import get_user_model
 from django.contrib.sites.models import Site
 from django.db import transaction as db_transaction
 from django.http import HttpRequest, HttpResponse
+from django.shortcuts import render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.timezone import now
-from django.utils.translation import gettext_lazy as _
 
 from zeitlabs_payments.cart_handler import CART_HANDLER
 from zeitlabs_payments.exceptions import (
@@ -39,6 +39,10 @@ class BaseProcessor:
     NAME: str
     CHECKOUT_TEXT: str
     PAYMENT_INITIALIZATION_URL: str
+    TEMPLATE_NAME: str
+
+    TRANSACTION_STATUS_PENDING = 'pending'
+    TRANSACTION_STATUS_SUCCESS = 'success'
 
     @classmethod
     def get_payment_method_metadata(cls, cart: Cart) -> dict:
@@ -93,18 +97,25 @@ class BaseProcessor:
         cart: Cart,
         request: Optional[HttpRequest] = None,
         use_client_side_checkout: bool = False,
-        **kwargs: Any
+        **kwargs: Any,
     ) -> HttpResponse:
         """
         Render the payment redirection view.
-
-        :param cart: The cart details
-        :param request: The HTTP request
-        :param use_client_side_checkout: Client-side flag (currently unused)
-        :param kwargs: Additional arguments
-        :return: Rendered HTML response to redirect to the payment gateway
         """
-        raise NotImplementedError
+        try:
+            transaction_parameters = self.get_transaction_parameters(
+                cart=cart,
+                request=request,
+                use_client_side_checkout=use_client_side_checkout,
+                **kwargs,
+            )
+        except Exception:  # pylint: disable=broad-exception-caught
+            return render(request, 'zeitlabs_payments/payment_error.html')
+        return render(
+            request,
+            self.TEMPLATE_NAME,
+            {'transaction_parameters': transaction_parameters},
+        )
 
     def get_cart(self, cart_id: str | int) -> Cart:
         """
@@ -141,6 +152,36 @@ class BaseProcessor:
             return Site.objects.get(id=site_id_int)
         except Site.DoesNotExist as exc:
             raise GatewayError(f'Site with ID {site_id} does not exist.') from exc
+
+    def get_cart_from_reference(self, reference: str) -> Optional[Cart]:
+        """Get cart from reference which should be in format siteID-cartID."""
+        try:
+            _, cart_id = reference.split('-')
+            return self.get_cart(cart_id)
+        except (ValueError, InvalidCartError):
+            AuditLog.log(
+                action=AuditLog.AuditActions.RESPONSE_INVALID_CART,
+                cart=None,
+                gateway=self.SLUG,
+                context={
+                    'cart_status': (
+                        'None, unable to retrieve cart from merchant reference '
+                        f'id {reference}'
+                    ),
+                    'required_cart_state': Cart.Status.PROCESSING
+                }
+            )
+            return None
+
+    def get_site_from_reference(self, reference: str) -> Optional[Site]:
+        """Get site from reference which should be in format siteID-cartID."""
+        try:
+            site_id_str, _ = reference.split('-')
+            site_id = int(site_id_str)
+            return self.get_site(site_id)
+        except (ValueError, GatewayError):
+            logger.error(f'Payfort Error! merchant_reference: {reference} is invalid. Unable to extract site.')
+            return None
 
     def create_invoice(self, cart: Cart, request: Any, transaction_record: Transaction = None) -> Invoice:
         """

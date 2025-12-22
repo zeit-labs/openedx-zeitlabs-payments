@@ -41,10 +41,43 @@ def cart():
     return user_cart
 
 
-def test_payment_view_raises_not_implemented(base_processor):  # pylint: disable=redefined-outer-name
-    request = HttpRequest()
-    with pytest.raises(NotImplementedError):
-        base_processor.payment_view(cart={}, request=request)
+@pytest.mark.django_db
+@patch('zeitlabs_payments.providers.base.render')
+@patch.object(BaseProcessor, 'get_transaction_parameters')
+def test_payment_view_renders_template_with_correct_context(
+    mock_get_transaction_parameters, mock_render, cart, base_processor   # pylint: disable=redefined-outer-name
+):
+    """Test payment_view calls get_transaction_parameters and renders with correct context."""
+    mock_get_transaction_parameters.return_value = {'test': 'test_123'}
+    fake_request = MagicMock(spec=HttpRequest)
+    base_processor.TEMPLATE_NAME = 'dummy-template.html'
+    base_processor.payment_view(cart=cart, request=fake_request)
+    mock_get_transaction_parameters.assert_called_once_with(
+        cart=cart,
+        request=fake_request,
+        use_client_side_checkout=False,
+    )
+    mock_render.assert_called_once_with(
+        fake_request,
+        'dummy-template.html',
+        {'transaction_parameters': mock_get_transaction_parameters.return_value},
+    )
+
+
+@pytest.mark.django_db
+@patch('zeitlabs_payments.providers.base.render')
+@patch.object(BaseProcessor, 'get_transaction_parameters')
+def test_payment_view_for_exception(
+    mock_get_transaction_parameters, mock_render, cart, base_processor   # pylint: disable=redefined-outer-name
+):
+    """Test payment_view calls get_transaction_parameters and renders with correct context."""
+    mock_get_transaction_parameters.side_effect = Exception('unexpected error.')
+    fake_request = MagicMock(spec=HttpRequest)
+    base_processor.payment_view(cart=cart, request=fake_request)
+    mock_render.assert_called_once_with(
+        fake_request,
+        'zeitlabs_payments/payment_error.html'
+    )
 
 
 def test_get_transaction_parameters_raises_not_implemented(base_processor):  # pylint: disable=redefined-outer-name
@@ -362,3 +395,34 @@ def test_process_payment_invoice_or_fulfillment_fails(mock_exc, cart):  # pylint
     mock_exc.assert_called_once_with(
         'Failed to fulfill cart 1 or to create invoice: Unsupported catalogue item type: paid_course'
     )
+
+
+@pytest.mark.django_db
+def test_get_site_and_cart_from_reference_success(base_processor, cart):   # pylint: disable=redefined-outer-name
+    base_processor.SLUG = 'base'
+    site = Site.objects.create(name='test.com', domain='test.com')
+    reference = f'{site.id}-{cart.id}'
+
+    actual_cart = base_processor.get_cart_from_reference(reference)
+    assert isinstance(actual_cart, Cart)
+    assert actual_cart.id == cart.id
+
+    actual_site = base_processor.get_site_from_reference(reference)
+    assert isinstance(actual_site, Site)
+    assert actual_site.id == site.id
+
+
+@pytest.mark.django_db
+def test_get_cart_and_site_from_reference_invalid(base_processor):   # pylint: disable=redefined-outer-name
+    base_processor.SLUG = 'base'
+    invalid_reference = 'invalid-reference'
+    assert not AuditLog.objects.filter(
+        gateway=base_processor.SLUG, action=AuditLog.AuditActions.RESPONSE_INVALID_CART).exists()
+    result = base_processor.get_cart_from_reference(invalid_reference)
+    assert result is None
+    assert AuditLog.objects.filter(
+        gateway=base_processor.SLUG, action=AuditLog.AuditActions.RESPONSE_INVALID_CART
+    ).exists()
+
+    result = base_processor.get_site_from_reference(invalid_reference)
+    assert result is None
