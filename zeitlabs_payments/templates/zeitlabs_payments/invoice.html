@@ -1,124 +1,709 @@
-{% extends "main_django.html" %}
-{% load i18n %}
-{% load django_markup %}
-{% load l10n %}
-{% load static %}
-{% load enterprise %}
-{% load  zeitlab_payment_tags %}
-{% get_current_language_bidi as LANGUAGE_BIDI %}
+## mako
 
-{% block title %}
-  {% filter force_escape %}
-  {% blocktrans trimmed with order_number=invoice.invoice_number %}
-    Receipt for {{ order_number }}
-  {% endblocktrans %}
-  {% endfilter %}
-{% endblock title %}
+<%page expression_filter="h"/>
+<%inherit file="/main.html" />
+<%def name="online_help_token()"><% return "invoice" %></%def>
+<%namespace name='static' file='/static_content.html'/>
+
+<%!
+import json
+from django.urls import reverse
+from django.utils.translation import gettext as _
+from openedx.core.djangolib.js_utils import dump_js_escaped_json
+from openedx.core.djangolib.markup import HTML
+
+from zeitlabs_payments.helpers import generate_invoice_qr_code
+%>
+
+<%block name="pagetitle">${_("Invoice")}</%block>
+<%block name="bodyclass">view-invoice</%block>
+
+<%block name="headextra">
+
+<style>
+
+*, :after, :before {
+  box-sizing: border-box;
+}
 
 
-{% block body %}
-{% include "zeitlabs_payments/styles.html" %}
+[dir=ltr] dd {
+  margin-left: 0
+}
 
-<div id="receipt-container" dir="ltr" class="receipt container content-container" data-currency="{{ currency }}" data-order-id="{{ invoice.invoice_number}}" data-total-amount="{{ invoice.total }}" data-back-button="1">
+.receipt {
+  margin-bottom: 20px;
+  padding-top: 20px;
+  background-color: #ffffff;
+  line-height: 1em;
+  /* Styling for the provider area; uses edX Pattern Library utils */ }
+
+.receipt .nav-link, .receipt a {
+    text-decoration: none !important;
+    margin-top: 15px;
+}
+
+.receipt .btn {
+  color: #fff;
+  text-decoration: none; 
+}
+
+.receipt .content-container {
+  padding: 15px 30px 40px; }
+
+.receipt .copy > div {
+  margin-bottom: 15px;
+  line-height: 22px; }
+
+.receipt .copy .billing-address {
+  margin-top: 35px;
+  margin-bottom: 35px; }
+
+.receipt #error-container {
+  padding: 15px;
+  background: #fbf4f7 none repeat scroll 0 0;
+  border-bottom: 4px solid #b20610; }
+
+.receipt #error-container .error-message {
+  background: inherit; }
+
+.receipt #error-container .error-message .title {
+  margin-bottom: 5px;
+  font-weight: 600; }
+
+.receipt .info-item {
+  overflow: hidden; }
+
+.receipt .payment-info {
+  margin-bottom: 1.25rem; }
+
+.receipt .is-ready {
+  background: #e8f6fc none repeat scroll 0 0; }
+
+
+.receipt .nav-link:active, .receipt .nav-link:hover, .receipt .nav-link:focus, .receipt a:active, .receipt a:hover, .receipt a:focus {
+  border-bottom: 1px dotted #0079bc; }
+
+.receipt .nav-wizard {
+  padding: 15px 20px;
+  margin: 0;
+  overflow: hidden;
+  border-top: 4px solid #ffc01f;
+  box-shadow: 0 1px 1px 2px rgba(0, 0, 0, 0.2); }
+
+.receipt .nav-wizard .header {
+  margin: 0;
+  padding: 10px 0;
+  color: #434242;
+  font-size: 18px;
+  font-weight: bold; }
+
+.receipt .nav-wizard .message {
+  color: #434242;
+  font-weight: 500;
+  line-height: 1.4em; }
+
+.receipt .nav-wizard #verify_now {
+  margin-bottom: 10px; }
+
+.receipt .nav-wizard #verify_choices {
+  margin-bottom: 10px;
+  padding-top: 10px;
+  text-align: center; }
+
+.receipt .nav-wizard #verify_now_button {
+  display: block;
+  width: 100%;
+  margin: 0 auto;
+  padding: 13px 35px;
+  text-align: center; }
+
+.receipt .nav-wizard #verify_now_button:hover {
+  text-decoration: none; }
+
+.receipt .confirm-message {
+  font-size: 18px; }
+
+.receipt h2 {
+  margin-bottom: 10px;
+  color: #0079bc; }
+
+.receipt p {
+  margin: 0; }
+
+.receipt .thank-you {
+  font-size: 38px; }
+
+.receipt .price {
+  padding-right: 0;
+  font-size: 16px;
+  font-weight: bold;
+  text-align: right; }
+
+.receipt .order-summary dt {
+  font-weight: 500; }
+
+.receipt .order-summary dd {
+  margin-bottom: 20px;
+  color: #1d1d1d;
+  font-size: 18px; }
+
+.receipt .order-headers {
+  color: #0079bc;
+  font-size: 22px; }
+
+.receipt .order-line-data {
+  color: #1d1d1d;
+  font-size: 20px; }
+
+.receipt .order-line-data > td {
+  padding-bottom: 1.5em;
+  padding-top: 1.25em;
+  line-height: 1.5em !important; }
+
+.receipt p, .receipt address {
+  color: #6f7074; }
+
+.receipt .report-receipt-provider {
+  margin: 0 0 20px 0;
+  padding: 15px 20px;
+  border: 1px solid #dddddd;
+  border-radius: 3px;
+  box-shadow: 0 1px 2px 1px rgba(0, 0, 0, 0.1);
+  background: white; }
+
+.receipt .report-receipt-provider::after {
+  clear: both;
+  content: "";
+  display: table; }
+
+.receipt .report-receipt-provider .provider-wrapper {
+  float: left;
+  padding: 10px; }
+
+.receipt .report-receipt-provider .provider-wrapper .provider-info {
+  margin-bottom: 20px;
+  font-weight: 600; }
+
+.receipt .report-receipt-provider .provider-buttons-logos {
+  padding: 10px;
+  text-align: center; }
+
+.receipt .report-receipt-provider .provider-buttons-logos .provider-logo img {
+  max-width: 160px;
+  margin-bottom: 10px; }
+
+.receipt .summary td:first-child {
+  padding: 8px 0 0 0; }
+
+.receipt .summary-description {
+  font-weight: bold; }
+
+.receipt .table dl {
+  margin: 0; }
+
+.receipt .table .header dt, .receipt .table .header dd, .receipt .table .order-line-data dt, .receipt .table .order-line-data dd {
+  padding: 10px 10px 5px 10px; }
+
+.receipt .table .header dt:not(:last-child), .receipt .table .header dd:not(:last-child), .receipt .table .order-line-data dt:not(:last-child), .receipt .table .order-line-data dd:not(:last-child) {
+  float: left;
+  border-right: 2px solid #ebebeb; }
+
+.receipt .table .header dt:last-child, .receipt .table .header dd:last-child, .receipt .table .order-line-data dt:last-child, .receipt .table .order-line-data dd:last-child {
+  display: inline-block;
+  width: 15%; }
+
+.receipt .table .header dt:last-child, .receipt .table .order-line-data dt:last-child {
+  text-align: center; }
+
+.receipt .table .header dd, .receipt .table .order-line-data dd {
+  height: 100px; }
+
+.receipt .table .header {
+  background-color: #f9f9f9; }
+
+.receipt .table .header dt {
+  border-bottom: 2px solid #ebebeb;
+  font-size: 16px; }
+
+.receipt .table .header dt:first-child {
+  width: 10%; }
+
+.receipt .table .header dt:nth-child(2) {
+  width: 75%; }
+
+.receipt .table .order-line-data:not(:last-child) {
+  border-bottom: 2px solid #ebebeb; }
+
+.receipt .table .order-line-data:last-child {
+  border-bottom: 4px solid; }
+
+.receipt .table .order-line-data dd {
+  font-size: 16px; }
+
+.receipt .table .order-line-data dd:nth-child(2) {
+  width: 10%; }
+
+.receipt .table .order-line-data dd:nth-child(4) {
+  width: 75%; }
+
+.receipt .table .order-line-data dd.line-price {
+  padding-right: 5%; }
+
+.receipt .table .order-total {
+  margin-left: 50%;
+  padding: 20px 0; }
+
+.receipt .table .order-total:not(:last-child) {
+  border-bottom: 2px solid #ebebeb; }
+
+.receipt .table .order-total .description {
+  width: 62.5%;
+  font-weight: bold; }
+
+.receipt .table .order-total .description p {
+  padding-top: 5px;
+  font-size: 15px;
+  font-weight: normal; }
+
+.receipt .table .order-total .description .discount {
+  line-height: 1.5em; }
+
+.receipt .table .order-total .description, .receipt .table .order-total .price {
+  display: inline-block; }
+
+.receipt .table .order-total .price {
+  float: right;
+  margin-right: 10%;
+  color: black; }
+
+.receipt .table .order-total .enterprise-customer {
+  font-weight: 300;
+  padding-top: 12px; }
+
+.receipt .wrapper-content-main {
+  margin-bottom: 20px; }
+
+/* Medium devices (laptop, 1200px and lower) */
+@media (max-width: 1199px) {
+  .discount {
+    display: block;
+    margin-top: 10px; } }
+
+/* Small devices (tablets, 992px and lower) */
+@media (max-width: 991px) {
+  .receipt .sr {
+    position: static;
+    width: auto;
+    height: auto;
+    font-size: 16px; }
+  .receipt .thank-you {
+    text-align: center; }
+  .receipt .order-summary {
+    border-top: 2px solid #ebebeb;
+    border-bottom: 2px solid #ebebeb;
+    padding: 10px 0;
+    width: 100%;
+    background-color: #f9f9f9; }
+  .receipt .order-summary dt, .receipt .order-summary dd {
+    padding-left: 10px;
+    font-size: 16px; }
+  .receipt .order-summary dt {
+    float: left;
+    color: black;
+    font-weight: bold; }
+  .receipt .order-summary dd {
+    display: flex; }
+  .receipt .table {
+    border-top: 4px solid #ebebeb; }
+  .receipt .table .header {
+    display: none; }
+  .receipt .table .header dt {
+    border-bottom: none; }
+  .receipt .table .order-line-data {
+    padding-top: 1rem;
+    padding-bottom: 1rem;
+  }
+  .receipt .table .order-line-data:not(:last-child) {
+    border-bottom: none; }
+  .receipt .table .order-line-data:last-child {
+    border-bottom: 2px solid; }
+  .receipt .table .order-line-data dt:not(:last-child), .receipt .table .order-line-data dd:not(:last-child) {
+    float: none;
+    border-right: none; }
+  .receipt .table .order-line-data dd {
+    display: inline-block;
+    height: auto; }
+  .receipt .table .order-line-data dd:nth-child(2), .receipt .table .order-line-data dd:nth-child(4) {
+    width: auto; }
+  .receipt .table .order-line-data dd.course-description {
+    padding: 0 10px; }
+  .receipt .table .order-line-data dd.line-price {
+    font-weight: normal; }
+  .receipt .table .order-line-data dt {
+    display: inline;
+    float: left; }
+  .receipt .table .order-line-data .quantity, .receipt .table .order-line-data .line-price {
+    display: inline; }
+  .receipt .table .order-line-data .course-description {
+    display: block;
+    width: auto; }
+  .receipt .table .order-total {
+    margin-left: 0;
+    padding: 20px 10px; }
+  .receipt .table .order-total .price {
+    margin-right: 0; } }
+
+.receipt p {
+  margin-top: 5px; }
+
+.receipt .receipt-header {
+  display: flex; }
+
+.receipt .receipt-header h2 {
+  font-size: 2rem; }
+
+.receipt .receipt-header .navbar-brand-logo {
+  height: 2rem;
+  margin-top: 20px;
+  margin-left: auto; }
+
+.receipt .payment-info {
+  margin: 0; }
+
+.receipt .payment-info dl {
+  display: flex;
+  flex-direction: column; }
+
+.receipt .payment-info dl .order-summary-item {
+  display: ruby; }
+
+.receipt .table .header dt, .receipt .table .header dd, .receipt .table .order-line-data dt, .receipt .table .order-line-data dd {
+  width: 10%; }
+
+.receipt .table .header dt {
+  width: 10%; }
+
+.receipt .table .header dt:first-child {
+  width: 24%; }
+
+.receipt .table .header dt:nth-child(2) {
+  width: 46%; }
+
+.receipt .table .header dt:last-child {
+  width: 10%; }
+
+.receipt .table .order-line-data {
+  display: flex; }
+
+.receipt .table .order-line-data .product-description-container {
+  width: 70%; }
+
+.receipt .table .order-line-data .product-description-container dd:nth-child(2) {
+  width: 34.3%; }
+
+.receipt .table .order-line-data .product-description-container dd:nth-child(4) {
+  width: 65.7%;
+  border-right: 2px solid #ebebeb; }
+
+.receipt .table .order-line-data .product-data-container {
+  width: 30%; }
+
+.receipt .table .order-line-data .product-data-container dd {
+  width: 33.33%; }
+
+.receipt .table .order-line-data dd.line-price {
+  padding: 10px 10px 5px 10px;
+  text-align: center; }
+
+.receipt .table .order-line-data dd.line-vat {
+  text-align: center; }
+
+.receipt .table .order-line-data dd.line-total {
+  text-align: center; }
+
+.receipt .table .order-line-data .price {
+  font-weight: normal; }
+
+.receipt .table .order-line-data .total {
+  font-weight: bold; }
+
+.receipt .table .total-container {
+  display: flex; }
+
+.receipt .table .total-container .order-totals {
+  margin-right: auto;
+  width: 50%; }
+
+.receipt .table .total-container .order-totals .order-total {
+  margin-left: 0; }
+
+.receipt .print-receipt-button {
+  color: #43B666;
+  border: 1px solid;
+  margin: 5px 0 5px 0;
+  border-radius: 5px;
+  padding: 10px;
+  background: none; }
+
+.receipt .print-receipt-button:hover {
+  color: white;
+  background-color: #43B666; }
+
+.receipt[dir='rtl'] .receipt-header .navbar-brand-logo {
+  margin-right: auto;
+  margin-left: 0; }
+
+.receipt[dir='rtl'] .table .total-container .order-totals {
+  margin-right: 0;
+  margin-left: auto;
+  width: 50%; }
+
+.receipt[dir='rtl'] .table .header dt:nth-child(2) {
+  width: 34%; }
+
+.receipt[dir='rtl'] .table .header dt:nth-child(3) {
+  width: 12%; }
+
+.receipt[dir='rtl'] .table .header dt:nth-child(4) {
+  width: 20%; }
+
+.receipt[dir='rtl'] .table .order-line-data .product-description-container {
+  width: 58%; }
+
+.receipt[dir='rtl'] .table .order-line-data .product-description-container dd:nth-child(2) {
+  width: 41.38%; }
+
+.receipt[dir='rtl'] .table .order-line-data .product-description-container dd:nth-child(4) {
+  width: 58.62%;
+  border-left: 2px solid #ebebeb;
+  border-right: none; }
+
+.receipt[dir='rtl'] .table .order-line-data .product-data-container {
+  width: 42%; }
+
+.receipt[dir='rtl'] .table .order-line-data .product-data-container dd {
+  width: 23.81%; }
+
+.receipt[dir='rtl'] .table .order-line-data .product-data-container dd:nth-child(2) {
+  width: 28.57%; }
+
+.receipt[dir='rtl'] .table .order-line-data .product-data-container dd:nth-child(4) {
+  width: 47.62%; }
+
+/* Override some values for when direction is set to RTL and not on mobile */
+@media (min-width: 991px) {
+  .receipt[dir='rtl'] .copy {
+    float: right; }
+  .receipt[dir='rtl'] .order-headers {
+    float: right; }
+  .receipt[dir='rtl'] dt, .receipt[dir='rtl'] dd {
+    margin-inline-start: 0px; }
+  .receipt[dir='rtl'] .header dt, .receipt[dir='rtl'] .header dd, .receipt[dir='rtl'] .order-line-data dt, .receipt[dir='rtl'] .order-line-data dd {
+    margin-inline-start: 0px; }
+  .receipt[dir='rtl'] .header dt:not(:last-child), .receipt[dir='rtl'] .header dd:not(:last-child), .receipt[dir='rtl'] .order-line-data dt:not(:last-child), .receipt[dir='rtl'] .order-line-data dd:not(:last-child) {
+    float: right;
+    border-right: none;
+    border-left: 2px solid #ebebeb; }
+  .receipt[dir='rtl'] .order-total {
+    margin-left: 50%;
+    margin-right: 0%; }
+  .receipt[dir='rtl'] .order-total .price {
+    float: left; } }
+
+/* Override some values for when direction is set to RTL and on mobile */
+@media (max-width: 991px) {
+  .receipt .table .order-line-data .product-description-container {
+    width: 60%; }
+  .receipt .table .order-line-data .product-description-container dt {
+    width: auto; }
+  .receipt .table .order-line-data .product-description-container dd {
+    margin-right: 0; }
+  .receipt .table .order-line-data .product-description-container dd:nth-child(2) {
+    width: 100%; }
+  .receipt .table .order-line-data .product-description-container dd:nth-child(4) {
+    width: 100%;
+    border-right: none; }
+  .receipt .table .order-line-data .product-data-container {
+    width: 40%;
+    display: flex;
+    flex-wrap: wrap; }
+  .receipt .table .order-line-data .product-data-container dd {
+    padding-top: 0;
+    width: 40%;
+    margin-right: 0; }
+  .receipt .table .order-line-data .product-data-container dt {
+    padding-top: 0;
+    width: 60%; }
+  .receipt[dir='rtl'] .order-summary dt {
+    float: right; }
+  .receipt[dir='rtl'] .order-total .price {
+    float: left; }
+  .receipt[dir='rtl'] .table .order-line-data .product-description-container {
+    width: 55%; }
+  .receipt[dir='rtl'] .table .order-line-data .product-description-container dt {
+    display: block;
+    width: auto; }
+  .receipt[dir='rtl'] .table .order-line-data .product-description-container dd:nth-child(2) {
+    width: 100%; }
+  .receipt[dir='rtl'] .table .order-line-data .product-description-container dd:nth-child(4) {
+    width: 100%;
+    border-left: none; }
+  .receipt[dir='rtl'] .table .order-line-data .product-data-container dd {
+    width: 40%; }
+  .receipt[dir='rtl'] .table .order-line-data .product-data-container dd:nth-child(4) {
+    width: 40%; } }
+
+/* Small devices (phones, 667px and lower) */
+@media (max-width: 667px) {
+  body {
+    font-size: 0.875rem; }
+  .receipt h2 {
+    font-size: 1.311rem; }
+  .receipt .receipt-header h2 {
+    font-size: 1.75rem; }
+  .receipt p {
+    font-size: 0.8rem; }
+  .receipt .payment-info .order-summary dt, .receipt .payment-info .order-summary dd {
+    font-size: 0.875rem; }
+  .receipt .table .header dt, .receipt .table .header dd, .receipt .table .order-line-data dt, .receipt .table .order-line-data dd {
+    font-size: 0.875rem; } }
+</style>
+</%block>
+
+<main id="main" aria-label="Content" tabindex="-1">
+  <div id="receipt-container" dir="ltr" class="receipt container content-container"
+     data-currency="${currency}"
+     data-order-id="${invoice.invoice_number}"
+     data-total-amount="${invoice.total}"
+     data-back-button="1">
+
   <div id="messages"></div>
   <div class="receipt-header">
     <h2 class="receipt">Invoice</h2>
-    <img class="navbar-brand-logo" alt="dev logo" src="/static/nelp-ecommerce-theme/images/default-logo.png">
   </div>
-  <p>{{ organization }}</p>
-  <p>{% trans "Tax no:" as tmsg %}{{ tmsg | force_escape }} {{ tax_number }}</p>
+
+  <p>${organization}</p>
   <hr class="solid">
+
   <div class="list-info">
-      <div class="info-item payment-info row">
-        <div class="order-headers order-summary">
-          <dl>
-            <div class="order-summary-item">
-              <dt>{% trans "Name:" as tmsg %}{{ tmsg | force_escape }}</dt>
-                <dd>
-                  {% if invoice.cart.user.full_name %}
-                    {{ invoice.cart.user.full_name }}
-                  {% else %}
-                    {{ invoice.cart.user.first_name }} {{ invoice.cart.user.last_name }}
-                  {% endif %}
-                </dd>
-            </div>
-            <div class="order-summary-item">
-              <dt>{% trans "Invoice Number:" as tmsg %}{{ tmsg | force_escape }}</dt>
-              <dd>{{ invoice.invoice_number  }}</dd>
-            </div>
-            <div class="order-summary-item">
-              <dt>{% trans "Order Date:" as tmsg %}{{ tmsg | force_escape }}</dt>
-              <dd>{{ invoice.cart.updated_at|date:"F d, Y" }}
-              </dd>
-            </div>
-            <div class="order-summary-item">
-                {% if payment_method %}
-                  <dt>{% trans "Payment Method:" as tmsg %}{{ tmsg | force_escape }}</dt>
-                  <dd>{{ payment_method }}</dd>
-                {% endif %}
-            </div>
-          </dl>
-        </div>
-      </div>
-      <h2>{% trans "Order Information" as tmsg %}{{ tmsg | force_escape }}</h2>
-      <div class="table">
-        <dl class="order-lines">
-          <div class="header">
-            <dt aria-hidden="true">{% trans "Product" as tmsg %}{{ tmsg | force_escape }}</dt>
-            <dt aria-hidden="true">{% trans "Description" as tmsg %}{{ tmsg | force_escape }}</dt>
-            <dt aria-hidden="true">{% trans "Unit Price" as tmsg %}{{ tmsg | force_escape }}</dt>
-            <dt aria-hidden="true">{% trans "VAT" as tmsg %}{{ tmsg | force_escape }}</dt>
-            <dt aria-hidden="true">{% trans "Total" as tmsg %}{{ tmsg | force_escape }}</dt>
+    <div class="info-item payment-info row">
+      <div class="order-headers order-summary">
+        <dl>
+
+          <div class="order-summary-item">
+            <dt>${_("Name:")}</dt>
+            <dd>
+              % if invoice.cart.user.username:
+                ${invoice.cart.user.username}
+              % else:
+                ${invoice.cart.user.first_name} ${invoice.cart.user.last_name}
+              % endif
+            </dd>
           </div>
-          {% for invoice_item in invoice.items.all %}
-            <div class="order-line-data">
-              <div class="product-description-container">
-                <dt class="product sr">Product:</dt>
-                <dd class="product">
-                  {% if invoice_item.cart_item.catalogue_item.title %}
-                      {{ invoice_item.cart_item.catalogue_item.title }}
-                  {% endif %}
-                </dd>
-                <dt class="course-description sr">Description:</dt>
-                <dd class="course-description">
-                  <span>
-                    {% if invoice_item.cart_item.catalogue_item.description %}
-                        {{ invoice_item.cart_item.catalogue_item.description }}
-                    {% endif %}
-                  </span>
-                </dd>
-              </div>
-              <div class="product-data-container">
-                <dt class="line-price sr">{% trans "Unit Price:" as tmsg %}{{ tmsg | force_escape }}</dt>
-                <dd class="line-price price">{{ invoice_item.original_price }} {{ currency }}</dd>
-                <dt class="line-vat sr">{% trans "VAT" as tmsg %}{{ tmsg | force_escape }}</dt>
-                <dd class="line-vat vat">{{ invoice_item.tax_amount }} {{ currency }}</dd>
-                <dt class="line-total sr">{% trans "Total:" as tmsg %}{{ tmsg | force_escape }}</dt>
-                <dd class="line-total total">{{ invoice_item.price }} {{ currency }}</dd>
-              </div>
-            </div>
-          {% endfor %}
+
+          <div class="order-summary-item">
+            <dt>${_("Invoice Number:")}</dt>
+            <dd>${invoice.invoice_number}</dd>
+          </div>
+
+          <div class="order-summary-item">
+            <dt>${_("Order Date:")}</dt>
+            <dd>${invoice.cart.updated_at.strftime("%B %d, %Y")}</dd>
+          </div>
+
+          % if payment_method:
+          <div class="order-summary-item">
+            <dt>${_("Payment Method:")}</dt>
+            <dd>${payment_method}</dd>
+          </div>
+          % endif
+
         </dl>
-        <div class="total-container">
-          <div class="order-totals">
-            <div class="order-total">
-              <div class="description">{% trans "Subtotal" as tmsg %}{{ tmsg | force_escape }}</div>
-              <div class="price">{{ invoice.gross_total }} {{ currency }}</div>
-            </div>
-            <div class="order-total">
-              <div class="description">{% trans "VAT" as tmsg %}{{ tmsg | force_escape }}</div>
-              <div class="price">{{ invoice.tax_total }} {{ currency }}</div>
-            </div>
-            <div class="order-total">
-              <div class="description">{% trans "Total" as tmsg %}{{ tmsg | force_escape }}</div>
-              <div class="price">{{ invoice.total }} {{ currency }}</div>
-            </div>
-          </div>
-          {% generate_invoice_qr_code invoice.invoice_number %}
+      </div>
+    </div>
+
+    <h2>${_("Order Information")}</h2>
+
+    <div class="table">
+      <dl class="order-lines">
+
+        <div class="header">
+          <dt>${_("Product")}</dt>
+          <dt>${_("Description")}</dt>
+          <dt>${_("Unit Price")}</dt>
+          <dt>${_("VAT")}</dt>
+          <dt>${_("Total")}</dt>
         </div>
 
+        % for invoice_item in invoice.items.all():
+        <div class="order-line-data">
+
+          <div class="product-description-container">
+            <dt class="product sr">${_("Product:")}</dt>
+            <dd class="product">
+              % if invoice_item.cart_item.catalogue_item.title:
+                ${invoice_item.cart_item.catalogue_item.title}
+              % endif
+            </dd>
+
+            <dt class="course-description sr">${_("Description:")}</dt>
+            <dd class="course-description">
+              % if invoice_item.cart_item.catalogue_item.description:
+                ${invoice_item.cart_item.catalogue_item.description}
+              % endif
+            </dd>
+          </div>
+
+          <div class="product-data-container">
+            <dt class="line-price sr">${_("Unit Price:")}</dt>
+            <dd class="line-price price">${invoice_item.original_price} ${currency}</dd>
+
+            <dt class="line-vat sr">${_("VAT")}</dt>
+            <dd class="line-vat vat">${invoice_item.tax_amount} ${currency}</dd>
+
+            <dt class="line-total sr">${_("Total:")}</dt>
+            <dd class="line-total total">${invoice_item.price} ${currency}</dd>
+          </div>
+
+        </div>
+        % endfor
+
+      </dl>
+
+      <div class="total-container">
+        <div class="order-totals">
+
+          <div class="order-total">
+            <div class="description">${_("Subtotal")}</div>
+            <div class="price">${invoice.gross_total} ${currency}</div>
+          </div>
+
+          <div class="order-total">
+            <div class="description">${_("VAT")}</div>
+            <div class="price">${invoice.tax_total} ${currency}</div>
+          </div>
+
+          <div class="order-total">
+            <div class="description">${_("Total")}</div>
+            <div class="price">${invoice.total} ${currency}</div>
+          </div>
+
+        </div>
+
+        ${generate_invoice_qr_code(invoice.invoice_number) if generate_invoice_qr_code else ""}
+
+      </div>
     </div>
   </div>
-  <button class="print-receipt-button" onclick="window.print()">{% trans "Print Receipt" as tmsg %}{{ tmsg | force_escape }}</button>
+  <div>
+    
+  </div>
+  <div id="links" class="row">
+      <a class="dashboard-link nav-link" href="#">
+        Go to dashboard
+      </a>
+  </div>
+</form>
 </div>
-{% endblock %}
+</main>
