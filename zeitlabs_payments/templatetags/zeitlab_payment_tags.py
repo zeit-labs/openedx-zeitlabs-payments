@@ -5,12 +5,7 @@ These tags can be used to extend template functionality, such as generating dyna
 content like QR codes or handling other custom template logic within Django views.
 Additional tags can be added to further enhance template capabilities.
 """
-import qrcode
-import qrcode.image.svg
-from crum import get_current_request
 from django import template
-from django.urls import reverse
-from django.utils.safestring import mark_safe
 
 from zeitlabs_payments.helpers import generate_invoice_qr_code as generate_qr_code
 

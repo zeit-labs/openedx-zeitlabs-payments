@@ -2,18 +2,14 @@
 
 from __future__ import annotations
 
-import qrcode
-import qrcode.image.svg
-from crum import get_current_request
 import logging
 import re
 from dataclasses import dataclass, field
-from django.urls import reverse
-from django.utils.safestring import mark_safe
 from typing import Any, Optional
 from urllib.parse import urljoin
 
-
+import qrcode
+import qrcode.image.svg
 from common.djangoapps.course_modes.models import CourseMode
 from common.djangoapps.student.models import (
     AlreadyEnrolledError,
@@ -21,8 +17,11 @@ from common.djangoapps.student.models import (
     CourseFullError,
     EnrollmentClosedError,
 )
+from crum import get_current_request
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.urls import reverse
+from django.utils.safestring import mark_safe
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
 from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
 
