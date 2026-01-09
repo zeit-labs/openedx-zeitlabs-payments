@@ -3,4 +3,4 @@ include LICENSE.txt
 include README.rst
 include requirements/base.in
 include requirements/constraints.txt
-recursive-include zeitlabs_payments zeitlabs_payments/templates *.html *.png *.gif *.js *.css *.jpg *.jpeg *.svg
+recursive-include zeitlabs_payments zeitlabs_payments/templates *.html *.png *.gif *.js *.css *.jpg *.jpeg *.svg *.py *.yml *.po
