@@ -1,104 +1,130 @@
 {% extends "main_django.html" %}
 {% load i18n %}
 {% load static %}
+{% get_current_language_bidi as LANGUAGE_BIDI %}
 
 {% block body %}
-   {% include "zeitlabs_payments/styles.html" %}
+{% include "zeitlabs_payments/styles.html" %}
 
-   <div class="basket">
-       <div class="container">
-           <div id="messages"></div>
-           <div id="content-inner">
-            {% csrf_token %}
-            {{ formset.management_form }}
-            {% if cart %}
-               <form action="." method="post">
-                  {% for item in cart.items %}
-                     {% for course in item.details.courses %}
-                     <div class="basket-items">
-                        <p class="certificate_type">
-                              Earn a valuable certificate to showcase the skills you learn in
-                        </p>
-
-                        <div class="row">
-                              <div class="col-md-2 col-sm-12 product-image pull-left">
-                                 <img class="thumbnail" src="{{ course.course_image }}" alt="{{ course.course_name }}" />
-                              </div>
-                              <div class="col-md-5 col-sm-12 pull-left">
-                                 <p class="product-title">{{ item.title }} - {{ course.org }} ({{ course.run }})</p>
-                                 <p class="product-description">{{ item.description|default_if_none:'' }}</p>
-                              </div>
-                              <div class="col-md-5 col-xs-12 product-prices pull-right">
-                                 <div class="price">{{ item.final_price }} {{item.currency }}</div>
-                              </div>
-                        </div>
-                     </div>
-                     {% endfor %}
-                  {% endfor %}
-               </form>
-
-               <div class="total">
-                   <div class="row">
-                       <div class="use-voucher col-sm-7 col-xs-8 pull-left">
-                           <p id="voucher_form_link">
-                               <a href="#voucher">Apply a coupon code</a>
-                           </p>
-                           <div id="voucher_form_container" class="voucher_form">
-                              <form id="voucher_form" action="/basket/vouchers/add/" method="post">
-                                 {% csrf_token %}
-                                 <div class="code">
-                                    <input id="id_code" name="code" type="text">
-                                    <button type="submit" id="apply-voucher-button" class="btn btn-default">
-                                       {% trans "Apply" %}
-                                    </button>
-                                 </div>
-                              </form>
-                           </div>
-                       </div>
-
-                       <div id="basket_totals" class="col-xs-4 pull-right">
-                        {% trans "Total:" as tmsg %}{{ tmsg | force_escape }}
-                        {{ cart.total }} {{ cart.currency }}
-                       </div>
-                   </div>
-               </div>
-
-               <div class="row">
-                   <div class="col-sm-12">
-                       <div class="pull-right payment-buttons" data-basket-id="1">
-                        {% for method in methods %}
-                           <a
-                              href="{{ method.url }}"
-                              class="btn payment-button pay-btn-{{ method.slug }}"
-                              data-slug="{{ method.slug }}"
-                              data-title="{{ method.title }}">
-                              {{ method.checkout_text }}
-                           </a>
+<div class="basket" dir="{% if LANGUAGE_BIDI %}rtl{% else %}ltr{% endif %}">
+    <div class="container">
+        <div class="basket-card">
+            <!-- Header -->
+            <div class="basket-header">
+                <h1>{% trans "Checkout" %}</h1>
+            </div>
+            
+            <div class="basket-body">
+                <div id="messages"></div>
+                
+                {% csrf_token %}
+                {{ formset.management_form }}
+                
+                {% if cart %}
+                    <!-- Cart Items -->
+                    <div class="basket-items">
+                        {% for item in cart.items %}
+                            {% for course in item.details.courses %}
+                            <div class="basket-item">
+                                <div class="basket-item-image">
+                                    <img src="{{ course.course_image }}" alt="{{ course.course_name }}" />
+                                </div>
+                                <div class="basket-item-details">
+                                    <div class="basket-item-title">{{ item.title }}</div>
+                                    <div class="basket-item-description">
+                                        <div class="course-id">{{ course.course_id }}</div>
+                                        {{ course.org }} ({{ course.run }})
+                                        {% if item.description %}
+                                            <br>{{ item.description }}
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                <div class="basket-item-price">
+                                    <div class="price">{{ item.final_price }} {{ item.currency }}</div>
+                                </div>
+                            </div>
+                            {% endfor %}
                         {% endfor %}
-                       </div>
-                   </div>
-               </div>
+                    </div>
 
-               <div class="row verification-note">
-                   <div class="col-sm-12">
-                       <span><i class="fa fa-exclamation-circle"></i></span>
-                       <strong>{% trans "Note:" %}</strong>{% trans "Earn a valuable certificate to showcase the skills you learn in" as tmsg %}{{ tmsg | force_escape }}
-                   </div>
-               </div>
+                    <!-- Voucher Section -->
+                    <div class="voucher-section">
+                        <div class="voucher-toggle" id="voucher_form_link" onclick="toggleVoucher()">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 5H3a2 2 0 0 0-2 2v4a2 2 0 0 1 2 2 2 2 0 0 1-2 2v4a2 2 0 0 0 2 2h18a2 2 0 0 0 2-2v-4a2 2 0 0 1-2-2 2 2 0 0 1 2-2V7a2 2 0 0 0-2-2z"/>
+                                <line x1="12" y1="8" x2="12" y2="16"/>
+                            </svg>
+                            <span>{% trans "Have a coupon code?" %}</span>
+                        </div>
+                        <form id="voucher_form" class="voucher-form" action="/basket/vouchers/add/" method="post">
+                            {% csrf_token %}
+                            <input type="text" id="id_code" name="code" class="form-control" placeholder="{% trans 'Enter coupon code' %}">
+                            <button type="submit" id="apply-voucher-button" class="btn btn-primary">
+                                {% trans "Apply" %}
+                            </button>
+                        </form>
+                    </div>
 
-               <div class="row help">
-                   <div class="col-sm-12">
-                       <p><strong>{% trans "Have questions?" %}</strong></p>
-                       <a href="{{ support_url }}">{% trans "Please read our FAQs to view common questions about our certificates." %}</a>
-                   </div>
-               </div>
-            {% else %}
-               <div class="depth depth-2 message-error-content">
-                  <h3 data-something="|add:dashboard_url|add:">{% trans "No cart exist." %}</h3>
-                     {% trans "If you need assistance, contact dev support." %}
-               </div>
-           {% endif %}
-           </div>
-       </div>
-   </div>
+                    <!-- Totals -->
+                    <div class="basket-totals">
+                        <div class="totals-row">
+                            <span class="totals-label">{% trans "Subtotal" %}</span>
+                            <span class="totals-value">{{ cart.total }} {{ cart.currency }}</span>
+                        </div>
+                        <div class="totals-row">
+                            <span class="totals-label">{% trans "Total" %}</span>
+                            <span class="totals-value" id="basket_totals">{{ cart.total }} {{ cart.currency }}</span>
+                        </div>
+                    </div>
+
+                    <!-- Payment Buttons -->
+                    <div class="payment-buttons">
+                        {% for method in methods %}
+                        <a href="{{ method.url }}" 
+                           class="payment-button" 
+                           data-slug="{{ method.slug }}" 
+                           data-title="{{ method.title }}">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/>
+                                <line x1="1" y1="10" x2="23" y2="10"/>
+                            </svg>
+                            {{ method.checkout_text }}
+                        </a>
+                        {% endfor %}
+                    </div>
+
+                    <!-- Help Section -->
+                    <div class="help-section">
+                        <h4>{% trans "Have questions?" %}</h4>
+                        <a href="{{ support_url }}">{% trans "Please read our FAQs to view common questions about our certificates." %}</a>
+                    </div>
+
+                {% else %}
+                    <!-- Empty Cart Message -->
+                    <div class="status-card" style="margin: 0 auto;">
+                        <div class="status-icon warning">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <line x1="12" y1="8" x2="12" y2="12"/>
+                                <line x1="12" y1="16" x2="12.01" y2="16"/>
+                            </svg>
+                        </div>
+                        <h3 class="status-title">{% trans "No cart exists" %}</h3>
+                        <p class="status-message">{% trans "Your shopping cart is empty. Please add items to continue." %}</p>
+                        <div class="status-actions">
+                            <a href="/" class="btn btn-primary">{% trans "Browse Courses" %}</a>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function toggleVoucher() {
+    const form = document.getElementById('voucher_form');
+    form.classList.toggle('active');
+}
+</script>
 {% endblock %}

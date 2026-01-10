@@ -1,36 +1,35 @@
 {% extends "main_django.html" %}
 {% load i18n %}
 {% load static %}
+{% get_current_language_bidi as LANGUAGE_BIDI %}
 
 {% block body %}
-<style>
-    .payment-failed {
-        font-family: Arial, sans-serif;
-        background: #f5f5f5;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        height: 100vh;
-        margin: 0;
-    }
-    .message-box {
-        background: #fff;
-        padding: 2rem 3rem;
-        box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        text-align: center;
-        border-radius: 8px;
-    }
-    .message-box h1 {
-        color: #f0ad4e; /* Bootstrap warning color */
-        margin-bottom: 1rem;
-    }
-</style>
+{% include "zeitlabs_payments/styles.html" %}
 
-<div class="payment-failed">
-    <div class="message-box">
-        <h1>
-            {% trans "Payment confirmation not received yet. If payment was successful and you're still seeing this message, please wait for a while. If your enrollment doesn't update after that, kindly contact us." %}
-        </h1>
+<div class="status-page" dir="{% if LANGUAGE_BIDI %}rtl{% else %}ltr{% endif %}">
+    <div class="status-card">
+        <div class="status-icon warning">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+        </div>
+        <h2 class="status-title">{% trans "Payment Pending" %}</h2>
+        <p class="status-message">
+            {% trans "Payment confirmation not received yet." %}
+        </p>
+        <p class="status-message">
+            {% trans "If payment was successful and you're still seeing this message, please wait for a while. If your enrollment doesn't update after that, kindly contact us." %}
+        </p>
+        <div class="status-actions">
+            <a href="/dashboard" class="btn btn-primary">
+                {% trans "Go to Dashboard" %}
+            </a>
+            <a href="/contact-support" class="btn btn-outline">
+                {% trans "Contact Support" %}
+            </a>
+        </div>
     </div>
 </div>
 {% endblock %}
