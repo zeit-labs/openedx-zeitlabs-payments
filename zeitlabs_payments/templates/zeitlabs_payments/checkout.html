@@ -1,4 +1,5 @@
 {% extends "main_django.html" %}
+{% load l10n %}
 {% load i18n %}
 {% load static %}
 {% get_current_language_bidi as LANGUAGE_BIDI %}
@@ -68,11 +69,11 @@
                     <div class="basket-totals">
                         <div class="totals-row">
                             <span class="totals-label">{% trans "Subtotal" %}</span>
-                            <span class="totals-value">{{ cart.total }} {{ cart.currency }}</span>
+                            <span class="totals-value">{{ cart.total|unlocalize }} {{ cart.currency }}</span>
                         </div>
                         <div class="totals-row">
                             <span class="totals-label">{% trans "Total" %}</span>
-                            <span class="totals-value" id="basket_totals">{{ cart.total }} {{ cart.currency }}</span>
+                            <span class="totals-value" id="basket_totals">{{ cart.total|unlocalize }} {{ cart.currency }}</span>
                         </div>
                     </div>
 
