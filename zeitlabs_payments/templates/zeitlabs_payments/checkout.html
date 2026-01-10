@@ -13,13 +13,13 @@
             <div class="basket-header">
                 <h1>{% trans "Checkout" %}</h1>
             </div>
-            
+
             <div class="basket-body">
                 <div id="messages"></div>
-                
+
                 {% csrf_token %}
                 {{ formset.management_form }}
-                
+
                 {% if cart %}
                     <!-- Cart Items -->
                     <div class="basket-items">
@@ -33,7 +33,6 @@
                                     <div class="basket-item-title">{{ item.title }}</div>
                                     <div class="basket-item-description">
                                         <div class="course-id">{{ course.course_id }}</div>
-                                        {{ course.org }} ({{ course.run }})
                                         {% if item.description %}
                                             <br>{{ item.description }}
                                         {% endif %}
@@ -80,9 +79,9 @@
                     <!-- Payment Buttons -->
                     <div class="payment-buttons">
                         {% for method in methods %}
-                        <a href="{{ method.url }}" 
-                           class="payment-button" 
-                           data-slug="{{ method.slug }}" 
+                        <a href="{{ method.url }}"
+                           class="payment-button"
+                           data-slug="{{ method.slug }}"
                            data-title="{{ method.title }}">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/>
