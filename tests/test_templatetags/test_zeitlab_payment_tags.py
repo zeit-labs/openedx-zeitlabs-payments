@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 from django.template import Context, Template
 
 
-@patch('zeitlabs_payments.templatetags.zeitlab_payment_tags.get_current_request')
-@patch('zeitlabs_payments.templatetags.zeitlab_payment_tags.reverse')
+@patch('zeitlabs_payments.helpers.get_current_request')
+@patch('zeitlabs_payments.helpers.reverse')
 def test_generate_invoice_qr_code_tag(mock_reverse, mock_get_request):
     mock_reverse.return_value = '/invoice/12345/'
     mock_request = MagicMock()

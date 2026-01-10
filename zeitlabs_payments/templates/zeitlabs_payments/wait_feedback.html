@@ -1,22 +1,28 @@
 {% extends "main_django.html" %}
 {% load i18n %}
+{% load static %}
+{% get_current_language_bidi as LANGUAGE_BIDI %}
 
 {% block body %}
-  <style>
-    .centered-content {
-      text-align: center;
-      margin-top: 2em;
-    }
-  </style>
-  <div class="centered-content">
-    <h1 id="status-message">{% trans "Processing enrollment... please wait..." %}</h1>
-    <p>
-      {% trans "For your reference, the ID is:" %}
-      <strong>{{ ecommerce_transaction_id }}</strong>
-    </p>
-  </div>
+{% include "zeitlabs_payments/styles.html" %}
 
-  <script type="text/javascript">
+<div class="status-page" dir="{% if LANGUAGE_BIDI %}rtl{% else %}ltr{% endif %}">
+    <div class="status-card">
+        <div class="spinner"></div>
+        <h2 class="status-title" id="status-message">{% trans "Processing Your Payment..." %}</h2>
+        <p class="status-message">
+            {% trans "Please wait while we confirm your payment. This may take a few moments." %}
+        </p>
+        <div class="status-reference">
+            {% trans "Transaction ID:" %} {{ ecommerce_transaction_id }}
+        </div>
+        <p class="status-message text-muted" style="font-size: var(--font-size-sm);">
+            {% trans "Please do not close this page or press the back button." %}
+        </p>
+    </div>
+</div>
+
+<script type="text/javascript">
     const errorUrl = "{{ ecommerce_error_url|safe }}";
     const successUrl = "{{ ecommerce_success_url|safe }}";
     const statusUrl = "{{ ecommerce_status_url|safe }}";
@@ -24,50 +30,50 @@
     let attempts = 0;
 
     function checkStatus() {
-      attempts++;
-      const params = new URLSearchParams({
-        transaction_id: "{{ ecommerce_transaction_id }}",
-        merchant_reference: "{{ merchant_reference }}"
-      });
-      fetch(`${statusUrl}?${params.toString()}`, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded"
-        },
-        redirect: "follow"
-      })
-      .then(response => {
-        return response.json().then(data => ({
-          status: response.status,
-          data: data
-        }));
-      })
-      .then(({ status, data }) => {
-        if (status === 200) {
-          window.location.href = data.invoice_url;
-        } else if (status === 202) {
-          if (attempts < {{ ecommerce_max_attempts }}) {
-            setTimeout(checkStatus, {{ ecommerce_wait_time }});
-          } else {
+        attempts++;
+        const params = new URLSearchParams({
+            transaction_id: "{{ ecommerce_transaction_id }}",
+            merchant_reference: "{{ merchant_reference }}"
+        });
+        fetch(`${statusUrl}?${params.toString()}`, {
+            method: "GET",
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded"
+            },
+            redirect: "follow"
+        })
+        .then(response => {
+            return response.json().then(data => ({
+                status: response.status,
+                data: data
+            }));
+        })
+        .then(({ status, data }) => {
+            if (status === 200) {
+                statusMessage.textContent = "{% trans 'Payment Confirmed! Redirecting...' %}";
+                window.location.href = data.invoice_url;
+            } else if (status === 202) {
+                if (attempts < {{ ecommerce_max_attempts }}) {
+                    setTimeout(checkStatus, {{ ecommerce_wait_time }});
+                } else {
+                    window.location.href = errorUrl;
+                }
+            } else if (status === 400) {
+                if (data.error) {
+                    statusMessage.textContent = data.error;
+                } else {
+                    window.location.href = errorUrl;
+                }
+            } else {
+                window.location.href = errorUrl;
+            }
+        })
+        .catch(error => {
+            console.error("Payment Check Status Error: ", error);
             window.location.href = errorUrl;
-          }
-        } else if (status === 400) {
-          if (data.error) {
-            statusMessage.textContent = data.error;
-          }
-          else {
-            window.location.href = errorUrl;
-          }
-        } else {
-          window.location.href = errorUrl;
-        }
-      })
-      .catch(error => {
-        console.error("Payment Check Status Error: ", error);
-        window.location.href = errorUrl;
-      });
+        });
     }
 
     window.onload = checkStatus;
-  </script>
+</script>
 {% endblock %}
