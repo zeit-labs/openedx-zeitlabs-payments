@@ -88,9 +88,9 @@
                                 {{ invoice_item.cart_item.catalogue_item.description|default:"-" }}
                             </div>
                         </td>
-                        <td>{{ invoice_item.original_price }} {{ currency }}</td>
-                        <td>{{ invoice_item.tax_amount }} {{ currency }}</td>
-                        <td>{{ invoice_item.price }} {{ currency }}</td>
+                        <td>{{ invoice_item.original_price }} {{ currency|currency_symbol }}</td>
+                        <td>{{ invoice_item.tax_amount }} {{ currency|currency_symbol }}</td>
+                        <td>{{ invoice_item.price }} {{ currency|currency_symbol }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -107,15 +107,15 @@
                 <div class="order-totals" style="flex: 1; max-width: none;">
                     <div class="totals-row">
                         <span class="totals-label">{% trans "Subtotal" %}</span>
-                        <span class="totals-value">{{ invoice.gross_total }} {{ currency }}</span>
+                        <span class="totals-value">{{ invoice.gross_total }} {{ currency|currency_symbol }}</span>
                     </div>
                     <div class="totals-row">
                         <span class="totals-label">{% trans "VAT" %}</span>
-                        <span class="totals-value">{{ invoice.tax_total }} {{ currency }}</span>
+                        <span class="totals-value">{{ invoice.tax_total }} {{ currency|currency_symbol }}</span>
                     </div>
                     <div class="totals-row">
                         <span class="totals-label">{% trans "Total" %}</span>
-                        <span class="totals-value">{{ invoice.total }} {{ currency }}</span>
+                        <span class="totals-value">{{ invoice.total }} {{ currency|currency_symbol }}</span>
                     </div>
                 </div>
             </div>

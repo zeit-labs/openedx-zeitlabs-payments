@@ -54,8 +54,10 @@ class CheckoutView(LoginRequiredMixin, TemplateView):
             {
                 'cart': cart,
                 'methods': methods,
+                'support_url': get_settings().support_url,
             }
         )
+        print('---------> context = ', context)
         return context
 
     def get(self, request: Any, *args: Any, **kwargs: Any) -> None:

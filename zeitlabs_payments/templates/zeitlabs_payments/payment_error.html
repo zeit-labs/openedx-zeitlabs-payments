@@ -27,13 +27,17 @@
             {% trans "Reference:" %} {{ merchant_reference }}
         </div>
         {% endif %}
+        {% if support_email or support_url %}
         <p class="status-message">
             {% trans "Please contact us for further support." %}
         </p>
+        {% endif %}
         <div class="status-actions">
-            <a href="/contact-support" class="btn btn-primary">
+            {% if support_url %}
+            <a href="{{ support_url }}" class="btn btn-primary">
                 {% trans "Contact Support" %}
             </a>
+            {% endif %}
             <a href="/" class="btn btn-outline">
                 {% trans "Try Again" %}
             </a>

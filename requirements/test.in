@@ -13,6 +13,7 @@ types-python-dateutil           # needed for mypy to understand python-dateutil
 
 
 # edx-platform related requirements
+babel
 edx-api-doc-tools
 edx-opaque-keys[django]
 djangorestframework
