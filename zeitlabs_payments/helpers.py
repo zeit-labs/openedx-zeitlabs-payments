@@ -71,6 +71,12 @@ class ZeitLabsPluginSettings:
     valid_currency: str = field(
         default_factory=lambda: ZeitLabsPluginSettings.get_by_zeitlabs_key('valid_currency', '!!!')
     )
+    support_url: str = field(
+        default_factory=lambda: ZeitLabsPluginSettings.get_by_zeitlabs_key('support_url', '')
+    )
+    support_email: str = field(
+        default_factory=lambda: ZeitLabsPluginSettings.get_by_zeitlabs_key('support_email', '')
+    )
     root_url: str = field(
         default_factory=lambda: ZeitLabsPluginSettings.get_by_root_key(
             'LMS_ROOT_URL',

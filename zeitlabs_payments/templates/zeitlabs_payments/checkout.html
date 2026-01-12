@@ -95,10 +95,12 @@
                     </div>
 
                     <!-- Help Section -->
+                    {% if support_url %}
                     <div class="help-section">
                         <h4>{% trans "Have questions?" %}</h4>
                         <a href="{{ support_url }}">{% trans "Please read our FAQs to view common questions about our certificates." %}</a>
                     </div>
+                    {% endif %}
 
                 {% else %}
                     <!-- Empty Cart Message -->
