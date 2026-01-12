@@ -31,9 +31,11 @@
             <a href="javascript:history.back()" class="btn btn-primary">
                 {% trans "Try Again" %}
             </a>
-            <a href="/contact-support" class="btn btn-outline">
+            {% if support_url %}
+            <a href="{{ support_url }}" class="btn btn-primary">
                 {% trans "Contact Support" %}
             </a>
+            {% endif %}
         </div>
     </div>
 </div>

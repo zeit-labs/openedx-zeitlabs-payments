@@ -23,7 +23,9 @@
         <!-- Header -->
         <div class="receipt-header">
             <h2>{% trans "Invoice" %}</h2>
-            <img class="logo" alt="{% trans 'Logo' %}" src="/static/nelp-ecommerce-theme/images/default-logo.png">
+            {% if logo_url %}
+            <img class="logo" alt="{% trans 'Logo' %}" src="{{ logo_url }}">
+            {% endif %}
         </div>
 
         <!-- Company Info -->

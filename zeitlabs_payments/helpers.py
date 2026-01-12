@@ -77,6 +77,9 @@ class ZeitLabsPluginSettings:
     support_email: str = field(
         default_factory=lambda: ZeitLabsPluginSettings.get_by_zeitlabs_key('support_email', '')
     )
+    logo_url: str = field(
+        default_factory=lambda: ZeitLabsPluginSettings.get_by_zeitlabs_key('logo_url', '')
+    )
     root_url: str = field(
         default_factory=lambda: ZeitLabsPluginSettings.get_by_root_key(
             'LMS_ROOT_URL',
