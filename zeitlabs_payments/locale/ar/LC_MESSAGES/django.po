@@ -1,0 +1,167 @@
+# Arabic translations for zeitlabs-payments.
+# Copyright (C) 2026 Zeit Labs
+# This file is distributed under the same license as the zeitlabs-payments package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: zeitlabs-payments 0.1.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-01-12 00:00+0000\n"
+"PO-Revision-Date: 2026-01-12 00:00+0000\n"
+"Last-Translator: Zeit Labs <support@zeitlabs.com>\n"
+"Language-Team: Arabic <ar@zeitlabs.com>\n"
+"Language: ar\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=6; plural=n==0 ? 0 : n==1 ? 1 : n==2 ? 2 : n%100>=3 && n%100<=10 ? 3 : n%100>=11 && n%100<=99 ? 4 : 5;\n"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/checkout.html:52
+msgid "Apply"
+msgstr "تطبيق"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/checkout.html:60
+msgid "Total:"
+msgstr "المجموع:"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/checkout.html:85
+msgid "Note:"
+msgstr "ملاحظة:"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/checkout.html:85
+msgid "Earn a valuable certificate to showcase the skills you learn in"
+msgstr "احصل على شهادة قيّمة لإبراز المهارات التي تعلمتها"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/checkout.html:91
+msgid "Have questions?"
+msgstr "هل لديك أسئلة؟"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/checkout.html:92
+msgid "Please read our FAQs to view common questions about our certificates."
+msgstr "يرجى قراءة الأسئلة الشائعة للاطلاع على الأسئلة المتداولة حول شهاداتنا."
+
+#: zeitlabs_payments/templates/zeitlabs_payments/checkout.html:97
+msgid "No cart exist."
+msgstr "لا يوجد سلة."
+
+#: zeitlabs_payments/templates/zeitlabs_payments/checkout.html:98
+msgid "If you need assistance, contact dev support."
+msgstr "إذا كنت بحاجة إلى مساعدة، تواصل مع الدعم الفني."
+
+#: zeitlabs_payments/templates/zeitlabs_payments/payment_successful.html:33
+msgid "Your payment was successful and enrollment is updated."
+msgstr "تمت عملية الدفع بنجاح وتم تحديث التسجيل."
+
+#: zeitlabs_payments/templates/zeitlabs_payments/payment_successful.html:34
+msgid "Thank you for your purchase!"
+msgstr "شكراً لك على الشراء!"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/payment_error.html:38
+msgid "Something went wrong while fullfilling Payment"
+msgstr "حدث خطأ أثناء إتمام عملية الدفع"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/payment_error.html:39
+msgid "We couldn't process your transaction completely at this time."
+msgstr "لم نتمكن من إتمام معاملتك في الوقت الحالي."
+
+#: zeitlabs_payments/templates/zeitlabs_payments/payment_error.html:42-44
+#, python-format
+msgid "Your reference number is: %(ref)s"
+msgstr "رقم المرجع الخاص بك هو: %(ref)s"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/payment_error.html:48
+msgid "Contact us for further support."
+msgstr "تواصل معنا للحصول على مزيد من الدعم."
+
+#: zeitlabs_payments/templates/zeitlabs_payments/payment_error.html:49
+msgid "Contact Support"
+msgstr "تواصل مع الدعم"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/payment_pending.html:32
+msgid "Payment confirmation not received yet. If payment was successful and you're still seeing this message, please wait for a while. If your enrollment doesn't update after that, kindly contact us."
+msgstr "لم يتم استلام تأكيد الدفع بعد. إذا كانت عملية الدفع ناجحة وما زلت ترى هذه الرسالة، يرجى الانتظار لبعض الوقت. إذا لم يتم تحديث تسجيلك بعد ذلك، يرجى التواصل معنا."
+
+#: zeitlabs_payments/templates/zeitlabs_payments/payment_decline.html:40
+msgid "Payment Declined"
+msgstr "تم رفض الدفع"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/payment_decline.html:42
+msgid "Your payment was declined by the payment provider and could not be completed."
+msgstr "تم رفض عملية الدفع من قبل مزود خدمة الدفع ولم يتم إتمامها."
+
+#: zeitlabs_payments/templates/zeitlabs_payments/payment_decline.html:52
+msgid "Please try again or use a different payment method."
+msgstr "يرجى المحاولة مرة أخرى أو استخدام طريقة دفع مختلفة."
+
+#: zeitlabs_payments/templates/zeitlabs_payments/invoice.html:12-14
+#, python-format
+msgid "Receipt for %(order_number)s"
+msgstr "إيصال رقم %(order_number)s"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/invoice.html:29
+msgid "Tax no:"
+msgstr "الرقم الضريبي:"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/invoice.html:36
+msgid "Name:"
+msgstr "الاسم:"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/invoice.html:46
+msgid "Invoice Number:"
+msgstr "رقم الفاتورة:"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/invoice.html:50
+msgid "Order Date:"
+msgstr "تاريخ الطلب:"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/invoice.html:56
+msgid "Payment Method:"
+msgstr "طريقة الدفع:"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/invoice.html:63
+msgid "Order Information"
+msgstr "معلومات الطلب"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/invoice.html:67
+msgid "Product"
+msgstr "المنتج"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/invoice.html:68
+msgid "Description"
+msgstr "الوصف"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/invoice.html:69
+msgid "Unit Price"
+msgstr "سعر الوحدة"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/invoice.html:70
+#: zeitlabs_payments/templates/zeitlabs_payments/invoice.html:94
+#: zeitlabs_payments/templates/zeitlabs_payments/invoice.html:109
+msgid "VAT"
+msgstr "ضريبة القيمة المضافة"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/invoice.html:71
+#: zeitlabs_payments/templates/zeitlabs_payments/invoice.html:96
+#: zeitlabs_payments/templates/zeitlabs_payments/invoice.html:113
+msgid "Total"
+msgstr "المجموع"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/invoice.html:92
+msgid "Unit Price:"
+msgstr "سعر الوحدة:"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/invoice.html:105
+msgid "Subtotal"
+msgstr "المجموع الفرعي"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/invoice.html:122
+msgid "Print Receipt"
+msgstr "طباعة الإيصال"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/invalid_cart.html:25
+msgid "Cannot Add Item"
+msgstr "تعذر إضافة العنصر"
+
+#: zeitlabs_payments/templates/zeitlabs_payments/invalid_cart.html:28
+msgid "If you need help, please contact admin support team."
+msgstr "إذا كنت بحاجة إلى مساعدة، يرجى التواصل مع فريق الدعم الإداري."
