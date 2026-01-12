@@ -2,6 +2,7 @@
 {% load l10n %}
 {% load i18n %}
 {% load static %}
+{% load zeitlab_payment_tags %}
 {% get_current_language_bidi as LANGUAGE_BIDI %}
 
 {% block body %}
@@ -40,7 +41,7 @@
                                     </div>
                                 </div>
                                 <div class="basket-item-price">
-                                    <div class="price">{{ item.final_price }} {{ item.currency }}</div>
+                                    <div class="price">{{ item.final_price }} {{ item.currency|currency_symbol }}</div>
                                 </div>
                             </div>
                             {% endfor %}
@@ -69,11 +70,11 @@
                     <div class="basket-totals">
                         <div class="totals-row">
                             <span class="totals-label">{% trans "Subtotal" %}</span>
-                            <span class="totals-value">{{ cart.total|unlocalize }} {{ cart.currency }}</span>
+                            <span class="totals-value">{{ cart.total|unlocalize }} {{ cart.currency|currency_symbol }}</span>
                         </div>
                         <div class="totals-row">
                             <span class="totals-label">{% trans "Total" %}</span>
-                            <span class="totals-value" id="basket_totals">{{ cart.total|unlocalize }} {{ cart.currency }}</span>
+                            <span class="totals-value" id="basket_totals">{{ cart.total|unlocalize }} {{ cart.currency|currency_symbol }}</span>
                         </div>
                     </div>
 
