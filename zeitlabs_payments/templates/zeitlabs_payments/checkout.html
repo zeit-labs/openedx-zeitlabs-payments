@@ -1,6 +1,8 @@
 {% extends "main_django.html" %}
+{% load l10n %}
 {% load i18n %}
 {% load static %}
+{% load zeitlab_payment_tags %}
 {% get_current_language_bidi as LANGUAGE_BIDI %}
 
 {% block body %}
@@ -13,13 +15,13 @@
             <div class="basket-header">
                 <h1>{% trans "Checkout" %}</h1>
             </div>
-            
+
             <div class="basket-body">
                 <div id="messages"></div>
-                
+
                 {% csrf_token %}
                 {{ formset.management_form }}
-                
+
                 {% if cart %}
                     <!-- Cart Items -->
                     <div class="basket-items">
@@ -33,14 +35,13 @@
                                     <div class="basket-item-title">{{ item.title }}</div>
                                     <div class="basket-item-description">
                                         <div class="course-id">{{ course.course_id }}</div>
-                                        {{ course.org }} ({{ course.run }})
                                         {% if item.description %}
                                             <br>{{ item.description }}
                                         {% endif %}
                                     </div>
                                 </div>
                                 <div class="basket-item-price">
-                                    <div class="price">{{ item.final_price }} {{ item.currency }}</div>
+                                    <div class="price">{{ item.final_price }} {{ item.currency|currency_symbol }}</div>
                                 </div>
                             </div>
                             {% endfor %}
@@ -69,20 +70,20 @@
                     <div class="basket-totals">
                         <div class="totals-row">
                             <span class="totals-label">{% trans "Subtotal" %}</span>
-                            <span class="totals-value">{{ cart.total }} {{ cart.currency }}</span>
+                            <span class="totals-value">{{ cart.total|unlocalize }} {{ cart.currency|currency_symbol }}</span>
                         </div>
                         <div class="totals-row">
                             <span class="totals-label">{% trans "Total" %}</span>
-                            <span class="totals-value" id="basket_totals">{{ cart.total }} {{ cart.currency }}</span>
+                            <span class="totals-value" id="basket_totals">{{ cart.total|unlocalize }} {{ cart.currency|currency_symbol }}</span>
                         </div>
                     </div>
 
                     <!-- Payment Buttons -->
                     <div class="payment-buttons">
                         {% for method in methods %}
-                        <a href="{{ method.url }}" 
-                           class="payment-button" 
-                           data-slug="{{ method.slug }}" 
+                        <a href="{{ method.url }}"
+                           class="payment-button"
+                           data-slug="{{ method.slug }}"
                            data-title="{{ method.title }}">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/>
@@ -94,10 +95,12 @@
                     </div>
 
                     <!-- Help Section -->
+                    {% if support_url %}
                     <div class="help-section">
                         <h4>{% trans "Have questions?" %}</h4>
                         <a href="{{ support_url }}">{% trans "Please read our FAQs to view common questions about our certificates." %}</a>
                     </div>
+                    {% endif %}
 
                 {% else %}
                     <!-- Empty Cart Message -->
