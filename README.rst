@@ -223,22 +223,20 @@ The following settings need to be added in ``config.yml``:
        'redirect_url': 'https://sbcheckout.payfort.com/FortAPI/paymentPage'
    }
 
-   ECOMMERCE_PUBLIC_URL_ROOT = <YOUR-LMS-URL>  # e.g. 'https://zeit.labs.io:8000/'
    # Used if LMS_ROOT_URL is not set in site configuration.
+   ECOMMERCE_PUBLIC_URL_ROOT = <YOUR-LMS-URL>  # e.g. 'https://zeit.labs.io:8000/'
 
-   INVOICE_PREFIX = <YOUR-INVOICE-PREFIX>  # e.g. 'DEV'
-   # Default invoice prefix (used for invoice numbers). Can also be set
-   # per-site in site configurations.
+   # Settings, can also be set per-site in site configurations.
+   ZEITLABS_PAYMENTS_SETTINGS = {
+       'invoice_prefix': 'inv',  # Default invoice prefix (used for invoice numbers)
+       'organization': 'ziet',  # This will be shown on invoices.
+       'customer_number': '12345',  # This will be shown on invoices.
+       'valid_currency': USD,
+   }
 
-   ORGANIZATION = <YOUR-ORGANIZATION-NAME>
-   # This will be shown on invoices.
-
-   CUSTOMER_NUMBER = <YOUR-CUSTOMER-NUMBER>
-   # This will be shown on invoices.
-
-   IS_ZEITLABS_PAYMENTS_ENABLED = True
    # Default flag to enable/disable the plugin. Can also be controlled
    # per-site from site configuration.
+   IS_ZEITLABS_PAYMENTS_ENABLED = True
 
 
 Convert course to a Paid Course
