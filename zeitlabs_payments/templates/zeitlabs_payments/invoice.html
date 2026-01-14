@@ -30,8 +30,12 @@
 
         <!-- Company Info -->
         <div class="receipt-company-info">
+            {% if organization %}
             <p><strong>{{ organization }}</strong></p>
+            {% endif %}
+            {% if tax_number %}
             <p>{% trans "Tax Number:" %} {{ tax_number }}</p>
+            {% endif %}
         </div>
 
         <div class="receipt-body">
