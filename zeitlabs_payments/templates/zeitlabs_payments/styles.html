@@ -1216,44 +1216,67 @@ a:hover {
    Print Styles
    ============================================ */
 @media print {
-  body {
-    background: white;
-    font-size: 12pt;
+  /* Hide everything by default */
+  body * {
+    visibility: hidden;
   }
   
+  /* Only show the receipt and its children */
+  .receipt, .receipt * {
+    visibility: visible;
+  }
+  
+  /* Position the receipt at the top */
   .receipt {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
     padding: 0;
-    background: white;
+    background: white !important;
+    min-height: auto;
   }
   
   .receipt-card {
-    box-shadow: none;
-    border-radius: 0;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    border: none !important;
   }
   
   .receipt-header {
     background: white !important;
     color: black !important;
-    border-bottom: 2px solid black;
+    border-bottom: 2px solid black !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+    padding: 20px 0 !important;
   }
   
   .receipt-header h2 {
     color: black !important;
   }
   
+  /* Hide buttons explicitly inside receipt */
   .print-receipt-button,
   .navbar,
-  .hidden-print {
+  .hidden-print,
+  button, 
+  .btn {
     display: none !important;
   }
   
   .order-table thead {
-    background: var(--color-gray-200) !important;
+    background: #f0f0f0 !important;
     color: black !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+  }
+  
+  .order-table th, .order-table td {
+    border-bottom: 1px solid #ddd;
   }
 }
 
