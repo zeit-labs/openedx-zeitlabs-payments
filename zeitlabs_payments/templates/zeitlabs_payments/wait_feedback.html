@@ -10,10 +10,12 @@
     <div class="status-card processing-card">
         <!-- Animated Processing Icon -->
         <div class="processing-icon">
-            <svg class="processing-circle" viewBox="0 0 100 100">
-                <circle class="circle-bg" cx="50" cy="50" r="45" />
-                <circle class="circle-progress" cx="50" cy="50" r="45" />
-            </svg>
+            <div class="processing-circle-wrapper">
+                <svg class="processing-circle" viewBox="0 0 100 100">
+                    <circle class="circle-bg" cx="50" cy="50" r="45" />
+                    <circle class="circle-progress" cx="50" cy="50" r="45" />
+                </svg>
+            </div>
             <div class="processing-icon-inner">
                 <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/>
@@ -89,6 +91,12 @@
     margin: 0 auto var(--spacing-xl);
 }
 
+.processing-circle-wrapper {
+    width: 100%;
+    height: 100%;
+    animation: rotate-circle 2s linear infinite;
+}
+
 .processing-circle {
     width: 100%;
     height: 100%;
@@ -107,21 +115,28 @@
     stroke-width: 6;
     stroke-linecap: round;
     stroke-dasharray: 283;
-    stroke-dashoffset: 283;
-    animation: progress-spin 2s ease-in-out infinite;
+    stroke-dashoffset: 75;
+    animation: progress-dash 1.5s ease-in-out infinite;
 }
 
-@keyframes progress-spin {
+@keyframes rotate-circle {
     0% {
-        stroke-dashoffset: 283;
         transform: rotate(0deg);
     }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes progress-dash {
+    0% {
+        stroke-dashoffset: 75;
+    }
     50% {
-        stroke-dashoffset: 70;
+        stroke-dashoffset: 200;
     }
     100% {
-        stroke-dashoffset: 283;
-        transform: rotate(360deg);
+        stroke-dashoffset: 75;
     }
 }
 

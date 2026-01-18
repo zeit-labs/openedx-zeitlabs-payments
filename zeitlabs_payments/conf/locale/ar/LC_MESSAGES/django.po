@@ -98,6 +98,21 @@ msgstr "يرجى عدم إغلاق هذه الصفحة أو الضغط على ز
 msgid "Payment Confirmed! Redirecting..."
 msgstr "تم تأكيد الدفع! جارٍ التحويل..."
 
+#. wait_feedback.html - Progress step 1
+#: zeitlabs_payments/templates/zeitlabs_payments/wait_feedback.html:40
+msgid "Payment Submitted"
+msgstr "تم إرسال الدفع"
+
+#. wait_feedback.html - Progress step 2
+#: zeitlabs_payments/templates/zeitlabs_payments/wait_feedback.html:49
+msgid "Verifying Payment"
+msgstr "جارٍ التحقق من الدفع"
+
+#. wait_feedback.html - Progress step 3
+#: zeitlabs_payments/templates/zeitlabs_payments/wait_feedback.html:58
+msgid "Completing Order"
+msgstr "جارٍ إتمام الطلب"
+
 #. payment_decline.html - Title
 #: zeitlabs_payments/templates/zeitlabs_payments/payment_decline.html:18
 msgid "Payment Declined"
@@ -264,6 +279,11 @@ msgstr "ضريبة القيمة المضافة"
 #: zeitlabs_payments/templates/zeitlabs_payments/invoice.html:131
 msgid "Print Receipt"
 msgstr "طباعة الإيصال"
+
+#. invoice.html - Go to course button
+#: zeitlabs_payments/templates/zeitlabs_payments/invoice.html:135
+msgid "Go to Course"
+msgstr "الذهاب إلى الدورة"
 
 #. invalid_cart.html - Title
 #: zeitlabs_payments/templates/zeitlabs_payments/invalid_cart.html:25

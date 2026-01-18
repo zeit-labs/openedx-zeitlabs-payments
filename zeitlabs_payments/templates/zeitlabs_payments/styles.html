@@ -930,6 +930,53 @@ a:hover {
   height: 16px;
 }
 
+/* Invoice Actions - Go to Course & Print Buttons */
+.invoice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--spacing-sm);
+}
+
+.go-to-course-button,
+a.go-to-course-button,
+a.btn.go-to-course-button {
+  display: inline-flex !important;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-md) !important;
+  font-family: var(--font-family) !important;
+  font-size: var(--font-size-sm) !important;
+  font-weight: 600 !important;
+  color: #FFFFFF !important;
+  background: #E85A4F !important;
+  background-color: #E85A4F !important;
+  background-image: none !important;
+  border: 2px solid #E85A4F !important;
+  border-radius: var(--radius-md) !important;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  box-shadow: none !important;
+  text-shadow: none !important;
+  text-decoration: none !important;
+}
+
+.go-to-course-button:hover,
+a.go-to-course-button:hover,
+a.btn.go-to-course-button:hover {
+  background: #D14B41 !important;
+  background-color: #D14B41 !important;
+  border-color: #D14B41 !important;
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md) !important;
+  color: #FFFFFF !important;
+}
+
+.go-to-course-button svg {
+  width: 16px;
+  height: 16px;
+}
+
 /* ============================================
    Status Pages (Success, Error, Pending, etc.) - Compact Design
    ============================================ */
