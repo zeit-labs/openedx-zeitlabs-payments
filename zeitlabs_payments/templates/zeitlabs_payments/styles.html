@@ -249,7 +249,8 @@ a:hover {
 
 .btn-primary {
   background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%) !important;
-  color: var(--color-white) !important;
+  background-color: #E85A4F !important;
+  color: #FFFFFF !important;
   border-color: var(--color-primary) !important;
   box-shadow: none !important;
 }
@@ -515,17 +516,47 @@ a:hover {
 .voucher-form.active {
   display: flex;
   gap: var(--spacing-sm);
+  align-items: center;
 }
 
 .voucher-form .form-control {
   flex: 1;
-  padding: var(--spacing-sm) var(--spacing-md);
+  padding: 10px 12px !important;
   font-size: var(--font-size-sm);
+  height: 40px !important;
+  box-sizing: border-box;
+  margin: 0 !important;
 }
 
-.voucher-form .btn {
-  padding: var(--spacing-sm) var(--spacing-md);
-  font-size: var(--font-size-sm);
+.voucher-form .btn,
+.voucher-form .btn.btn-primary,
+.voucher-form button.btn,
+.voucher-form button.btn-primary,
+.voucher-form button[type="submit"] {
+  padding: 10px 16px !important;
+  font-size: var(--font-size-sm) !important;
+  height: 40px !important;
+  min-width: 80px;
+  background: #E85A4F !important;
+  background-color: #E85A4F !important;
+  background-image: none !important;
+  color: #FFFFFF !important;
+  border: none !important;
+  border-radius: var(--radius-lg) !important;
+  box-sizing: border-box;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  line-height: 1 !important;
+  margin: 0 !important;
+}
+
+.voucher-form .btn:hover,
+.voucher-form .btn.btn-primary:hover,
+.voucher-form button.btn:hover,
+.voucher-form button.btn-primary:hover,
+.voucher-form button[type="submit"]:hover {
+  background: #D14B41 !important;
+  background-color: #D14B41 !important;
 }
 
 /* Totals Section - Compact */
