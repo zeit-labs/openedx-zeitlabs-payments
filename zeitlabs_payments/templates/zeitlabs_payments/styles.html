@@ -92,6 +92,16 @@
 /* ============================================
    Base Styles & Reset
    ============================================ */
+/* Reset Legacy Global Styles Override */
+button.btn, button.print-receipt-button, button.payment-button,
+a.btn, a.print-receipt-button, a.payment-button,
+.btn, .print-receipt-button, .payment-button {
+  background-image: none !important;
+  text-shadow: none !important;
+  font-family: var(--font-family) !important;
+  letter-spacing: normal !important;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -213,22 +223,23 @@ a:hover {
    Button Components
    ============================================ */
 .btn {
-  display: inline-flex;
+  display: inline-flex !important;
   align-items: center;
   justify-content: center;
   gap: var(--spacing-sm);
-  padding: var(--spacing-md) var(--spacing-xl);
-  font-family: var(--font-family);
-  font-size: var(--font-size-base);
-  font-weight: 600;
-  line-height: 1.5;
+  padding: var(--spacing-md) var(--spacing-xl) !important;
+  font-family: var(--font-family) !important;
+  font-size: var(--font-size-base) !important;
+  font-weight: 600 !important;
+  line-height: 1.5 !important;
   text-align: center;
-  text-decoration: none;
-  border: 2px solid transparent;
-  border-radius: var(--radius-lg);
+  text-decoration: none !important;
+  border: 2px solid transparent !important;
+  border-radius: var(--radius-lg) !important;
   cursor: pointer;
   transition: all var(--transition-fast);
   white-space: nowrap;
+  box-shadow: none !important; /* Reset legacy box-shadow */
 }
 
 .btn:disabled {
@@ -237,50 +248,58 @@ a:hover {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
-  color: var(--color-white);
-  border-color: var(--color-primary);
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%) !important;
+  background-color: #E85A4F !important;
+  color: #FFFFFF !important;
+  border-color: var(--color-primary) !important;
+  box-shadow: none !important;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--color-primary-dark) 0%, var(--color-primary) 100%);
+  background: linear-gradient(135deg, var(--color-primary-dark) 0%, var(--color-primary) 100%) !important;
   transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-md) !important;
 }
 
 .btn-secondary {
-  background: var(--color-secondary);
-  color: var(--color-white);
-  border-color: var(--color-secondary);
+  background: var(--color-secondary) !important;
+  color: var(--color-white) !important;
+  border-color: var(--color-secondary) !important;
+  box-shadow: none !important;
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background: var(--color-secondary-dark);
+  background: var(--color-secondary-dark) !important;
   transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-md) !important;
 }
 
 .btn-outline {
-  background: transparent;
-  color: var(--color-primary);
-  border-color: var(--color-primary);
+  background: transparent !important;
+  color: var(--color-primary) !important;
+  border-color: var(--color-primary) !important;
+  box-shadow: none !important;
 }
 
 .btn-outline:hover:not(:disabled) {
-  background: var(--color-primary);
-  color: var(--color-white);
+  background: rgba(232, 90, 79, 0.1) !important;
+  color: var(--color-primary-dark) !important;
+  border-color: var(--color-primary-dark) !important;
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md) !important;
 }
 
 .btn-success {
-  background: linear-gradient(135deg, var(--color-success) 0%, #389E50 100%);
-  color: var(--color-white);
-  border-color: var(--color-success);
+  background: linear-gradient(135deg, var(--color-success) 0%, #389E50 100%) !important;
+  color: var(--color-white) !important;
+  border-color: var(--color-success) !important;
+  box-shadow: none !important;
 }
 
 .btn-success:hover:not(:disabled) {
-  background: linear-gradient(135deg, #389E50 0%, var(--color-success) 100%);
+  background: linear-gradient(135deg, #389E50 0%, var(--color-success) 100%) !important;
   transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-md) !important;
 }
 
 .btn-lg {
@@ -340,6 +359,7 @@ a:hover {
 .basket {
   min-height: 100vh;
   padding: var(--spacing-lg) 0;
+  padding-top: 80px;
   background: linear-gradient(180deg, var(--color-gray-100) 0%, var(--color-white) 100%);
 }
 
@@ -496,17 +516,47 @@ a:hover {
 .voucher-form.active {
   display: flex;
   gap: var(--spacing-sm);
+  align-items: center;
 }
 
 .voucher-form .form-control {
   flex: 1;
-  padding: var(--spacing-sm) var(--spacing-md);
+  padding: 10px 12px !important;
   font-size: var(--font-size-sm);
+  height: 40px !important;
+  box-sizing: border-box;
+  margin: 0 !important;
 }
 
-.voucher-form .btn {
-  padding: var(--spacing-sm) var(--spacing-md);
-  font-size: var(--font-size-sm);
+.voucher-form .btn,
+.voucher-form .btn.btn-primary,
+.voucher-form button.btn,
+.voucher-form button.btn-primary,
+.voucher-form button[type="submit"] {
+  padding: 10px 16px !important;
+  font-size: var(--font-size-sm) !important;
+  height: 40px !important;
+  min-width: 80px;
+  background: #E85A4F !important;
+  background-color: #E85A4F !important;
+  background-image: none !important;
+  color: #FFFFFF !important;
+  border: none !important;
+  border-radius: var(--radius-lg) !important;
+  box-sizing: border-box;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  line-height: 1 !important;
+  margin: 0 !important;
+}
+
+.voucher-form .btn:hover,
+.voucher-form .btn.btn-primary:hover,
+.voucher-form button.btn:hover,
+.voucher-form button.btn-primary:hover,
+.voucher-form button[type="submit"]:hover {
+  background: #D14B41 !important;
+  background-color: #D14B41 !important;
 }
 
 /* Totals Section - Compact */
@@ -561,27 +611,28 @@ a:hover {
 }
 
 .payment-button {
-  display: flex;
+  display: flex !important;
   align-items: center;
   justify-content: center;
   gap: var(--spacing-sm);
-  padding: var(--spacing-md) var(--spacing-lg);
-  font-size: var(--font-size-base);
-  font-weight: 600;
-  background: var(--color-white);
-  color: #1b6d99;
-  border: 2px solid #1b6d99;
-  border-radius: var(--radius-lg);
+  padding: var(--spacing-md) var(--spacing-lg) !important;
+  font-size: var(--font-size-base) !important;
+  font-weight: 600 !important;
+  background: var(--color-white) !important;
+  color: #1b6d99 !important;
+  border: 2px solid #1b6d99 !important;
+  border-radius: var(--radius-lg) !important;
   cursor: pointer;
   transition: all var(--transition-base);
-  text-decoration: none;
+  text-decoration: none !important;
+  box-shadow: none !important;
 }
 
 .payment-button:hover {
-  background: var(--color-white);
+  background: var(--color-white) !important;
   transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
-  color: #1b6d99;
+  box-shadow: var(--shadow-md) !important;
+  color: #1b6d99 !important;
 }
 
 .payment-button svg,
@@ -617,6 +668,7 @@ a:hover {
 .receipt {
   min-height: 100vh;
   padding: var(--spacing-md);
+  padding-top: 80px;
   background: var(--color-gray-100);
   font-family: var(--font-family);
 }
@@ -852,27 +904,75 @@ a:hover {
 
 /* Print Button - Compact */
 .print-receipt-button {
-  display: inline-flex;
+  display: inline-flex !important;
   align-items: center;
   gap: var(--spacing-xs);
-  padding: var(--spacing-sm) var(--spacing-md);
-  font-family: var(--font-family);
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  color: var(--color-primary);
-  background: var(--color-white);
-  border: 2px solid var(--color-primary);
-  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-md) !important;
+  font-family: var(--font-family) !important;
+  font-size: var(--font-size-sm) !important;
+  font-weight: 600 !important;
+  color: var(--color-primary) !important;
+  background: var(--color-white) !important;
+  border: 2px solid var(--color-primary) !important;
+  border-radius: var(--radius-md) !important;
   cursor: pointer;
   transition: all var(--transition-fast);
+  box-shadow: none !important;
 }
 
 .print-receipt-button:hover {
-  background: var(--color-primary);
-  color: var(--color-white);
+  background: var(--color-primary) !important;
+  color: var(--color-white) !important;
 }
 
 .print-receipt-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Invoice Actions - Go to Course & Print Buttons */
+.invoice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--spacing-sm);
+}
+
+.go-to-course-button,
+a.go-to-course-button,
+a.btn.go-to-course-button {
+  display: inline-flex !important;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-md) !important;
+  font-family: var(--font-family) !important;
+  font-size: var(--font-size-sm) !important;
+  font-weight: 600 !important;
+  color: #FFFFFF !important;
+  background: #E85A4F !important;
+  background-color: #E85A4F !important;
+  background-image: none !important;
+  border: 2px solid #E85A4F !important;
+  border-radius: var(--radius-md) !important;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  box-shadow: none !important;
+  text-shadow: none !important;
+  text-decoration: none !important;
+}
+
+.go-to-course-button:hover,
+a.go-to-course-button:hover,
+a.btn.go-to-course-button:hover {
+  background: #D14B41 !important;
+  background-color: #D14B41 !important;
+  border-color: #D14B41 !important;
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md) !important;
+  color: #FFFFFF !important;
+}
+
+.go-to-course-button svg {
   width: 16px;
   height: 16px;
 }
@@ -886,6 +986,7 @@ a:hover {
   align-items: center;
   justify-content: center;
   padding: var(--spacing-md);
+  padding-top: 80px;
   background: linear-gradient(180deg, var(--color-gray-100) 0%, var(--color-white) 100%);
 }
 
@@ -1196,44 +1297,67 @@ a:hover {
    Print Styles
    ============================================ */
 @media print {
-  body {
-    background: white;
-    font-size: 12pt;
+  /* Hide everything by default */
+  body * {
+    visibility: hidden;
   }
   
+  /* Only show the receipt and its children */
+  .receipt, .receipt * {
+    visibility: visible;
+  }
+  
+  /* Position the receipt at the top */
   .receipt {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
     padding: 0;
-    background: white;
+    background: white !important;
+    min-height: auto;
   }
   
   .receipt-card {
-    box-shadow: none;
-    border-radius: 0;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    border: none !important;
   }
   
   .receipt-header {
     background: white !important;
     color: black !important;
-    border-bottom: 2px solid black;
+    border-bottom: 2px solid black !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+    padding: 20px 0 !important;
   }
   
   .receipt-header h2 {
     color: black !important;
   }
   
+  /* Hide buttons explicitly inside receipt */
   .print-receipt-button,
   .navbar,
-  .hidden-print {
+  .hidden-print,
+  button, 
+  .btn {
     display: none !important;
   }
   
   .order-table thead {
-    background: var(--color-gray-200) !important;
+    background: #f0f0f0 !important;
     color: black !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+  }
+  
+  .order-table th, .order-table td {
+    border-bottom: 1px solid #ddd;
   }
 }
 
