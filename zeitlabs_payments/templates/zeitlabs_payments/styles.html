@@ -92,105 +92,165 @@
 /* ============================================
    Base Styles & Reset
    ============================================ */
-/* Reset Legacy Global Styles Override */
-button.btn, button.print-receipt-button, button.payment-button,
-a.btn, a.print-receipt-button, a.payment-button,
-.btn, .print-receipt-button, .payment-button {
+/* CRITICAL: Ensure eduba-theme header and dropdowns work properly */
+/* Following Open edX best practices: protect header from any plugin interference */
+
+/* Ensure header is always on top and clickable */
+header.global-header,
+header.global-header *,
+header.global-header .main-header,
+header.global-header .toggle-user-dropdown,
+header.global-header .hamburger-menu {
+  pointer-events: auto !important;
+  cursor: pointer !important;
+}
+
+header.global-header {
+  position: relative !important;
+  z-index: 1000 !important;
+  overflow: visible !important;
+}
+
+/* Dropdown menu positioning */
+header.global-header .dropdown-user-menu {
+  position: absolute !important;
+  z-index: 10002 !important;
+  pointer-events: auto !important;
+}
+
+header.global-header .dropdown-user-menu.hidden {
+  display: none !important;
+}
+
+/* Mobile menu positioning */
+header.global-header .mobile-menu {
+  position: fixed !important;
+  z-index: 10001 !important;
+  pointer-events: auto !important;
+}
+
+header.global-header .mobile-menu.hidden {
+  display: none !important;
+}
+
+/* Targeted Reset - Only apply to specific payment plugin elements */
+.basket-card, .basket-card *,
+.basket-header, .basket-header *,
+.basket-body, .basket-body *,
+.basket-items, .basket-items *,
+.basket-totals, .basket-totals *,
+.voucher-section, .voucher-section *,
+.payment-buttons, .payment-buttons *,
+.help-section, .help-section *,
+.receipt-card, .receipt-card *,
+.status-card, .status-card * {
+  box-sizing: border-box;
+}
+
+/* Reset Legacy Global Styles Override - Only for payment plugin buttons */
+.basket-card button.btn, .basket-card button.print-receipt-button, .basket-card button.payment-button,
+.basket-card a.btn, .basket-card a.print-receipt-button, .basket-card a.payment-button,
+.basket-card .btn, .basket-card .print-receipt-button, .basket-card .payment-button,
+.basket-body button.btn, .basket-body button.print-receipt-button, .basket-body button.payment-button,
+.basket-body a.btn, .basket-body a.print-receipt-button, .basket-body a.payment-button,
+.basket-body .btn, .basket-body .print-receipt-button, .basket-body .payment-button,
+.receipt-card button.btn, .receipt-card button.print-receipt-button, .receipt-card button.payment-button,
+.receipt-card a.btn, .receipt-card a.print-receipt-button, .receipt-card a.payment-button,
+.receipt-card .btn, .receipt-card .print-receipt-button, .receipt-card .payment-button,
+.status-card button.btn, .status-card button.print-receipt-button, .status-card button.payment-button,
+.status-card a.btn, .status-card a.print-receipt-button, .status-card a.payment-button,
+.status-card .btn, .status-card .print-receipt-button, .status-card .payment-button {
   background-image: none !important;
   text-shadow: none !important;
   font-family: var(--font-family) !important;
   letter-spacing: normal !important;
 }
 
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
+/* REMOVED GLOBAL html, body SELECTORS - These were breaking eduba-theme header */
+/* All typography now scoped to payment containers below */
 
-html {
-  font-size: 16px;
-  -webkit-text-size-adjust: 100%;
-}
-
-body {
-  font-family: var(--font-family);
-  font-size: var(--font-size-base);
-  line-height: 1.6;
-  color: var(--color-gray-800);
-  background-color: var(--color-gray-100);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-/* RTL Support */
-[dir="rtl"] {
+/* RTL Support - Scoped to payment containers only */
+.basket[dir="rtl"],
+.receipt[dir="rtl"],
+.status-page[dir="rtl"] {
   direction: rtl;
   text-align: right;
 }
 
-[dir="ltr"] {
+.basket[dir="ltr"],
+.receipt[dir="ltr"],
+.status-page[dir="ltr"] {
   direction: ltr;
   text-align: left;
 }
 
 /* ============================================
-   Typography
+   Typography - SCOPED to payment containers
    ============================================ */
-h1, h2, h3, h4, h5, h6 {
+.basket h1, .basket h2, .basket h3, .basket h4, .basket h5, .basket h6,
+.receipt h1, .receipt h2, .receipt h3, .receipt h4, .receipt h5, .receipt h6,
+.status-page h1, .status-page h2, .status-page h3, .status-page h4, .status-page h5, .status-page h6 {
   font-family: var(--font-family);
   font-weight: 700;
   line-height: 1.3;
   color: var(--color-gray-900);
 }
 
-h1 { font-size: var(--font-size-4xl); }
-h2 { font-size: var(--font-size-3xl); }
-h3 { font-size: var(--font-size-2xl); }
-h4 { font-size: var(--font-size-xl); }
-h5 { font-size: var(--font-size-lg); }
-h6 { font-size: var(--font-size-base); }
+.basket h1, .receipt h1, .status-page h1 { font-size: var(--font-size-4xl); }
+.basket h2, .receipt h2, .status-page h2 { font-size: var(--font-size-3xl); }
+.basket h3, .receipt h3, .status-page h3 { font-size: var(--font-size-2xl); }
+.basket h4, .receipt h4, .status-page h4 { font-size: var(--font-size-xl); }
+.basket h5, .receipt h5, .status-page h5 { font-size: var(--font-size-lg); }
+.basket h6, .receipt h6, .status-page h6 { font-size: var(--font-size-base); }
 
-p {
+.basket p, .receipt p, .status-page p {
   margin-bottom: var(--spacing-md);
   color: var(--color-gray-600);
 }
 
-a {
+.basket a, .receipt a, .status-page a {
   color: var(--color-primary);
   text-decoration: none;
   transition: color var(--transition-fast);
 }
 
-a:hover {
+.basket a:hover, .receipt a:hover, .status-page a:hover {
   color: var(--color-primary-dark);
 }
 
 /* ============================================
-   Layout Components
+   Layout Components - SCOPED to payment containers
    ============================================ */
-.container {
+.basket .container,
+.receipt .container,
+.status-page .container {
   width: 100%;
   max-width: 1200px;
   margin-inline: auto;
   padding-inline: var(--spacing-lg);
 }
 
-.row {
+.basket .row,
+.receipt .row,
+.status-page .row {
   display: flex;
   flex-wrap: wrap;
   margin-inline: calc(var(--spacing-md) * -1);
 }
 
-.col {
+.basket .col,
+.receipt .col,
+.status-page .col {
   flex: 1;
   padding-inline: var(--spacing-md);
 }
 
 /* ============================================
-   Card Component
+   Card Component - SCOPED to payment containers
    ============================================ */
-.card {
+.basket .card,
+.receipt .card,
+.status-page .card {
   background: var(--color-white);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-card);
@@ -198,11 +258,15 @@ a:hover {
   transition: box-shadow var(--transition-base);
 }
 
-.card:hover {
+.basket .card:hover,
+.receipt .card:hover,
+.status-page .card:hover {
   box-shadow: var(--shadow-lg);
 }
 
-.card-header {
+.basket .card-header,
+.receipt .card-header,
+.status-page .card-header {
   padding: var(--spacing-lg) var(--spacing-xl);
   border-bottom: 1px solid var(--color-gray-200);
   background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
@@ -361,6 +425,17 @@ a:hover {
   padding: var(--spacing-lg) 0;
   padding-top: 80px;
   background: linear-gradient(180deg, var(--color-gray-100) 0%, var(--color-white) 100%);
+  /* Header protection: Ensure basket doesn't block header dropdown */
+  position: relative;
+  z-index: 1;
+  overflow: visible !important;
+  pointer-events: auto;
+}
+
+.receipt,
+.status-page {
+  /* Header protection: Ensure these containers don't block header dropdown */
+  overflow: visible !important;
 }
 
 .basket .container {
