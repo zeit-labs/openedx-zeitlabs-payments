@@ -30,8 +30,12 @@
 
         <!-- Company Info -->
         <div class="receipt-company-info">
+            {% if organization %}
             <p><strong>{{ organization }}</strong></p>
+            {% endif %}
+            {% if tax_number %}
             <p>{% trans "Tax Number:" %} {{ tax_number }}</p>
+            {% endif %}
         </div>
 
         <div class="receipt-body">
@@ -123,7 +127,18 @@
             </div>
 
             <!-- Print Button -->
-            <div class="text-center mt-4">
+            <div class="text-center mt-4 invoice-actions">
+                {% for invoice_item in invoice.items.all %}
+                    {% if invoice_item.cart_item.catalogue_item.type == 'paid_course' %}
+                    <a href="/courses/{{ invoice_item.cart_item.catalogue_item.item_ref_id }}/course/" class="btn btn-primary go-to-course-button">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                        </svg>
+                        {% trans "Go to Course" %}
+                    </a>
+                    {% endif %}
+                {% endfor %}
                 <button class="print-receipt-button" onclick="window.print()">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <polyline points="6 9 6 2 18 2 18 9"/>
