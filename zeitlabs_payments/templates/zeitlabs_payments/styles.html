@@ -1415,13 +1415,17 @@ a.btn.go-to-course-button:hover {
     color: black !important;
   }
   
-  /* Hide buttons explicitly inside receipt */
+  /* Hide buttons and actions explicitly inside receipt */
   .print-receipt-button,
+  .go-to-course-button,
+  .invoice-actions,
   .navbar,
   .hidden-print,
   button, 
-  .btn {
+  .btn,
+  a.btn {
     display: none !important;
+    visibility: hidden !important;
   }
   
   .order-table thead {
