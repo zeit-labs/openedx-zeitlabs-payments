@@ -267,7 +267,7 @@ class Command(BaseCommand):
                 p.date_updated
             FROM partner_stockrecord s
             INNER JOIN catalogue_product p ON s.product_id = p.id
-            WHERE p.structure = 'child';
+            WHERE p.structure = 'child' and p.id > 142;
         """
 
         with connections['ecommerce'].cursor() as cursor:
@@ -389,6 +389,7 @@ class Command(BaseCommand):
             LEFT JOIN basket_line l ON b.id = l.basket_id
             LEFT JOIN partner_stockrecord s ON l.stockrecord_id = s.id
             LEFT JOIN ecommerce_user u ON b.owner_id = u.id
+            WHERE b.id > 270568
             ORDER BY b.id;
         """
 
@@ -602,6 +603,7 @@ class Command(BaseCommand):
                 basket_id
             FROM
                 payment_paymentprocessorresponse
+            WHERE id > 322625
             ORDER BY
                 id
         """
@@ -699,9 +701,8 @@ class Command(BaseCommand):
                 ON pe.order_id = o.id
             JOIN
                 order_paymenteventtype AS et
-                ON pe.event_type_id = et.id;
-
-
+                ON pe.event_type_id = et.id
+            WHERE pe.id > 117842;
         """
 
         with connections['ecommerce'].cursor() as cursor:
@@ -818,6 +819,7 @@ class Command(BaseCommand):
             LEFT JOIN
                 order_paymentevent AS pe
                 ON o.id = pe.order_id
+            WHERE o.id > 117901
             ORDER BY
                 b.id;
         """
