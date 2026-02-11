@@ -249,3 +249,61 @@ class CartSerializer(serializers.ModelSerializer):
             'email': user.email,
             'full_name': user.get_full_name(),
         }
+
+
+class PricingModeSerializer(serializers.Serializer):  # pylint: disable=abstract-method
+    """
+    Serializer for pricing mode information.
+
+    This is a read-only serializer, so create() and update() are not implemented.
+    """
+
+    mode_slug = serializers.CharField()
+    mode_display_name = serializers.CharField()
+    price = serializers.DecimalField(max_digits=10, decimal_places=2)
+    currency = serializers.CharField()
+    sku = serializers.CharField()
+
+
+class CoursePriceSerializer(serializers.Serializer):  # pylint: disable=abstract-method
+    """
+    Serializer for course pricing information.
+
+    Returns course details and available pricing modes for anonymous users.
+    This is a read-only serializer, so create() and update() are not implemented.
+    """
+
+    course = serializers.SerializerMethodField()
+    pricing_modes = serializers.SerializerMethodField()
+
+    def get_course(self, obj: CourseOverview) -> dict:
+        """
+        Return serialized course information.
+
+        :param obj: CourseOverview instance
+        :return: Course data dictionary
+        """
+        return CourseSerializer(obj, context=self.context).data
+
+    def get_pricing_modes(self, obj: CourseOverview) -> List[dict]:  # pylint: disable=unused-argument
+        """
+        Return list of available pricing modes for the course.
+
+        :param obj: CourseOverview instance
+        :return: List of pricing mode dictionaries
+        """
+        modes = self.context.get('modes', [])
+        pricing_data = []
+
+        for mode in modes:
+            pricing_data.append(
+                {
+                    'mode_slug': mode.mode_slug,
+                    'mode_display_name': mode.mode_display_name,
+                    'price': mode.min_price,
+                    'currency': mode.currency,
+                    'sku': mode.sku,
+                }
+            )
+
+        return pricing_data
