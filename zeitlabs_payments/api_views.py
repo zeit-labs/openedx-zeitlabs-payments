@@ -12,6 +12,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from zeitlabs_payments.models import CatalogueItem
 from zeitlabs_payments.serializers import CoursePriceSerializer
 
 logger = logging.getLogger(__name__)
@@ -96,16 +97,48 @@ class CoursePriceView(APIView):
                 {'error': f'Course not found: {course_id}'},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        modes = list(CourseMode.objects.filter(course_id=course_key, sku__isnull=False))
 
-        if not modes:
+        catalogue_items = list(
+            CatalogueItem.objects.filter(
+                item_ref_id=str(course_key), type=CatalogueItem.ItemType.PAID_COURSE
+            )
+        )
+
+        if not catalogue_items:
             logger.warning(f'No pricing modes found for course: {course_id}')
             return Response(
                 {'error': f'No pricing modes available for course: {course_id}'},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        course_modes = {
+            mode.sku: mode
+            for mode in CourseMode.objects.filter(
+                course_id=course_key, sku__in=[item.sku for item in catalogue_items]
+            )
+        }
+
+        pricing_data = []
+        for item in catalogue_items:
+            mode = course_modes.get(item.sku)
+            if mode:
+                pricing_data.append(
+                    {
+                        'catalogue_item': item,
+                        'course_mode': mode,
+                    }
+                )
+
+        if not pricing_data:
+            logger.warning(
+                f'No matching course modes found for catalogue items: {course_id}'
+            )
+            return Response(
+                {'error': f'No pricing modes available for course: {course_id}'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         data = CoursePriceSerializer(
-            course, context={'request': request, 'modes': modes}
+            course, context={'request': request, 'pricing_data': pricing_data}
         ).data
         return Response(data, status=status.HTTP_200_OK)

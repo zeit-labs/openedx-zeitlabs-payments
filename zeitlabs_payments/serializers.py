@@ -164,7 +164,9 @@ class CartItemSerializer(serializers.ModelSerializer):
         if callable(handler_method):
             return handler_method(obj)  # pylint: disable=not-callable
 
-        logger.warning(f"No handler implemented for item type '{item_type}'. Returning empty details.")
+        logger.warning(
+            f'No handler implemented for item type \'{item_type}\'. Returning empty details.'
+        )
         return {}
 
     def _get_paid_course_details(self, obj: CartItem) -> dict:
@@ -196,7 +198,16 @@ class CartSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Cart
-        fields = ['id', 'user', 'status', 'created_at', 'items', 'total', 'currency', 'invoice']
+        fields = [
+            'id',
+            'user',
+            'status',
+            'created_at',
+            'items',
+            'total',
+            'currency',
+            'invoice',
+        ]
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Initialize serializer and remove invoice from fields if not required."""
@@ -276,21 +287,26 @@ class CoursePriceSerializer(serializers.Serializer):  # pylint: disable=abstract
         """
         Return list of available pricing modes for the course.
 
-        :param obj: CourseOverview instance
-        :return: List of pricing mode dictionaries
-        """
-        modes = self.context.get('modes', [])
-        pricing_data = []
+        Combines CatalogueItem (localized price/currency) with CourseMode (mode details).
 
-        for mode in modes:
-            pricing_data.append(
+        :param obj: CourseOverview instance
+        :return: List of pricing mode dictionaries with localized pricing
+        """
+        pricing_data = self.context.get('pricing_data', [])
+        result = []
+
+        for item_data in pricing_data:
+            catalogue_item = item_data['catalogue_item']
+            course_mode = item_data['course_mode']
+
+            result.append(
                 {
-                    'mode_slug': mode.mode_slug,
-                    'mode_display_name': mode.mode_display_name,
-                    'price': mode.min_price,
-                    'currency': mode.currency,
-                    'sku': mode.sku,
+                    'mode_slug': course_mode.mode_slug,
+                    'mode_display_name': course_mode.mode_display_name,
+                    'price': catalogue_item.price,  # Localized price from CatalogueItem
+                    'currency': catalogue_item.currency,  # Localized currency from CatalogueItem
+                    'sku': catalogue_item.sku,
                 }
             )
 
-        return pricing_data
+        return result

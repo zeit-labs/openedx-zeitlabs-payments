@@ -2,8 +2,11 @@
 
 import pytest
 from django.urls import reverse
+from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
 from rest_framework import status as http_status
 from rest_framework.test import APITestCase
+
+from zeitlabs_payments.models import CatalogueItem
 
 
 @pytest.mark.usefixtures('base_data')
@@ -87,6 +90,32 @@ class CoursePriceViewTest(APITestCase):
         course_without_modes = 'course-v1:org1+3+3'
 
         response = self.client.get(url, {'course_id': course_without_modes})
+
+        self.assertEqual(response.status_code, http_status.HTTP_404_NOT_FOUND)
+        assert 'error' in response.data
+        assert 'No pricing modes available' in response.data['error']
+
+    def test_get_price_catalogue_items_without_matching_modes(self):
+        """
+        Verify that the API returns 404 when catalogue items exist but have no matching course modes.
+        This tests the edge case where CatalogueItems exist but CourseMode.objects.filter() returns empty.
+        """
+        course_id = 'course-v1:org1+orphan+2026'
+        CourseOverview.objects.create(
+            id=course_id, org='org1', display_name='Orphan Course'
+        )
+
+        CatalogueItem.objects.create(
+            sku='orphan-sku',
+            type=CatalogueItem.ItemType.PAID_COURSE,
+            title='Orphan Catalogue Item',
+            item_ref_id=course_id,
+            price=100,
+            currency='IQD',
+        )
+
+        url = reverse('zeitlabs_payments:course-price')
+        response = self.client.get(url, {'course_id': course_id})
 
         self.assertEqual(response.status_code, http_status.HTTP_404_NOT_FOUND)
         assert 'error' in response.data
