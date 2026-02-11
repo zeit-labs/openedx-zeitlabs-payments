@@ -96,12 +96,9 @@ class CoursePriceView(APIView):
                 {'error': f'Course not found: {course_id}'},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        modes = list(CourseMode.objects.filter(course_id=course_key, sku__isnull=False))
 
-        modes = CourseMode.objects.filter(
-            course_id=course_key, sku__isnull=False
-        ).select_related('course')
-
-        if not modes.exists():
+        if not modes:
             logger.warning(f'No pricing modes found for course: {course_id}')
             return Response(
                 {'error': f'No pricing modes available for course: {course_id}'},
