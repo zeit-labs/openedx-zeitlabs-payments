@@ -1,4 +1,5 @@
 """zeitlabs payments serializers."""
+
 import logging
 from typing import Any, List, Optional
 
@@ -249,20 +250,6 @@ class CartSerializer(serializers.ModelSerializer):
             'email': user.email,
             'full_name': user.get_full_name(),
         }
-
-
-class PricingModeSerializer(serializers.Serializer):  # pylint: disable=abstract-method
-    """
-    Serializer for pricing mode information.
-
-    This is a read-only serializer, so create() and update() are not implemented.
-    """
-
-    mode_slug = serializers.CharField()
-    mode_display_name = serializers.CharField()
-    price = serializers.DecimalField(max_digits=10, decimal_places=2)
-    currency = serializers.CharField()
-    sku = serializers.CharField()
 
 
 class CoursePriceSerializer(serializers.Serializer):  # pylint: disable=abstract-method
