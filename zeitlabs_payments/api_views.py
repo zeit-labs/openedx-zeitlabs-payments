@@ -98,7 +98,7 @@ class CoursePriceView(APIView):
             return Response(cached_data, status=status.HTTP_200_OK)
 
         try:
-            course = CourseOverview.objects.get(id=course_key)
+            course = CourseOverview.objects.get(id=course_key, visible_to_staff_only=False)
         except CourseOverview.DoesNotExist:
             logger.warning(f'Course not found for id: {course_id}')
             return Response(
