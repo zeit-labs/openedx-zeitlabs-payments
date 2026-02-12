@@ -13,10 +13,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from zeitlabs_payments.cache_utils import (
-    CACHE_TIMEOUT,
-    get_course_price_cache_key,
-)
+from zeitlabs_payments.cache_utils import CACHE_TIMEOUT, get_course_price_cache_key
 from zeitlabs_payments.models import CatalogueItem
 from zeitlabs_payments.serializers import CoursePriceSerializer
 

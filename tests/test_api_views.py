@@ -1,7 +1,11 @@
 """Test API views for anonymous access to course pricing information."""
 
+from decimal import Decimal
+
 import pytest
+from common.djangoapps.course_modes.models import CourseMode
 from django.urls import reverse
+from opaque_keys.edx.keys import CourseKey
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
 from rest_framework import status as http_status
 from rest_framework.test import APITestCase
@@ -141,13 +145,10 @@ class CoursePriceViewTest(APITestCase):
         url = reverse('zeitlabs_payments:course-price')
         course_id = 'course-v1:org1+1+1'
         response1 = self.client.get(url, {'course_id': course_id})
-        response1.data['pricing_modes'][0]['price']
         self.assertEqual(response1.status_code, http_status.HTTP_200_OK)
         catalogue_item = CatalogueItem.objects.filter(
             item_ref_id=course_id, type=CatalogueItem.ItemType.PAID_COURSE
         ).first()
-        from decimal import Decimal
-
         for exists in (True, False):
             if exists:
                 catalogue_item = CatalogueItem.objects.filter(
@@ -175,8 +176,7 @@ class CoursePriceViewTest(APITestCase):
         """
         Verify that cache is invalidated when CatalogueItem is deleted.
         """
-        from common.djangoapps.course_modes.models import CourseMode
-        from opaque_keys.edx.keys import CourseKey
+        # CourseMode and CourseKey are imported at module level
 
         course_id = 'course-v1:org1+orphan+2026'
         CourseOverview.objects.create(
@@ -211,8 +211,7 @@ class CoursePriceViewTest(APITestCase):
         """
         Verify that cache is invalidated when CourseMode is deleted.
         """
-        from common.djangoapps.course_modes.models import CourseMode
-        from opaque_keys.edx.keys import CourseKey
+        # CourseMode and CourseKey are imported at module level
 
         url = reverse('zeitlabs_payments:course-price')
         course_id = 'course-v1:org1+1+1'
@@ -252,8 +251,7 @@ class CoursePriceViewTest(APITestCase):
             currency='IQD',
         )
 
-        from common.djangoapps.course_modes.models import CourseMode
-        from opaque_keys.edx.keys import CourseKey
+        # CourseMode and CourseKey are imported at module level
 
         course_key = CourseKey.from_string(course_id)
         CourseMode.objects.create(
@@ -292,9 +290,6 @@ class CoursePriceViewTest(APITestCase):
         Verify cache invalidation handler handles missing CourseMode gracefully.
         Tests the edge case where course_mode filter returns None.
         """
-        from common.djangoapps.course_modes.models import CourseMode
-        from opaque_keys.edx.keys import CourseKey
-
         url = reverse('zeitlabs_payments:course-price')
         course_id = 'course-v1:org1+orphan2+2024'
         CourseOverview.objects.create(

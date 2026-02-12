@@ -1,9 +1,11 @@
 """Cache utilities for course pricing data."""
 
 import logging
+from typing import Any
+
 from common.djangoapps.course_modes.models import CourseMode
 from django.core.cache import cache
-from django.db.models.signals import post_save, post_delete
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
 from zeitlabs_payments.models import CatalogueItem
@@ -44,7 +46,10 @@ def invalidate_course_price_cache(course_id: str) -> None:
 
 @receiver(post_save, sender=CatalogueItem)
 @receiver(post_delete, sender=CatalogueItem)
-def invalidate_on_catalogue_item_change(sender, instance, **kwargs) -> None:
+# pylint: disable=unused-argument
+def invalidate_on_catalogue_item_change(
+    sender: type, instance: CatalogueItem, **kwargs: Any
+) -> None:
     """
     Invalidate course price cache when a CatalogueItem is created, updated, or deleted.
 
@@ -63,7 +68,10 @@ def invalidate_on_catalogue_item_change(sender, instance, **kwargs) -> None:
 
 @receiver(post_save, sender=CourseMode)
 @receiver(post_delete, sender=CourseMode)
-def invalidate_on_course_mode_change(sender, instance, **kwargs) -> None:
+# pylint: disable=unused-argument
+def invalidate_on_course_mode_change(
+    sender: type, instance: CourseMode, **kwargs: Any
+) -> None:
     """
     Invalidate course price cache when a CourseMode is created, updated, or deleted.
 

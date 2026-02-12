@@ -1,6 +1,9 @@
 """Test cache utilities."""
 
+from unittest.mock import Mock
+
 from common.djangoapps.course_modes.models import CourseMode
+from django.core.cache import cache
 from django.test import TestCase
 from opaque_keys.edx.keys import CourseKey
 
@@ -8,6 +11,7 @@ from zeitlabs_payments.cache_utils import (
     CACHE_TIMEOUT,
     get_course_price_cache_key,
     invalidate_course_price_cache,
+    invalidate_on_course_mode_change,
 )
 from zeitlabs_payments.models import CatalogueItem
 
@@ -24,7 +28,7 @@ class CacheUtilsTest(TestCase):
 
     def test_invalidate_course_price_cache(self) -> None:
         """Verify cache invalidation."""
-        from django.core.cache import cache
+        # using module-level `cache`
 
         course_id = 'course-v1:org+course+run'
         cache_key = get_course_price_cache_key(course_id)
@@ -37,7 +41,7 @@ class CacheUtilsTest(TestCase):
 
     def test_invalidate_on_catalogue_item_change_with_ref_id(self) -> None:
         """Verify cache invalidation when CatalogueItem with item_ref_id is saved."""
-        from django.core.cache import cache
+        # using module-level `cache`
 
         course_id = 'course-v1:test+course+run'
         cache_key = get_course_price_cache_key(course_id)
@@ -60,7 +64,7 @@ class CacheUtilsTest(TestCase):
 
         This tests the edge case where instance.item_ref_id is None.
         """
-        from django.core.cache import cache
+        # using module-level `cache`
 
         course_id = 'course-v1:test+course+run2'
         cache_key = get_course_price_cache_key(course_id)
@@ -80,7 +84,7 @@ class CacheUtilsTest(TestCase):
 
     def test_invalidate_on_course_mode_change_with_course_id(self) -> None:
         """Verify cache invalidation when CourseMode with course_id is saved."""
-        from django.core.cache import cache
+        # using module-level `cache`
 
         course_id = 'course-v1:test+course+run3'
         cache_key = get_course_price_cache_key(course_id)
@@ -124,9 +128,7 @@ class CacheUtilsTest(TestCase):
         This uses mocking to test the edge case where course_id might be None
         (e.g., if database constraints change in the future).
         """
-        from django.core.cache import cache
-        from unittest.mock import Mock
-
+        # using module-level `cache` and `Mock`
         course_id = 'course-v1:test+course+run5'
         cache_key = get_course_price_cache_key(course_id)
         cache.set(cache_key, {'test': 'data'}, CACHE_TIMEOUT)
@@ -134,8 +136,6 @@ class CacheUtilsTest(TestCase):
         mock_mode = Mock(spec=CourseMode)
         mock_mode.course_id = None
         mock_mode.sku = 'mock-sku'
-
-        from zeitlabs_payments.cache_utils import invalidate_on_course_mode_change
 
         invalidate_on_course_mode_change(CourseMode, mock_mode)
 
