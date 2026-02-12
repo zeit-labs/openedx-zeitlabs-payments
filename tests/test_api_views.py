@@ -120,3 +120,218 @@ class CoursePriceViewTest(APITestCase):
         self.assertEqual(response.status_code, http_status.HTTP_404_NOT_FOUND)
         assert 'error' in response.data
         assert 'No pricing modes available' in response.data['error']
+
+    def test_get_price_cache_hit(self):
+        """
+        Verify that API returns cached data on subsequent requests.
+        """
+        url = reverse('zeitlabs_payments:course-price')
+        course_id = 'course-v1:org1+1+1'
+        response1 = self.client.get(url, {'course_id': course_id})
+        self.assertEqual(response1.status_code, http_status.HTTP_200_OK)
+        response2 = self.client.get(url, {'course_id': course_id})
+        self.assertEqual(response2.status_code, http_status.HTTP_200_OK)
+        self.assertEqual(response1.data, response2.data)
+
+    def test_get_price_cache_invalidation_on_catalogue_item_update(self):
+        """
+        Verify that cache is invalidated when CatalogueItem price changes.
+        """
+
+        url = reverse('zeitlabs_payments:course-price')
+        course_id = 'course-v1:org1+1+1'
+        response1 = self.client.get(url, {'course_id': course_id})
+        response1.data['pricing_modes'][0]['price']
+        self.assertEqual(response1.status_code, http_status.HTTP_200_OK)
+        catalogue_item = CatalogueItem.objects.filter(
+            item_ref_id=course_id, type=CatalogueItem.ItemType.PAID_COURSE
+        ).first()
+        from decimal import Decimal
+
+        for exists in (True, False):
+            if exists:
+                catalogue_item = CatalogueItem.objects.filter(
+                    item_ref_id=course_id, type=CatalogueItem.ItemType.PAID_COURSE
+                ).first()
+            else:
+                CatalogueItem.objects.filter(
+                    item_ref_id=course_id, type=CatalogueItem.ItemType.PAID_COURSE
+                ).delete()
+                catalogue_item = CatalogueItem.objects.filter(
+                    item_ref_id=course_id, type=CatalogueItem.ItemType.PAID_COURSE
+                ).first()
+
+            if catalogue_item:
+                new_price = Decimal('999.99')
+                catalogue_item.price = new_price
+                catalogue_item.save()
+                response2 = self.client.get(url, {'course_id': course_id})
+                self.assertEqual(response2.status_code, http_status.HTTP_200_OK)
+                self.assertEqual(response2.data['pricing_modes'][0]['price'], new_price)
+            else:
+                self.assertIsNone(catalogue_item)
+
+    def test_get_price_cache_invalidation_on_catalogue_item_delete(self):
+        """
+        Verify that cache is invalidated when CatalogueItem is deleted.
+        """
+        from common.djangoapps.course_modes.models import CourseMode
+        from opaque_keys.edx.keys import CourseKey
+
+        course_id = 'course-v1:org1+orphan+2026'
+        CourseOverview.objects.create(
+            id=course_id, org='org1', display_name='Orphan Course'
+        )
+
+        catalogue_item = CatalogueItem.objects.create(
+            sku='orphan-sku-test',
+            type=CatalogueItem.ItemType.PAID_COURSE,
+            title='Orphan Catalogue Item',
+            item_ref_id=course_id,
+            price=100,
+            currency='IQD',
+        )
+        course_key = CourseKey.from_string(course_id)
+        CourseMode.objects.create(
+            course_id=course_key,
+            mode_slug='verified',
+            mode_display_name='Verified',
+            sku=catalogue_item.sku,
+            min_price=50,
+        )
+
+        url = reverse('zeitlabs_payments:course-price')
+        response1 = self.client.get(url, {'course_id': course_id})
+        self.assertEqual(response1.status_code, http_status.HTTP_200_OK)
+        catalogue_item.delete()
+        response2 = self.client.get(url, {'course_id': course_id})
+        self.assertEqual(response2.status_code, http_status.HTTP_404_NOT_FOUND)
+
+    def test_get_price_cache_invalidation_on_course_mode_delete(self):
+        """
+        Verify that cache is invalidated when CourseMode is deleted.
+        """
+        from common.djangoapps.course_modes.models import CourseMode
+        from opaque_keys.edx.keys import CourseKey
+
+        url = reverse('zeitlabs_payments:course-price')
+        course_id = 'course-v1:org1+1+1'
+        response1 = self.client.get(url, {'course_id': course_id})
+        self.assertEqual(response1.status_code, http_status.HTTP_200_OK)
+        course_key = CourseKey.from_string(course_id)
+        for exists in (True, False):
+            if exists:
+                course_mode = CourseMode.objects.filter(course_id=course_key).first()
+            else:
+                CourseMode.objects.filter(course_id=course_key).delete()
+                course_mode = CourseMode.objects.filter(course_id=course_key).first()
+
+            if course_mode:
+                course_mode.delete()
+                self.client.get(url, {'course_id': course_id})
+            else:
+                self.assertIsNone(course_mode)
+
+    def test_get_price_cache_invalidation_catalogue_item_not_found(self):
+        """
+        Verify cache invalidation handler handles missing CatalogueItem gracefully.
+        Tests the edge case where catalogue_item filter returns None.
+        """
+        url = reverse('zeitlabs_payments:course-price')
+        course_id = 'course-v1:org1+orphan+2026'
+        CourseOverview.objects.create(
+            id=course_id, org='org1', display_name='Orphan Course'
+        )
+
+        CatalogueItem.objects.create(
+            sku='orphan-sku',
+            type=CatalogueItem.ItemType.PAID_COURSE,
+            title='Orphan Catalogue Item',
+            item_ref_id=course_id,
+            price=100,
+            currency='IQD',
+        )
+
+        from common.djangoapps.course_modes.models import CourseMode
+        from opaque_keys.edx.keys import CourseKey
+
+        course_key = CourseKey.from_string(course_id)
+        CourseMode.objects.create(
+            course_id=course_key,
+            mode_slug='verified',
+            mode_display_name='Verified',
+            sku='orphan-sku',
+            min_price=50,
+        )
+
+        response1 = self.client.get(url, {'course_id': course_id})
+        self.assertEqual(response1.status_code, http_status.HTTP_200_OK)
+
+        for exists in (True, False):
+            if exists:
+                catalogue_item = CatalogueItem.objects.filter(
+                    item_ref_id=course_id, type=CatalogueItem.ItemType.PAID_COURSE
+                ).first()
+            else:
+                CatalogueItem.objects.filter(
+                    item_ref_id=course_id, type=CatalogueItem.ItemType.PAID_COURSE
+                ).delete()
+                catalogue_item = CatalogueItem.objects.filter(
+                    item_ref_id=course_id, type=CatalogueItem.ItemType.PAID_COURSE
+                ).first()
+
+            if catalogue_item:
+                catalogue_item.delete()
+                response2 = self.client.get(url, {'course_id': course_id})
+                self.assertEqual(response2.status_code, http_status.HTTP_404_NOT_FOUND)
+            else:
+                self.assertIsNone(catalogue_item)
+
+    def test_get_price_cache_invalidation_course_mode_not_found(self):
+        """
+        Verify cache invalidation handler handles missing CourseMode gracefully.
+        Tests the edge case where course_mode filter returns None.
+        """
+        from common.djangoapps.course_modes.models import CourseMode
+        from opaque_keys.edx.keys import CourseKey
+
+        url = reverse('zeitlabs_payments:course-price')
+        course_id = 'course-v1:org1+orphan2+2024'
+        CourseOverview.objects.create(
+            id=course_id, org='org1', display_name='Orphan Course 2'
+        )
+
+        catalogue_item = CatalogueItem.objects.create(
+            sku='orphan-sku2',
+            type=CatalogueItem.ItemType.PAID_COURSE,
+            title='Orphan Catalogue Item 2',
+            item_ref_id=course_id,
+            price=100,
+            currency='IQD',
+        )
+
+        course_key = CourseKey.from_string(course_id)
+        CourseMode.objects.create(
+            course_id=course_key,
+            mode_slug='verified',
+            mode_display_name='Verified',
+            sku=catalogue_item.sku,
+            min_price=50,
+        )
+
+        response1 = self.client.get(url, {'course_id': course_id})
+        self.assertEqual(response1.status_code, http_status.HTTP_200_OK)
+
+        for exists in (True, False):
+            if exists:
+                course_mode = CourseMode.objects.filter(course_id=course_key).first()
+            else:
+                CourseMode.objects.filter(course_id=course_key).delete()
+                course_mode = CourseMode.objects.filter(course_id=course_key).first()
+
+            if course_mode:
+                course_mode.delete()
+                response2 = self.client.get(url, {'course_id': course_id})
+                self.assertEqual(response2.status_code, http_status.HTTP_404_NOT_FOUND)
+            else:
+                self.assertIsNone(course_mode)

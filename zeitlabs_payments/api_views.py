@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 from common.djangoapps.course_modes.models import CourseMode
+from django.core.cache import cache
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
@@ -12,6 +13,10 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from zeitlabs_payments.cache_utils import (
+    CACHE_TIMEOUT,
+    get_course_price_cache_key,
+)
 from zeitlabs_payments.models import CatalogueItem
 from zeitlabs_payments.serializers import CoursePriceSerializer
 
@@ -89,6 +94,12 @@ class CoursePriceView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        cache_key = get_course_price_cache_key(course_id)
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            logger.debug(f'Cache hit for course: {course_id}')
+            return Response(cached_data, status=status.HTTP_200_OK)
+
         try:
             course = CourseOverview.objects.get(id=course_key)
         except CourseOverview.DoesNotExist:
@@ -141,4 +152,8 @@ class CoursePriceView(APIView):
         data = CoursePriceSerializer(
             course, context={'request': request, 'pricing_data': pricing_data}
         ).data
+
+        cache.set(cache_key, data, CACHE_TIMEOUT)
+        logger.debug(f'Cache set for course: {course_id}')
+
         return Response(data, status=status.HTTP_200_OK)
