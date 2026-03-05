@@ -6,6 +6,7 @@ from typing import Any
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils.translation import gettext_lazy as _
 
 User = get_user_model()
 
@@ -33,6 +34,20 @@ class Cart(TimeStampedModel):
         PAYMENT_PENDING = 'payment_pending'
         REFUND_REQUESTED = 'refund_requested'
         REFUNDED = 'refunded'
+
+    @staticmethod
+    def get_status_display(status_value: str) -> str:
+        """Get human readable status."""
+        statuses = {
+            Cart.Status.PENDING: _('Pending'),
+            Cart.Status.PROCESSING: _('Processing'),
+            Cart.Status.PAID: _('Paid'),
+            Cart.Status.CANCELLED: _('Cancelled'),
+            Cart.Status.PAYMENT_PENDING: _('Payment Pending'),
+            Cart.Status.REFUND_REQUESTED: _('Refund Requested'),
+            Cart.Status.REFUNDED: _('Refunded'),
+        }
+        return statuses.get(status_value, status_value)
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='carts')
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
