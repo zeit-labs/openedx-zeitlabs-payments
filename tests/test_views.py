@@ -147,27 +147,23 @@ class CartViewTest(BaseTestViewMixin):
             'something-else-than-sku': 'invalid'
         })
         self.assertEqual(response.status_code, http_status.HTTP_400_BAD_REQUEST)
-        assert response.data['error'] == 'SKU is required'
+        assert 'SKU is required' in response.data['error']
 
         response = self.client.post(self.url, data={'sku': 'invalid'})
         self.assertEqual(response.status_code, http_status.HTTP_400_BAD_REQUEST)
-        assert response.data['error'] == 'Invalid SKU, unable to find catalogue item.'
+        assert 'Invalid SKU(s)' in response.data['error']
+        assert 'invalid' in response.data['error']
 
-    @patch.dict(
-        'zeitlabs_payments.views.CART_HANDLER', {}, clear=True
-    )
+    @patch.dict('zeitlabs_payments.cart_handler.CART_HANDLER', {}, clear=True)
     def test_post_failed_for_unsupported_item_type(self):
-        """Verify that """
+        """Verify that unsupported item type returns 400."""
         user = User.objects.get(id=self.learner1_id)
         course_item = CatalogueItem.objects.get(sku='custom-sku-1')
 
         self.login_user(user)
-        response = self.client.post(self.url, data={
-            'sku': course_item.sku
-        })
+        response = self.client.post(self.url, data={'sku': course_item.sku})
         self.assertEqual(response.status_code, http_status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data['error'], 'Item with given SKU has unsupported type: paid_course.')
-
+        assert 'unsupported type' in response.data['details']
     @patch(
         'zeitlabs_payments.helpers.CourseEnrollment.is_enrolled'
     )
@@ -181,11 +177,97 @@ class CartViewTest(BaseTestViewMixin):
             'sku': course_item.sku
         })
         self.assertEqual(response.status_code, http_status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data['error'], 'Given SKU item does not match add to cart requirements')
+        self.assertEqual(response.data['error'],'Given SKU item(s) do not match add to cart requirements.')
         self.assertEqual(response.data['details'], (
             'Unable to add item to the cart as user: user3 does not fulfill enrollment conditions. '
             'User is already enrolled in the course.'
         ))
+
+    def test_post_bulk_skus_success(self):
+        """
+        Should create a cart with multiple items when 'skus' list is provided.
+        """
+        user = User.objects.get(id=self.learner1_id)
+        self.login_user(user)
+        response = self.client.post(
+            self.url,
+            data={'skus': ['custom-sku-1', 'course1-org2-no-id-professional']},
+            format='json',
+        )
+        self.assertEqual(response.status_code, http_status.HTTP_201_CREATED)
+        assert response.data['user'] == user.id
+        assert response.data['status'] == Cart.Status.PENDING
+        assert len(response.data['items']) == 2
+        skus_in_response = {item['sku'] for item in response.data['items']}
+        assert skus_in_response == {'custom-sku-1', 'course1-org2-no-id-professional'}
+
+    def test_post_bulk_skus_cancels_old_cart(self):
+        """
+        Bulk SKU post should cancel the old pending cart and create a new one.
+        """
+        user = User.objects.get(id=self.learner1_id)
+        self.login_user(user)
+
+        response = self.client.post(self.url, data={'sku': 'custom-sku-1'})
+        self.assertEqual(response.status_code, http_status.HTTP_201_CREATED)
+        old_cart_id = response.data['id']
+
+        response = self.client.post(
+            self.url,
+            data={'skus': ['custom-sku-1', 'course1-org2-no-id-professional']},
+            format='json',
+        )
+        self.assertEqual(response.status_code, http_status.HTTP_201_CREATED)
+        assert response.data['id'] != old_cart_id
+
+        old_cart = Cart.objects.get(id=old_cart_id)
+        assert old_cart.status == Cart.Status.CANCELLED
+
+    def test_post_bulk_partial_invalid_skus(self):
+        """
+        Should return 400 if any SKU in the list does not exist.
+        """
+        user = User.objects.get(id=self.learner1_id)
+        self.login_user(user)
+        response = self.client.post(
+            self.url,
+            data={'skus': ['custom-sku-1', 'nonexistent-sku']},
+            format='json',
+        )
+        self.assertEqual(response.status_code, http_status.HTTP_400_BAD_REQUEST)
+        assert 'Invalid SKU(s)' in response.data['error']
+        assert 'nonexistent-sku' in response.data['error']
+
+    def test_post_skus_field_must_be_list(self):
+        """
+        Should return 400 if 'skus' is not a list of strings.
+        """
+        user = User.objects.get(id=self.learner1_id)
+        self.login_user(user)
+        response = self.client.post(
+            self.url,
+            data={'skus': 'not-a-list'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, http_status.HTTP_400_BAD_REQUEST)
+        assert 'must be a list' in response.data['error']
+
+    def test_post_skus_takes_precedence_over_sku(self):
+        """
+        When both 'sku' and 'skus' are provided, 'skus' should take precedence.
+        """
+        user = User.objects.get(id=self.learner1_id)
+        self.login_user(user)
+        response = self.client.post(
+            self.url,
+            data={
+                'sku': 'custom-sku-1',
+                'skus': ['custom-sku-1', 'course1-org2-no-id-professional'],
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, http_status.HTTP_201_CREATED)
+        assert len(response.data['items']) == 2
 
 
 @pytest.mark.usefixtures('base_data')
@@ -277,20 +359,15 @@ class CheckoutViewTests(TestCase):
         test_sku = 'does-not-exist'
         response = self.client.get(f'{self.url}?sku={test_sku}')
         self.assertTemplateUsed(response, 'zeitlabs_payments/invalid_cart.html')
-        self.assertEqual(response.context['error_message'], 'Item with sku: does-not-exist does not exist.')
+        self.assertEqual(response.context['error_message'], 'Item(s) with SKU(s) not found: does-not-exist.')
         self.assertEqual(response.status_code, 404)
 
-    @patch.dict(
-        'zeitlabs_payments.views.CART_HANDLER', {}, clear=True
-    )
+    @patch.dict('zeitlabs_payments.cart_handler.CART_HANDLER', {}, clear=True)
     def test_checkout_view_with_sku_for_item_sku_with_unsuppported_type(self):
         self.client.force_login(self.user)
         response = self.client.get(f'{self.url}?sku=custom-sku-1')
         self.assertTemplateUsed(response, 'zeitlabs_payments/invalid_cart.html')
-        self.assertEqual(
-            response.context['error_message'],
-            'Item has unsupported type: paid_course.'
-        )
+        assert 'unsupported type' in response.context['error_message']
         self.assertEqual(response.status_code, 400)
 
     @patch(
@@ -307,6 +384,66 @@ class CheckoutViewTests(TestCase):
             'conditions. User is already enrolled in the course.'
         )
         self.assertEqual(response.status_code, 400)
+
+    def test_checkout_view_with_multiple_skus_success(self):
+        """
+        Should create a cart with multiple items when multiple sku query params are provided.
+        """
+        self.client.force_login(self.user)
+        response = self.client.get(
+            f'{self.url}?sku=custom-sku-1&sku=course1-org2-no-id-professional'
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['cart']['items']), 2)
+        skus = {item['sku'] for item in response.context['cart']['items']}
+        self.assertEqual(skus, {'custom-sku-1', 'course1-org2-no-id-professional'})
+
+    def test_checkout_view_with_multiple_skus_partial_invalid(self):
+        """
+        Should return 404 with invalid_cart template when any SKU does not exist.
+        """
+        self.client.force_login(self.user)
+        response = self.client.get(f'{self.url}?sku=custom-sku-1&sku=bad-sku')
+        self.assertTemplateUsed(response, 'zeitlabs_payments/invalid_cart.html')
+        assert 'bad-sku' in response.context['error_message']
+        self.assertEqual(response.status_code, 404)
+
+    def test_checkout_view_with_cart_id_success(self):
+        """
+        Should checkout an existing pending cart by its ID.
+        """
+        self.client.force_login(self.user)
+        cart = Cart.objects.create(user=self.user, status=Cart.Status.PENDING)
+        course_item = CatalogueItem.objects.get(sku='custom-sku-1')
+        cart.items.create(
+            catalogue_item=course_item,
+            original_price=course_item.price,
+            final_price=course_item.price,
+        )
+
+        response = self.client.get(f'{self.url}?cart={cart.id}')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['cart']['id'], cart.id)
+
+    def test_checkout_view_with_invalid_cart_id(self):
+        """
+        Should return 404 when cart ID does not exist or is not pending.
+        """
+        self.client.force_login(self.user)
+        response = self.client.get(f'{self.url}?cart=99999')
+        self.assertTemplateUsed(response, 'zeitlabs_payments/invalid_cart.html')
+        assert '99999' in response.context['error_message']
+        self.assertEqual(response.status_code, 404)
+
+    def test_checkout_view_with_non_pending_cart_id(self):
+        """
+        Should return 404 when cart exists but is not in PENDING status.
+        """
+        self.client.force_login(self.user)
+        cart = Cart.objects.create(user=self.user, status=Cart.Status.PAID)
+        response = self.client.get(f'{self.url}?cart={cart.id}')
+        self.assertTemplateUsed(response, 'zeitlabs_payments/invalid_cart.html')
+        self.assertEqual(response.status_code, 404)
 
 
 @pytest.mark.django_db

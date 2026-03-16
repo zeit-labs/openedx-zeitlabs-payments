@@ -144,7 +144,8 @@ class TestManualPaymentView(APITestCase):
         }
         response = self.client.post(self.url, data=payload, format='json')
         assert response.status_code == 400
-        assert response.data['error'] == 'Invalid course id provided: invlaid-course-id.'
+        assert 'Invalid course id' in response.data['error']
+        assert 'invlaid-course-id' in response.data['error']
 
     def test_non_exist_course_id(self):
         """
@@ -160,17 +161,15 @@ class TestManualPaymentView(APITestCase):
         }
         response = self.client.post(self.url, data=payload, format='json')
         assert response.status_code == 400
-        assert response.data['error'] == (
-            "Unable to retrieve course mode or catalogue item for course_id = 'course-v1:notexist+1+1' "
-            "and mode='no-id-professional'."
+        assert (
+            'Unable to retrieve course mode or catalogue item' in response.data['error']
         )
+        assert 'course-v1:notexist+1+1' in response.data['error']
 
-    @patch.dict(
-        'zeitlabs_payments.views.CART_HANDLER', {}, clear=True
-    )
+    @patch.dict('zeitlabs_payments.cart_handler.CART_HANDLER', {}, clear=True)
     def test_catalogue_item_with_unsupported_type(self):
         """
-        Should return 400 when course mode or catalogue item not found.
+        Should return 400 when item type has no registered handler.
         """
         self.login_user(self.admin_user)
         payload = {
@@ -182,13 +181,11 @@ class TestManualPaymentView(APITestCase):
         }
         response = self.client.post(self.url, data=payload, format='json')
         assert response.status_code == 400
-        assert response.data['error'] == (
-            'Catalog Item with given course_id and mode has unsupported type: paid_course.'
-        )
+        assert 'unsupported type' in response.data['details']
 
     def test_post_for_validate_add_to_cart_exception(self):
         """
-        Valid request → should create invoice & cart.
+        Should return 400 when cart validation fails.
         """
         self.login_user(self.admin_user)
         payload = {
@@ -204,13 +201,15 @@ class TestManualPaymentView(APITestCase):
         related_course_item.save()
         response = self.client.post(self.url, data=payload, format='json')
         assert response.status_code == 400
-        assert response.data['error'] == 'Given course does not match add to cart requirements'
+        assert 'do not match add to cart requirements' in response.data['error']
         assert response.data['details'] == (
             'Unable to add item to the cart as Course mode found with given sku but course_id '
             'mismatch with catalogue item ref-id.'
         )
 
-    @patch('zeitlabs_payments.providers.manual_payment.processor.ManualPaymentProcessor.process_payment')
+    @patch(
+        'zeitlabs_payments.providers.manual_payment.processor.ManualPaymentProcessor.process_payment'
+    )
     def test_process_payment_raises_exception(self, mock_process_payment):
         """
         Should return 400 when processor.process_payment raises an exception.
@@ -229,3 +228,133 @@ class TestManualPaymentView(APITestCase):
         assert response.status_code == 400
         assert response.data['error'] == 'Failed to process manual payment'
         assert response.data['details'] == 'some error'
+
+    def test_post_bulk_items_success(self):
+        """
+        Should create a cart with multiple items when 'items' list is provided.
+        """
+        self.login_user(self.admin_user)
+        payload = {
+            'username': self.learner_user.username,
+            'items': [
+                {'course_key': 'course-v1:org1+1+1', 'mode': 'no-id-professional'},
+                {'course_key': 'course-v1:org2+1+1', 'mode': 'no-id-professional'},
+            ],
+            'transaction_id': 'bulk-tx-001',
+            'transaction_status': 'success',
+        }
+        response = self.client.post(self.url, data=payload, format='json')
+        assert response.status_code == 201
+
+        cart = Cart.objects.get(id=response.data['created_cart'])
+        assert cart.items.count() == 2
+        assert cart.user == self.learner_user
+        assert cart.status == Cart.Status.PAID
+
+    def test_post_bulk_items_missing_per_item_fields(self):
+        """
+        Should return 400 when an item in 'items' list is missing course_key or mode.
+        """
+        self.login_user(self.admin_user)
+        payload = {
+            'username': self.learner_user.username,
+            'items': [
+                {'course_key': 'course-v1:org1+1+1', 'mode': 'no-id-professional'},
+                {'course_key': 'course-v1:org2+1+1'},  # missing 'mode'
+            ],
+            'transaction_id': 'bulk-tx-002',
+            'transaction_status': 'success',
+        }
+        response = self.client.post(self.url, data=payload, format='json')
+        assert response.status_code == 400
+        assert 'index 1' in response.data['error']
+        assert 'missing required field' in response.data['error'].lower()
+
+    def test_post_bulk_items_invalid_course_id(self):
+        """
+        Should return 400 when a course_key in 'items' has invalid format.
+        """
+        self.login_user(self.admin_user)
+        payload = {
+            'username': self.learner_user.username,
+            'items': [
+                {'course_key': 'not-a-valid-course-id', 'mode': 'no-id-professional'},
+            ],
+            'transaction_id': 'bulk-tx-003',
+            'transaction_status': 'success',
+        }
+        response = self.client.post(self.url, data=payload, format='json')
+        assert response.status_code == 400
+        assert 'Invalid course id' in response.data['error']
+
+    def test_post_bulk_items_nonexistent_course(self):
+        """
+        Should return 400 when a course_key in 'items' does not have a matching
+        CourseMode or CatalogueItem.
+        """
+        self.login_user(self.admin_user)
+        payload = {
+            'username': self.learner_user.username,
+            'items': [
+                {'course_key': 'course-v1:org1+1+1', 'mode': 'no-id-professional'},
+                {'course_key': 'course-v1:noexist+1+1', 'mode': 'no-id-professional'},
+            ],
+            'transaction_id': 'bulk-tx-004',
+            'transaction_status': 'success',
+        }
+        response = self.client.post(self.url, data=payload, format='json')
+        assert response.status_code == 400
+        assert (
+            'Unable to retrieve course mode or catalogue item' in response.data['error']
+        )
+        assert 'index 1' in response.data['error']
+
+    def test_post_bulk_does_not_require_top_level_course_key(self):
+        """
+        When 'items' key is present, top-level 'course_key' and 'mode' should NOT be required.
+        """
+        self.login_user(self.admin_user)
+        # No top-level course_key / mode — should be fine because 'items' is present
+        payload = {
+            'username': self.learner_user.username,
+            'items': [
+                {'course_key': 'course-v1:org1+1+1', 'mode': 'no-id-professional'},
+            ],
+            'transaction_id': 'bulk-tx-005',
+            'transaction_status': 'success',
+        }
+        response = self.client.post(self.url, data=payload, format='json')
+        assert response.status_code == 201
+
+    def test_post_bulk_items_validation_failure(self):
+        """
+        Should return 400 when validate_and_create_cart raises InvalidCartError for bulk items.
+        """
+        self.login_user(self.admin_user)
+        # Use the catalogue item with invalid ref_id
+        payload = {
+            'username': self.learner_user.username,
+            'items': [
+                {'course_key': 'course-v1:org1+1+1', 'mode': 'verified'},
+            ],
+            'transaction_id': 'bulk-tx-006',
+            'transaction_status': 'success',
+        }
+        response = self.client.post(self.url, data=payload, format='json')
+        assert response.status_code == 400
+        assert 'do not match add to cart requirements' in response.data['error']
+
+    def test_post_bulk_items_must_be_list(self):
+        """
+        Should return 400 when 'items' is present but not a list (e.g. a string).
+        """
+        self.login_user(self.admin_user)
+        payload = {
+            'username': self.learner_user.username,
+            'items': 'not-a-list',
+            'transaction_id': 'bulk-tx-007',
+            'transaction_status': 'success',
+        }
+        response = self.client.post(self.url, data=payload, format='json')
+        assert response.status_code == 400
+        assert 'must be a non-empty list' in response.data['error']

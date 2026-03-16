@@ -1,7 +1,7 @@
 """Cart fullfillment."""
 
 import logging
-from typing import Any
+from typing import Any, List
 
 from common.djangoapps.course_modes.models import CourseMode
 from common.djangoapps.student.models import CourseEnrollment, CourseEnrollmentException
@@ -18,7 +18,72 @@ from zeitlabs_payments.models import AuditLog, Cart, CartItem, CatalogueItem, Ta
 logger = logging.getLogger(__name__)
 
 
-CART_HANDLER = {}
+CART_HANDLER: dict[Any, Any] = {}
+
+
+def validate_and_create_cart(
+    user: get_user_model,
+    catalogue_items: List[CatalogueItem],
+    cancel_old_carts: bool = True,
+) -> Cart:
+    """
+    Validate a list of catalogue items and create a single cart containing all of them.
+
+    This function:
+    - Validates that the list is non-empty and contains no duplicate SKUs.
+    - Looks up the appropriate handler for each item's type via the CART_HANDLER registry.
+    - Calls each handler's validate_add_to_cart() to ensure the user can purchase each item.
+    - Cancels old pending carts (if cancel_old_carts is True).
+    - Creates one Cart with N CartItems, computing tax for each.
+
+    :param user: User instance.
+    :param catalogue_items: List of CatalogueItem instances to add to cart.
+    :param cancel_old_carts: Whether to cancel the user's old pending carts before creating a new one.
+    :raises InvalidCartError: If validation fails for any item, the list is empty, or duplicates are found.
+    :return: The newly created Cart instance.
+    """
+    if not catalogue_items:
+        raise InvalidCartError(
+            'At least one catalogue item is required to create a cart.'
+        )
+
+    # Check for duplicate SKUs within the request
+    skus = [item.sku for item in catalogue_items]
+    if len(skus) != len(set(skus)):
+        duplicates = [sku for sku in skus if skus.count(sku) > 1]
+        raise InvalidCartError(
+            f'Duplicate SKUs found in request: {", ".join(set(duplicates))}'
+        )
+
+    # Validate each item via its registered handler
+    for catalogue_item in catalogue_items:
+        handler = CART_HANDLER.get(catalogue_item.type)
+        if not handler:
+            raise InvalidCartError(
+                f'Item with SKU {catalogue_item.sku} has unsupported type: {catalogue_item.type}.'
+            )
+        handler.validate_add_to_cart(user, catalogue_item)
+
+    if cancel_old_carts:
+        cancel_old_pending_carts(user)
+
+    cart = Cart.objects.create(user=user, status=Cart.Status.PENDING)
+    logger.info(f'Created new pending cart {cart.id} for user {user}')
+
+    for catalogue_item in catalogue_items:
+        _, tax_amount = TaxRule.get_applicable_tax(catalogue_item.price)
+        final_price = catalogue_item.price + tax_amount
+
+        CartItem.objects.create(
+            cart=cart,
+            catalogue_item=catalogue_item,
+            original_price=catalogue_item.price,
+            tax_amount=tax_amount,
+            final_price=final_price,
+        )
+        logger.info(f'Added catalogue item {catalogue_item.sku} to cart {cart.id}')
+
+    return cart
 
 
 class BaseCartHandler:
@@ -27,7 +92,9 @@ class BaseCartHandler:
     """
 
     def validate_add_to_cart(
-        self, user: get_user_model, catalogue_item: CatalogueItem  # pylint: disable=unused-argument
+        self,
+        user: get_user_model,  # pylint: disable=unused-argument
+        catalogue_item: CatalogueItem,  # pylint: disable=unused-argument
     ) -> None:
         """
         Raise InvalidCartError if validation fails.
@@ -45,35 +112,26 @@ class BaseCartHandler:
         raise NotImplementedError('Subclasses must implement this.')
 
     def validate_item_and_create_cart(
-        self, user: get_user_model, catalog_item: CatalogueItem, cancel_old_carts: bool = True
+        self,
+        user: get_user_model,
+        catalog_item: CatalogueItem,
+        cancel_old_carts: bool = True,
     ) -> Cart:
         """
-        Create an open cart for the given user.
+        Create an open cart for the given user with a single catalogue item.
+
+        This is a backward-compatible wrapper around validate_and_create_cart().
         Before creating a new cart, this function will cancel all of the user's stale carts
         that are in the 'pending' state, ensuring the user has only one active pending cart at a time.
 
         :param user: User instance
         :param catalog_item: CatalogueItem instance to add to cart
+        :param cancel_old_carts: Whether to cancel old pending carts before creating a new one.
         :return: Cart instance
         """
-        self.validate_add_to_cart(user, catalog_item)
-        if cancel_old_carts:
-            cancel_old_pending_carts(user)
-        cart = Cart.objects.create(user=user, status=Cart.Status.PENDING)
-        logger.info(f'Created new pending cart {cart.id} for user {user}')
-
-        _, tax_amount = TaxRule.get_applicable_tax(catalog_item.price)
-        final_price = catalog_item.price + tax_amount
-
-        CartItem.objects.create(
-            cart=cart,
-            catalogue_item=catalog_item,
-            original_price=catalog_item.price,
-            tax_amount=tax_amount,
-            final_price=final_price,
+        return validate_and_create_cart(
+            user, [catalog_item], cancel_old_carts=cancel_old_carts
         )
-        logger.info(f'Added catalogue item {catalog_item.sku} to cart {cart.id}')
-        return cart
 
 
 def register_handler(item_type: str) -> Any:
@@ -118,7 +176,10 @@ class PaidCourseCartHandler(BaseCartHandler):
                 )
             check_user_enroll_conditions(user, course_mode)
             check_duplicate_cart_with_item(
-                user, course_mode, status=Cart.Status.PAYMENT_PENDING, item_type=catalogue_item.ItemType.PAID_COURSE
+                user,
+                course_mode,
+                status=Cart.Status.PAYMENT_PENDING,
+                item_type=catalogue_item.ItemType.PAID_COURSE,
             )
         except CourseMode.DoesNotExist as exc:
             raise InvalidCartError('Unable to add item to the cart as CourseMode not found') from exc
@@ -206,7 +267,7 @@ class PaidCourseCartHandler(BaseCartHandler):
                 context={
                     'course_id': course_mode.course.id,
                     'mode_slug': course_mode.mode_slug,
-                    'catalogue_item_id': item.catalogue_item.id
+                    'catalogue_item_id': item.catalogue_item.id,
                 }
             )
             raise CartFulfillmentError('Unexpected enrollment error') from exc

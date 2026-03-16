@@ -1,4 +1,5 @@
 """Zeilabs payments views."""
+
 import logging
 from typing import Any
 
@@ -16,7 +17,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from zeitlabs_payments import models
-from zeitlabs_payments.cart_handler import CART_HANDLER
+from zeitlabs_payments.cart_handler import validate_and_create_cart
 from zeitlabs_payments.exceptions import InvalidCartError
 from zeitlabs_payments.helpers import get_currency, get_settings
 from zeitlabs_payments.providers.registry import PROCESSORS, get_processor
@@ -80,40 +81,61 @@ class CheckoutView(LoginRequiredMixin, ContextMixing):
 
     def get(self, request: Any, *args: Any, **kwargs: Any) -> None:
         """
-        Checkout View. If SKU provided create a new cart otherwise render last pending cart of user.
+        Checkout View.
+
+        Supports three modes:
+        - ?sku=ABC           — create a cart with a single SKU (backward compatible)
+        - ?sku=ABC&sku=DEF   — create a cart with multiple SKUs
+        - ?cart=<cart_id>     — checkout an existing pending cart by ID
+        - (no params)        — render the last pending cart, if any
         """
-        sku_code = request.GET.get('sku')
-        if sku_code:
+        cart_id = request.GET.get('cart')
+        sku_list = request.GET.getlist('sku')
+
+        if cart_id:
             try:
-                catalog_item = models.CatalogueItem.objects.get(sku=sku_code)
-            except models.CatalogueItem.DoesNotExist:
+                cart = models.Cart.objects.get(
+                    id=cart_id,
+                    user=request.user,
+                    status=models.Cart.Status.PENDING,
+                )
+            except models.Cart.DoesNotExist:
                 return render(
                     request,
                     'zeitlabs_payments/invalid_cart.html',
-                    {'error_message': f'Item with sku: {sku_code} does not exist.'},
-                    status=404
+                    {'error_message': f'No pending cart found with id: {cart_id}.'},
+                    status=404,
+                )
+        elif sku_list:
+            catalogue_items = list(
+                models.CatalogueItem.objects.filter(sku__in=sku_list)
+            )
+            found_skus = {item.sku for item in catalogue_items}
+            missing_skus = [sku for sku in sku_list if sku not in found_skus]
+            if missing_skus:
+                return render(
+                    request,
+                    'zeitlabs_payments/invalid_cart.html',
+                    {
+                        'error_message': f'Item(s) with SKU(s) not found: {", ".join(missing_skus)}.'
+                    },
+                    status=404,
                 )
 
-            handler = CART_HANDLER.get(catalog_item.type)
-            if not handler:
-                return render(
-                    request,
-                    'zeitlabs_payments/invalid_cart.html',
-                    {'error_message': f'Item has unsupported type: {catalog_item.type}.'},
-                    status=400
-                )
             try:
-                cart = handler.validate_item_and_create_cart(request.user, catalog_item)
+                cart = validate_and_create_cart(request.user, catalogue_items)
             except InvalidCartError as exc:
                 return render(
                     request,
                     'zeitlabs_payments/invalid_cart.html',
                     {'error_message': str(exc)},
-                    status=400
+                    status=400,
                 )
         else:
             cart = (
-                models.Cart.objects.filter(user=request.user, status=models.Cart.Status.PENDING)
+                models.Cart.objects.filter(
+                    user=request.user, status=models.Cart.Status.PENDING
+                )
                 .order_by('-created_at')
                 .first()
             )
@@ -215,53 +237,62 @@ class CartView(APIView):
 
     def post(self, request: Any) -> Response:
         """
-        Create a new cart and add the requested SKU item.
+        Create a new cart and add the requested SKU item(s).
 
-        Expected payload:
-        {
-            "sku": "courseSS101",
-        }
+        Accepts either a single SKU or multiple SKUs:
+            {"sku": "courseSS101"}           — single SKU (backward compatible)
+            {"skus": ["SKU1", "SKU2", ...]}  — multiple SKUs (bulk)
 
-        :param request: HTTP request with SKU in data
+        If both "sku" and "skus" are provided, "skus" takes precedence.
+
+        :param request: HTTP request with SKU(s) in data
         :return: Serialized cart data with HTTP 201 status or error response
         """
-        sku_code = request.data.get('sku')
+        sku_list = request.data.get('skus')
+        if not sku_list:
+            single_sku = request.data.get('sku')
+            if single_sku:
+                sku_list = [single_sku]
 
-        if not sku_code:
-            logger.warning('POST to CartView missing SKU in request data')
+        if not sku_list:
+            logger.warning('POST to CartView missing SKU(s) in request data')
             return Response(
-                {'error': 'SKU is required'},
+                {'error': 'SKU is required. Provide "sku" (string) or "skus" (list).'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not isinstance(sku_list, list) or not all(
+            isinstance(s, str) for s in sku_list
+        ):
+            return Response(
+                {'error': '"skus" must be a list of strings.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        catalogue_items = list(models.CatalogueItem.objects.filter(sku__in=sku_list))
+
+        found_skus = {item.sku for item in catalogue_items}
+        missing_skus = [sku for sku in sku_list if sku not in found_skus]
+        if missing_skus:
+            return Response(
+                {
+                    'error': f'Invalid SKU(s), unable to find catalogue item(s): {", ".join(missing_skus)}'
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         try:
-            catalog_item = models.CatalogueItem.objects.get(sku=sku_code)
-            logger.debug(f'Catalog item found for SKU {sku_code}')
-        except models.CatalogueItem.DoesNotExist:
-            return Response(
-                {'error': 'Invalid SKU, unable to find catalogue item.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        handler = CART_HANDLER.get(catalog_item.type)
-        if not handler:
-            return Response(
-                {'error': f'Item with given SKU has unsupported type: {catalog_item.type}.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            cart = handler.validate_item_and_create_cart(request.user, catalog_item)
+            cart = validate_and_create_cart(request.user, catalogue_items)
         except InvalidCartError as exc:
             return Response(
                 {
-                    'error': 'Given SKU item does not match add to cart requirements',
-                    'details': f'{str(exc)}'
+                    'error': 'Given SKU item(s) do not match add to cart requirements.',
+                    'details': str(exc),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         serializer = CartSerializer(cart, context={'request': request})
-        logger.info(f'Cart created for user {request.user} with SKU {sku_code}')
+        logger.info(f'Cart created for user {request.user} with SKU(s) {sku_list}')
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 

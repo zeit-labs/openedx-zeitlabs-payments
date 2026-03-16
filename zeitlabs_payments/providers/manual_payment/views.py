@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from zeitlabs_payments import models
-from zeitlabs_payments.cart_handler import CART_HANDLER
+from zeitlabs_payments.cart_handler import validate_and_create_cart
 from zeitlabs_payments.exceptions import InvalidCartError
 from zeitlabs_payments.providers.manual_payment.processor import ManualPaymentProcessor
 
@@ -20,8 +20,7 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 ID_PART = r'[a-zA-Z0-9_-]+'
-COURSE_ID_REGX = \
-    fr'(?P<course_id>course-v1:(?P<org>{ID_PART})\+(?P<course>{ID_PART})\+(?P<run>{ID_PART}))'
+COURSE_ID_REGX = rf'(?P<course_id>course-v1:(?P<org>{ID_PART})\+(?P<course>{ID_PART})\+(?P<run>{ID_PART}))'
 COURSE_ID_REGX_EXACT = rf'^{COURSE_ID_REGX}$'
 
 
@@ -34,6 +33,9 @@ class ManualPaymentView(APIView):
         """
         Check if either 'user_id' or 'username' is present and all other required_fields exist.
 
+        For bulk payloads ("items" key present), course_key and mode are not required at the
+        top level — they are required per item instead.
+
         :Returns
         (True, None) if valid
         (False, 'field_name') if missing
@@ -42,7 +44,12 @@ class ManualPaymentView(APIView):
         if not (payload.get('user_id') or payload.get('username')):
             return False, 'user_id or username'
 
-        required_fields = ['course_key', 'mode', 'transaction_id', 'transaction_status']
+        required_fields = []
+        # Single-item format requires course_key and mode at top level
+        if 'items' not in payload:
+            required_fields.extend(['course_key', 'mode'])
+        required_fields.extend(['transaction_id', 'transaction_status'])
+
         for field in required_fields:
             if not payload.get(field):
                 return False, field
@@ -65,7 +72,9 @@ class ManualPaymentView(APIView):
         except User.DoesNotExist:
             return None
 
-    def _get_course_item(self, mode: str, course_id: str) -> Optional[models.CatalogueItem]:
+    def _get_course_item(
+        self, mode: str, course_id: str
+    ) -> Optional[models.CatalogueItem]:
         """
         Get the CourseMode and related CatalogueItem by mode and course_id.
 
@@ -83,22 +92,67 @@ class ManualPaymentView(APIView):
         except (CourseMode.DoesNotExist, models.CatalogueItem.DoesNotExist):
             return None
 
+    def _resolve_catalogue_items(self, items_data: list) -> tuple:
+        """
+        Resolve a list of item dicts (each with course_key and mode) into CatalogueItem instances.
+
+        :param items_data: List of dicts, each containing 'course_key' and 'mode'.
+        :return: (catalogue_items, error_message) — list of CatalogueItem on success, or
+                 (None, error_string) on failure.
+        """
+        catalogue_items = []
+        for idx, item in enumerate(items_data):
+            course_key = item.get('course_key')
+            mode = item.get('mode')
+
+            if not course_key or not mode:
+                return (
+                    None,
+                    f'Item at index {idx} is missing required field(s): course_key, mode.',
+                )
+
+            if not re.search(COURSE_ID_REGX_EXACT, course_key):
+                return None, f'Invalid course id provided at index {idx}: {course_key}.'
+
+            catalogue_item = self._get_course_item(mode, course_key)
+            if not catalogue_item:
+                return None, (
+                    f'Unable to retrieve course mode or catalogue item for '
+                    f"course_id='{course_key}' and mode='{mode}' at index {idx}."
+                )
+
+            catalogue_items.append(catalogue_item)
+
+        return catalogue_items, None
+
     def post(self, request: Any) -> Response:
         """
         Create order and invoice for manual payment.
-        Expected payload example:
+
+        Accepts two payload formats:
+
+        Single item (backward compatible):
             {
-                "user_id": 111,  # Optional if "username" is provided
-                "username": "me",  # Optional if "user_id" is provided
-                "course_run_key": "course-v1:TestX+Test100+2019_T1",  # Required
-                "mode": "verified",  # Required, e.g., 'verified' or 'professional',
-                "transaction_id": "manual-123",  # Required
+                "user_id": 111,               # Optional if "username" is provided
+                "username": "me",             # Optional if "user_id" is provided
+                "course_key": "course-v1:TestX+Test100+2019_T1",  # Required
+                "mode": "verified",           # Required
+                "transaction_id": "manual-123",   # Required
                 "transaction_status": "success",  # Required
-                "reason": "some reason",  # Optional
+                "reason": "some reason",      # Optional
             }
-        Notes:
-            - Either "user_id" or "username" must be present.
-            - "course_run_key" and "mode" must always be present and not empty.
+
+        Multiple items (bulk):
+            {
+                "user_id": 111,
+                "items": [
+                    {"course_key": "course-v1:TestX+Test100+2019_T1", "mode": "verified"},
+                    {"course_key": "course-v1:TestX+Test200+2019_T1", "mode": "professional"},
+                ],
+                "transaction_id": "manual-123",
+                "transaction_status": "success",
+                "reason": "some reason",
+            }
 
         :param request: HTTP request with above described payload
         :return: create invoice and cart number response
@@ -107,51 +161,45 @@ class ManualPaymentView(APIView):
         if not is_valid:
             return Response(
                 {'error': f'Missing required param: {missing}'},
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         user = self._get_user(request.data)
         if not user:
             return Response(
                 {'error': 'Unable to retrieve user with given user info.'},
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if not re.search(COURSE_ID_REGX_EXACT, request.data['course_key']):
+        # Build the list of item dicts — either from "items" or from top-level course_key/mode
+        items_data = request.data.get('items')
+        if not items_data:
+            items_data = [
+                {'course_key': request.data['course_key'], 'mode': request.data['mode']}
+            ]
+
+        if not isinstance(items_data, list) or not items_data:
             return Response(
-                {'error': f"Invalid course id provided: {request.data['course_key']}."},
-                status=status.HTTP_400_BAD_REQUEST
+                {'error': '"items" must be a non-empty list.'},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        course_catalog_item = self._get_course_item(request.data['mode'], request.data['course_key'])
-        if not course_catalog_item:
+        catalogue_items, error = self._resolve_catalogue_items(items_data)
+        if error:
             return Response(
-                {
-                    'error': (
-                        f'Unable to retrieve course mode or catalogue item for course_id ='
-                        f" '{request.data['course_key']}' and mode='{request.data['mode']}'."
-                    )
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        handler = CART_HANDLER.get(course_catalog_item.type)
-        if not handler:
-            return Response(
-                {'error': (
-                    f'Catalog Item with given course_id and mode has unsupported'
-                    f' type: {course_catalog_item.type}.'
-                )},
+                {'error': error},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         try:
-            cart = handler.validate_item_and_create_cart(user, course_catalog_item, cancel_old_carts=False)
+            cart = validate_and_create_cart(
+                user, catalogue_items, cancel_old_carts=False
+            )
         except InvalidCartError as exc:
             return Response(
                 {
-                    'error': 'Given course does not match add to cart requirements',
-                    'details': f'{str(exc)}'
+                    'error': 'Given course(s) do not match add to cart requirements.',
+                    'details': str(exc),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -163,15 +211,12 @@ class ManualPaymentView(APIView):
                 cart,
                 request.data['transaction_id'],
                 request.data['transaction_status'],
-                request.data.get('reason')
+                request.data.get('reason'),
             )
             return Response(result, status=status.HTTP_201_CREATED)
         except Exception as e:  # pylint: disable=broad-exception-caught
             logger.error(f'Failed to process manual payment: {str(e)}')
             return Response(
-                {
-                    'error': 'Failed to process manual payment',
-                    'details': str(e)
-                },
+                {'error': 'Failed to process manual payment', 'details': str(e)},
                 status=status.HTTP_400_BAD_REQUEST,
             )

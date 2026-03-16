@@ -7,9 +7,9 @@ from common.djangoapps.course_modes.models import CourseMode
 from common.djangoapps.student.models import CourseEnrollmentException
 from django.contrib.auth import get_user_model
 
-from zeitlabs_payments.cart_handler import BaseCartHandler, PaidCourseCartHandler
+from zeitlabs_payments.cart_handler import BaseCartHandler, PaidCourseCartHandler, validate_and_create_cart
 from zeitlabs_payments.exceptions import CartFulfillmentError, InvalidCartError
-from zeitlabs_payments.models import AuditLog, Cart, CatalogueItem
+from zeitlabs_payments.models import AuditLog, Cart, CatalogueItem, TaxRule
 
 User = get_user_model()
 
@@ -265,3 +265,191 @@ class TestPaidCourseCartHandler:
                 'during cart fulfillment for catalogue_item: 1.'
             )
         ).exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures('base_data')
+class TestValidateAndCreateCart:
+    """
+    Tests for the validate_and_create_cart() module-level function.
+    """
+
+    learner_user = None
+    catalog_item_1 = None
+    catalog_item_2 = None
+
+    def setup_method(self):
+        """Set up test data."""
+        self.learner_user = User.objects.get(id=3)
+        self.catalog_item_1 = CatalogueItem.objects.get(sku='custom-sku-1')
+        self.catalog_item_2 = CatalogueItem.objects.get(
+            sku='course1-org2-no-id-professional'
+        )
+
+    def test_single_item_creates_cart_with_one_item(self):
+        """
+        Should create a cart with a single CartItem when given one catalogue item.
+        """
+        cart = validate_and_create_cart(self.learner_user, [self.catalog_item_1])
+
+        assert cart.status == Cart.Status.PENDING
+        assert cart.user == self.learner_user
+        assert cart.items.count() == 1
+
+        cart_item = cart.items.first()
+        assert cart_item.catalogue_item == self.catalog_item_1
+        assert cart_item.original_price == self.catalog_item_1.price
+
+    def test_multiple_items_creates_cart_with_all_items(self):
+        """
+        Should create a single cart containing all provided catalogue items.
+        """
+        cart = validate_and_create_cart(
+            self.learner_user, [self.catalog_item_1, self.catalog_item_2]
+        )
+
+        assert cart.status == Cart.Status.PENDING
+        assert cart.user == self.learner_user
+        assert cart.items.count() == 2
+
+        skus_in_cart = set(cart.items.values_list('catalogue_item__sku', flat=True))
+        assert skus_in_cart == {'custom-sku-1', 'course1-org2-no-id-professional'}
+
+    def test_empty_list_raises_error(self):
+        """
+        Should raise InvalidCartError when given an empty list of catalogue items.
+        """
+        with pytest.raises(
+            InvalidCartError, match='At least one catalogue item is required'
+        ):
+            validate_and_create_cart(self.learner_user, [])
+
+    def test_duplicate_skus_raises_error(self):
+        """
+        Should raise InvalidCartError when the same catalogue item appears twice.
+        """
+        with pytest.raises(InvalidCartError, match='Duplicate SKUs found in request'):
+            validate_and_create_cart(
+                self.learner_user, [self.catalog_item_1, self.catalog_item_1]
+            )
+
+    def test_unsupported_item_type_raises_error(self):
+        """
+        Should raise InvalidCartError when a catalogue item has an unregistered type.
+        """
+        unsupported_item = CatalogueItem.objects.create(
+            sku='unsupported-type-sku',
+            type='unsupported_type',
+            title='Unsupported Item',
+            item_ref_id='ref-1',
+            price=10,
+            currency='SAR',
+        )
+        with pytest.raises(InvalidCartError, match='unsupported type'):
+            validate_and_create_cart(self.learner_user, [unsupported_item])
+
+    def test_validation_failure_on_any_item_prevents_cart_creation(self):
+        """
+        Should raise InvalidCartError and create no cart if any item fails validation.
+        """
+        invalid_ref_item = CatalogueItem.objects.get(
+            sku='custom-sku-with_invlaid_ref_id'
+        )
+        cart_count_before = Cart.objects.filter(user=self.learner_user).count()
+
+        with pytest.raises(InvalidCartError):
+            validate_and_create_cart(
+                self.learner_user, [self.catalog_item_1, invalid_ref_item]
+            )
+
+        # No cart should have been created
+        assert Cart.objects.filter(user=self.learner_user).count() == cart_count_before
+
+    def test_cancels_old_pending_carts_by_default(self):
+        """
+        Should cancel existing pending carts before creating a new one.
+        """
+        old_cart = Cart.objects.create(
+            user=self.learner_user, status=Cart.Status.PENDING
+        )
+
+        new_cart = validate_and_create_cart(self.learner_user, [self.catalog_item_1])
+
+        old_cart.refresh_from_db()
+        assert old_cart.status == Cart.Status.CANCELLED
+        assert new_cart.status == Cart.Status.PENDING
+        assert new_cart.id != old_cart.id
+
+    def test_skip_cancel_old_carts_when_flag_is_false(self):
+        """
+        Should NOT cancel existing pending carts when cancel_old_carts=False.
+        """
+        old_cart = Cart.objects.create(
+            user=self.learner_user, status=Cart.Status.PENDING
+        )
+
+        new_cart = validate_and_create_cart(
+            self.learner_user, [self.catalog_item_1], cancel_old_carts=False
+        )
+
+        old_cart.refresh_from_db()
+        assert old_cart.status == Cart.Status.PENDING
+        assert new_cart.status == Cart.Status.PENDING
+
+    def test_tax_is_applied_to_each_item(self):
+        """
+        Should compute tax_amount and final_price for each CartItem via TaxRule.
+        """
+        TaxRule.objects.create(
+            name='VAT',
+            tax_type=TaxRule.TaxType.PERCENT,
+            tax_value=15,
+            is_active=True,
+        )
+
+        cart = validate_and_create_cart(
+            self.learner_user, [self.catalog_item_1, self.catalog_item_2]
+        )
+
+        for cart_item in cart.items.all():
+            assert cart_item.tax_amount > 0
+            assert (
+                cart_item.final_price == cart_item.original_price + cart_item.tax_amount
+            )
+
+    def test_backward_compat_wrapper_calls_validate_and_create_cart(self):
+        """
+        BaseCartHandler.validate_item_and_create_cart() should delegate to
+        validate_and_create_cart() with a single-item list.
+        """
+        handler = BaseCartHandler()
+
+        with patch(
+            'zeitlabs_payments.cart_handler.validate_and_create_cart'
+        ) as mock_fn:
+            mock_fn.return_value = MagicMock()
+            handler.validate_item_and_create_cart(
+                self.learner_user, self.catalog_item_1
+            )
+
+            mock_fn.assert_called_once_with(
+                self.learner_user, [self.catalog_item_1], cancel_old_carts=True
+            )
+
+    def test_backward_compat_wrapper_passes_cancel_flag(self):
+        """
+        BaseCartHandler.validate_item_and_create_cart() should forward cancel_old_carts=False.
+        """
+        handler = BaseCartHandler()
+
+        with patch(
+            'zeitlabs_payments.cart_handler.validate_and_create_cart'
+        ) as mock_fn:
+            mock_fn.return_value = MagicMock()
+            handler.validate_item_and_create_cart(
+                self.learner_user, self.catalog_item_1, cancel_old_carts=False
+            )
+
+            mock_fn.assert_called_once_with(
+                self.learner_user, [self.catalog_item_1], cancel_old_carts=False
+            )
