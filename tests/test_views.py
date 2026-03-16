@@ -164,6 +164,7 @@ class CartViewTest(BaseTestViewMixin):
         response = self.client.post(self.url, data={'sku': course_item.sku})
         self.assertEqual(response.status_code, http_status.HTTP_400_BAD_REQUEST)
         assert 'unsupported type' in response.data['details']
+
     @patch(
         'zeitlabs_payments.helpers.CourseEnrollment.is_enrolled'
     )
@@ -177,7 +178,7 @@ class CartViewTest(BaseTestViewMixin):
             'sku': course_item.sku
         })
         self.assertEqual(response.status_code, http_status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data['error'],'Given SKU item(s) do not match add to cart requirements.')
+        self.assertEqual(response.data['error'], 'Given SKU item(s) do not match add to cart requirements.')
         self.assertEqual(response.data['details'], (
             'Unable to add item to the cart as user: user3 does not fulfill enrollment conditions. '
             'User is already enrolled in the course.'
