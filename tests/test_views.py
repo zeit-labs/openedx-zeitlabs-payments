@@ -12,6 +12,7 @@ from rest_framework.test import APITestCase
 
 from zeitlabs_payments.helpers import get_currency, get_settings
 from zeitlabs_payments.models import Cart, CatalogueItem, Invoice, Transaction
+from zeitlabs_payments.providers.registry import PROCESSORS
 from zeitlabs_payments.views import InitiatePaymentView
 
 User = get_user_model()
@@ -19,6 +20,7 @@ User = get_user_model()
 
 class BaseTestViewMixin(APITestCase):
     """Base test view mixin"""
+
     VIEW_NAME = 'view name is not set!'
 
     def setUp(self):
@@ -41,6 +43,7 @@ class BaseTestViewMixin(APITestCase):
 @pytest.mark.usefixtures('base_data')
 class CartViewTest(BaseTestViewMixin):
     """Tests for CartView"""
+
     VIEW_NAME = 'zeitlabs_payments:cart-add'
 
     def test_unauthorized(self):
@@ -65,7 +68,7 @@ class CartViewTest(BaseTestViewMixin):
         other_user_cart.items.create(
             catalogue_item=course_item,
             original_price=course_item.price,
-            final_price=course_item.price
+            final_price=course_item.price,
         )
 
         self.login_user(user)
@@ -77,7 +80,7 @@ class CartViewTest(BaseTestViewMixin):
         user_cart.items.create(
             catalogue_item=course_item,
             original_price=course_item.price,
-            final_price=course_item.price
+            final_price=course_item.price,
         )
 
         response = self.client.get(self.url)
@@ -106,9 +109,7 @@ class CartViewTest(BaseTestViewMixin):
         course_item = CatalogueItem.objects.get(sku='custom-sku-1')
 
         self.login_user(user)
-        response = self.client.post(self.url, data={
-            'sku': course_item.sku
-        })
+        response = self.client.post(self.url, data={'sku': course_item.sku})
         self.assertEqual(response.status_code, http_status.HTTP_201_CREATED)
         assert response.data['user'] == user.id
         assert response.data['status'] == Cart.Status.PENDING
@@ -118,9 +119,7 @@ class CartViewTest(BaseTestViewMixin):
         user_old_cart = Cart.objects.get(id=response.data['id'])
 
         # user tries to add same sku again
-        response = self.client.post(self.url, data={
-            'sku': course_item.sku
-        })
+        response = self.client.post(self.url, data={'sku': course_item.sku})
         self.assertEqual(response.status_code, http_status.HTTP_201_CREATED)
 
         # assert that new cart has been created with same catalogue_item.
@@ -143,9 +142,7 @@ class CartViewTest(BaseTestViewMixin):
         user = User.objects.get(id=self.learner1_id)
         self.login_user(user)
 
-        response = self.client.post(self.url, data={
-            'something-else-than-sku': 'invalid'
-        })
+        response = self.client.post(self.url, data={'something-else-than-sku': 'invalid'})
         self.assertEqual(response.status_code, http_status.HTTP_400_BAD_REQUEST)
         assert response.data['error'] == 'SKU is required'
 
@@ -153,39 +150,40 @@ class CartViewTest(BaseTestViewMixin):
         self.assertEqual(response.status_code, http_status.HTTP_400_BAD_REQUEST)
         assert response.data['error'] == 'Invalid SKU, unable to find catalogue item.'
 
-    @patch.dict(
-        'zeitlabs_payments.views.CART_HANDLER', {}, clear=True
-    )
+    @patch.dict('zeitlabs_payments.views.CART_HANDLER', {}, clear=True)
     def test_post_failed_for_unsupported_item_type(self):
-        """Verify that """
+        """Verify that"""
         user = User.objects.get(id=self.learner1_id)
         course_item = CatalogueItem.objects.get(sku='custom-sku-1')
 
         self.login_user(user)
-        response = self.client.post(self.url, data={
-            'sku': course_item.sku
-        })
+        response = self.client.post(self.url, data={'sku': course_item.sku})
         self.assertEqual(response.status_code, http_status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data['error'], 'Item with given SKU has unsupported type: paid_course.')
+        self.assertEqual(
+            response.data['error'],
+            'Item with given SKU has unsupported type: paid_course.',
+        )
 
-    @patch(
-        'zeitlabs_payments.helpers.CourseEnrollment.is_enrolled'
-    )
+    @patch('zeitlabs_payments.helpers.CourseEnrollment.is_enrolled')
     def test_post_failed_for_add_to_cart_validation(self, mock_is_enrolled):
-        """Verify that """
+        """Verify that"""
         user = User.objects.get(id=self.learner1_id)
         course_item = CatalogueItem.objects.get(sku='custom-sku-1')
         self.login_user(user)
         mock_is_enrolled.return_value = True
-        response = self.client.post(self.url, data={
-            'sku': course_item.sku
-        })
+        response = self.client.post(self.url, data={'sku': course_item.sku})
         self.assertEqual(response.status_code, http_status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.data['error'], 'Given SKU item does not match add to cart requirements')
-        self.assertEqual(response.data['details'], (
-            'Unable to add item to the cart as user: user3 does not fulfill enrollment conditions. '
-            'User is already enrolled in the course.'
-        ))
+        self.assertEqual(
+            response.data['error'],
+            'Given SKU item does not match add to cart requirements',
+        )
+        self.assertEqual(
+            response.data['details'],
+            (
+                'Unable to add item to the cart as user: user3 does not fulfill enrollment conditions. '
+                'User is already enrolled in the course.'
+            ),
+        )
 
 
 @pytest.mark.usefixtures('base_data')
@@ -197,7 +195,10 @@ class InitiatePaymentViewTest(TestCase):
         self.other_user = User.objects.get(id=4)
         self.cart = Cart.objects.create(user=self.user, status=Cart.Status.PENDING)
         self.provider = 'dummy'
-        self.url = reverse('zeitlabs_payments:initiate-payment', args=[self.provider, str(self.cart.id)])
+        self.url = reverse(
+            'zeitlabs_payments:initiate-payment',
+            args=[self.provider, str(self.cart.id)],
+        )
 
     def test_redirects_if_not_logged_in(self):
         response = self.client.get(self.url)
@@ -234,6 +235,7 @@ class InitiatePaymentViewTest(TestCase):
 
 class CheckoutViewTests(TestCase):
     """Checkout View Test."""
+
     VIEW_NAME = 'zeitlabs_payments:checkout'
 
     def setUp(self):
@@ -258,7 +260,7 @@ class CheckoutViewTests(TestCase):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context['cart']['id'], user_last_cart.id)
-        self.assertEqual(len(response.context['methods']), 1)
+        self.assertEqual(len(response.context['methods']), len(PROCESSORS))
 
     def test_checkout_view_with_sku_success(self):
         user_existing_cart = Cart.objects.create(user=self.user, status=Cart.Status.PENDING)
@@ -268,34 +270,34 @@ class CheckoutViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.context['cart']['items']), 1)
         self.assertEqual(response.context['cart']['items'][0]['sku'], test_sku)
-        self.assertEqual(len(response.context['methods']), 1)
+        self.assertEqual(len(response.context['methods']), len(PROCESSORS))
         user_existing_cart.refresh_from_db()
-        self.assertEqual(user_existing_cart.status, Cart.Status.CANCELLED, 'Old pending cart should be cancelled.')
+        self.assertEqual(
+            user_existing_cart.status,
+            Cart.Status.CANCELLED,
+            'Old pending cart should be cancelled.',
+        )
 
     def test_checkout_view_with_sku_for_invalid_sku(self):
         self.client.force_login(self.user)
         test_sku = 'does-not-exist'
         response = self.client.get(f'{self.url}?sku={test_sku}')
         self.assertTemplateUsed(response, 'zeitlabs_payments/invalid_cart.html')
-        self.assertEqual(response.context['error_message'], 'Item with sku: does-not-exist does not exist.')
+        self.assertEqual(
+            response.context['error_message'],
+            'Item with sku: does-not-exist does not exist.',
+        )
         self.assertEqual(response.status_code, 404)
 
-    @patch.dict(
-        'zeitlabs_payments.views.CART_HANDLER', {}, clear=True
-    )
+    @patch.dict('zeitlabs_payments.views.CART_HANDLER', {}, clear=True)
     def test_checkout_view_with_sku_for_item_sku_with_unsuppported_type(self):
         self.client.force_login(self.user)
         response = self.client.get(f'{self.url}?sku=custom-sku-1')
         self.assertTemplateUsed(response, 'zeitlabs_payments/invalid_cart.html')
-        self.assertEqual(
-            response.context['error_message'],
-            'Item has unsupported type: paid_course.'
-        )
+        self.assertEqual(response.context['error_message'], 'Item has unsupported type: paid_course.')
         self.assertEqual(response.status_code, 400)
 
-    @patch(
-        'zeitlabs_payments.helpers.CourseEnrollment.is_enrolled'
-    )
+    @patch('zeitlabs_payments.helpers.CourseEnrollment.is_enrolled')
     def test_checkout_view_with_sku_for_course_item_sku_already_enrolled(self, mock_enrolled):
         mock_enrolled.return_value = True
         self.client.force_login(self.user)
@@ -304,7 +306,7 @@ class CheckoutViewTests(TestCase):
         self.assertEqual(
             response.context['error_message'],
             'Unable to add item to the cart as user: user3 does not fulfill enrollment '
-            'conditions. User is already enrolled in the course.'
+            'conditions. User is already enrolled in the course.',
         )
         self.assertEqual(response.status_code, 400)
 
@@ -357,7 +359,7 @@ class InvoiceViewTest(BaseTestViewMixin):
             cart=admin_user_cart,
             invoice_number='TEST-111111',
             total=100,
-            gross_total=100
+            gross_total=100,
         )
 
         normal_user1 = User.objects.get(id=2)
@@ -366,7 +368,7 @@ class InvoiceViewTest(BaseTestViewMixin):
             cart=normal_user1_cart,
             invoice_number='TEST-22222',
             total=100,
-            gross_total=100
+            gross_total=100,
         )
 
         normal_user2 = User.objects.get(id=3)
@@ -375,7 +377,7 @@ class InvoiceViewTest(BaseTestViewMixin):
             cart=normal_user2_cart,
             invoice_number='TEST-33333',
             total=200,
-            gross_total=200
+            gross_total=200,
         )
 
         self.url_args = [normal_user2_invoice.invoice_number]
@@ -404,18 +406,13 @@ class InvoiceViewTest(BaseTestViewMixin):
         user = User.objects.get(id=3)
         self.login_user(user)
         cart = Cart.objects.create(user=user, status=Cart.Status.PAID)
-        invoice = Invoice.objects.create(
-            cart=cart,
-            invoice_number='INV-222222',
-            total=100,
-            gross_total=100
-        )
+        invoice = Invoice.objects.create(cart=cart, invoice_number='INV-222222', total=100, gross_total=100)
 
         transaction = Transaction.objects.create(
             cart=cart,
             amount=cart.total,
             gateway='payfort',
-            gateway_transaction_id='TX-222'
+            gateway_transaction_id='TX-222',
         )
         invoice.related_transaction = transaction
         invoice.save()
@@ -434,6 +431,7 @@ class InvoiceViewTest(BaseTestViewMixin):
 @pytest.mark.usefixtures('base_data')
 class PaymentSuccessViewTest(BaseTestViewMixin):
     """Tests for PaymentErrorView"""
+
     VIEW_NAME = 'zeitlabs_payments:payment-success'
 
     def test_get_success(self):
@@ -452,6 +450,7 @@ class PaymentSuccessViewTest(BaseTestViewMixin):
 @pytest.mark.usefixtures('base_data')
 class PaymentErrorViewTest(BaseTestViewMixin):
     """Tests for PaymentErrorView"""
+
     VIEW_NAME = 'zeitlabs_payments:payment-error'
 
     def test_get_success(self):
@@ -470,6 +469,7 @@ class PaymentErrorViewTest(BaseTestViewMixin):
 @pytest.mark.usefixtures('base_data')
 class PaymentDeclineViewTest(BaseTestViewMixin):
     """Tests for PaymentDeclineView"""
+
     VIEW_NAME = 'zeitlabs_payments:payment-decline'
 
     def test_get_decline(self):

@@ -5,9 +5,11 @@ from decimal import Decimal
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError
+from django.test import TestCase
 from django.utils import timezone
 
-from zeitlabs_payments.models import AuditLog, Cart, CatalogueItem, Coupon, CouponUsage, TaxRule
+from zeitlabs_payments.models import AuditLog, BundleCourseItem, Cart, CatalogueItem, Coupon, CouponUsage, TaxRule
 
 User = get_user_model()
 
@@ -17,6 +19,7 @@ class TestAuditLogModel:
     """
     Tests for AuditLog.log method.
     """
+
     cart = None
 
     def setup_method(self):
@@ -36,7 +39,7 @@ class TestAuditLogModel:
             action=AuditLog.AuditActions.CART_FULFILLMENT_ERROR,
             context=context,
             cart=self.cart,
-            gateway='payfort'
+            gateway='payfort',
         )
 
         assert log.action == AuditLog.AuditActions.CART_FULFILLMENT_ERROR
@@ -54,12 +57,15 @@ class TestAuditLogModel:
             'sku': 'SKU-123',
         }
 
-        with pytest.raises(ValidationError, match="Missing template parameters for action 'cart_fulfillment_error'"):
+        with pytest.raises(
+            ValidationError,
+            match="Missing template parameters for action 'cart_fulfillment_error'",
+        ):
             AuditLog.log(
                 action=AuditLog.AuditActions.CART_FULFILLMENT_ERROR,
                 context=incomplete_context,
                 cart=self.cart,
-                gateway='payfort'
+                gateway='payfort',
             )
 
     def test_log_unknown_action_stores_context_as_string(self):
@@ -68,12 +74,7 @@ class TestAuditLogModel:
         """
         context = {'foo': 'bar'}
 
-        log = AuditLog.log(
-            action='UnknownAction',
-            context=context,
-            cart=self.cart,
-            gateway='payfort'
-        )
+        log = AuditLog.log(action='UnknownAction', context=context, cart=self.cart, gateway='payfort')
 
         assert log.action == 'UnknownAction'
         assert log.details == str(context)
@@ -90,7 +91,7 @@ class TestTaxRule:
             name='VAT',
             tax_type=TaxRule.TaxType.PERCENT,
             tax_value=Decimal('15.00'),
-            is_active=True
+            is_active=True,
         )
         base_price = Decimal('100.00')
         tax = TaxRule.calculate_tax(base_price, rule)
@@ -101,7 +102,7 @@ class TestTaxRule:
             name='Fixed Tax',
             tax_type=TaxRule.TaxType.FIXED,
             tax_value=Decimal('5.00'),
-            is_active=True
+            is_active=True,
         )
         base_price = Decimal('100.00')
         tax = TaxRule.calculate_tax(base_price, rule)
@@ -116,7 +117,7 @@ class TestTaxRule:
             name='Fixed Tax',
             tax_type=TaxRule.TaxType.FIXED,
             tax_value=Decimal('5.00'),
-            is_active=True
+            is_active=True,
         )
         tax = TaxRule.calculate_tax(None, rule)
         assert tax == Decimal('0.00')
@@ -126,13 +127,13 @@ class TestTaxRule:
             name='Old Tax',
             tax_type=TaxRule.TaxType.PERCENT,
             tax_value=Decimal('5.00'),
-            is_active=True
+            is_active=True,
         )
         latest_rule = TaxRule.objects.create(
             name='New Tax',
             tax_type=TaxRule.TaxType.FIXED,
             tax_value=Decimal('10.00'),
-            is_active=True
+            is_active=True,
         )
 
         base_price = Decimal('200.00')
@@ -157,7 +158,7 @@ class TestTaxRule:
             name='Service Tax',
             tax_type=TaxRule.TaxType.PERCENT,
             tax_value=Decimal('12.50'),
-            is_active=True
+            is_active=True,
         )
         assert str(rule) == 'Service Tax - 12.50%'
 
@@ -166,7 +167,7 @@ class TestTaxRule:
             name='Processing Fee',
             tax_type=TaxRule.TaxType.FIXED,
             tax_value=Decimal('3.00'),
-            is_active=True
+            is_active=True,
         )
         assert str(rule) == 'Processing Fee - 3.00'
 
@@ -178,7 +179,7 @@ def test_usage_count_sums_correctly():
         discount_type=Coupon.DiscountType.PERCENTAGE,
         discount_value=Decimal('15.00'),
         max_usage=10,
-        expires_at=timezone.now() + timezone.timedelta(days=10)
+        expires_at=timezone.now() + timezone.timedelta(days=10),
     )
     user1 = User.objects.get(id=1)
     user2 = User.objects.get(id=2)
@@ -208,8 +209,51 @@ def test_valid_item_types_returns_all_choices():
     """Test that CatalogueItem.valid_item_types() returns all defined item type values."""
     expected_item_types = [
         CatalogueItem.ItemType.PAID_COURSE,
+        CatalogueItem.ItemType.PROGRAM_BUNDLE,
     ]
     result = CatalogueItem.valid_item_types()
     assert result == expected_item_types
     assert len(result) == len(set(result))
     assert all(item_type in dict(CatalogueItem.ItemType.choices) for item_type in result)
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures('base_data')
+class TestBundleCourseItem:
+    """Tests for BundleCourseItem model."""
+
+    def test_str_representation(self):
+        """Should return 'bundle_sku -> course_sku' format."""
+        link = BundleCourseItem.objects.filter(bundle__sku='BUNDLE-PRO-CERT').first()
+        assert str(link) == f'{link.bundle.sku} -> {link.course_item.sku}'
+
+    def test_bundle_has_expected_courses(self):
+        """Bundle should have exactly 2 linked courses."""
+        links = BundleCourseItem.objects.filter(bundle__sku='BUNDLE-PRO-CERT')
+        assert links.count() == 2
+        skus = set(links.values_list('course_item__sku', flat=True))
+        assert skus == {'custom-sku-1', 'course1-org2-no-id-professional'}
+
+    def test_unique_together_constraint(self):
+        """Should prevent duplicate bundle-course links."""
+        bundle = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
+        course_item = CatalogueItem.objects.get(sku='custom-sku-1')
+
+        with pytest.raises(IntegrityError):
+            BundleCourseItem.objects.create(bundle=bundle, course_item=course_item)
+
+
+@pytest.mark.usefixtures('base_data')
+class TestCartGetStatusDisplay(TestCase):
+    """Tests for Cart.get_status_display static method."""
+
+    def test_known_statuses(self):
+        """Should return translated display string for every known status."""
+        for status_value, _ in Cart.Status.choices:
+            result = Cart.get_status_display(status_value)
+            assert result is not None
+            assert len(str(result)) > 0
+
+    def test_unknown_status_returns_raw_value(self):
+        """Should return the raw value when the status is unknown."""
+        assert Cart.get_status_display('nonexistent') == 'nonexistent'

@@ -13,7 +13,7 @@ from zeitlabs_payments.helpers import (
     check_duplicate_cart_with_item,
     check_user_enroll_conditions,
 )
-from zeitlabs_payments.models import AuditLog, Cart, CartItem, CatalogueItem, TaxRule
+from zeitlabs_payments.models import AuditLog, BundleCourseItem, Cart, CartItem, CatalogueItem, TaxRule
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,9 @@ class BaseCartHandler:
     """
 
     def validate_add_to_cart(
-        self, user: get_user_model, catalogue_item: CatalogueItem  # pylint: disable=unused-argument
+        self,
+        user: get_user_model,  # pylint: disable=unused-argument
+        catalogue_item: CatalogueItem,  # pylint: disable=unused-argument
     ) -> None:
         """
         Raise InvalidCartError if validation fails.
@@ -45,7 +47,10 @@ class BaseCartHandler:
         raise NotImplementedError('Subclasses must implement this.')
 
     def validate_item_and_create_cart(
-        self, user: get_user_model, catalog_item: CatalogueItem, cancel_old_carts: bool = True
+        self,
+        user: get_user_model,
+        catalog_item: CatalogueItem,
+        cancel_old_carts: bool = True,
     ) -> Cart:
         """
         Create an open cart for the given user.
@@ -83,9 +88,11 @@ def register_handler(item_type: str) -> Any:
     :param item_type: The type of catalogue item to register the handler for.
     :return: The class decorator function.
     """
+
     def wrapper(cls: Any) -> BaseCartHandler:
         CART_HANDLER[item_type] = cls()
         return cls
+
     return wrapper
 
 
@@ -118,7 +125,10 @@ class PaidCourseCartHandler(BaseCartHandler):
                 )
             check_user_enroll_conditions(user, course_mode)
             check_duplicate_cart_with_item(
-                user, course_mode, status=Cart.Status.PAYMENT_PENDING, item_type=catalogue_item.ItemType.PAID_COURSE
+                user,
+                course_mode,
+                status=Cart.Status.PAYMENT_PENDING,
+                item_type=catalogue_item.ItemType.PAID_COURSE,
             )
         except CourseMode.DoesNotExist as exc:
             raise InvalidCartError('Unable to add item to the cart as CourseMode not found') from exc
@@ -145,9 +155,7 @@ class PaidCourseCartHandler(BaseCartHandler):
         try:
             course_mode = CourseMode.objects.get(sku=item.catalogue_item.sku)
         except CourseMode.DoesNotExist as exc:
-            logger.error(
-                f'CourseMode not found for SKU: {item.catalogue_item.sku} - Item ID: {item.id}'
-            )
+            logger.error(f'CourseMode not found for SKU: {item.catalogue_item.sku} - Item ID: {item.id}')
             AuditLog.log(
                 action=AuditLog.AuditActions.CART_FULFILLMENT_ERROR,
                 cart=cart,
@@ -155,7 +163,7 @@ class PaidCourseCartHandler(BaseCartHandler):
                     'item_id': item.id,
                     'catalogue_item_id': item.catalogue_item.id,
                     'sku': item.catalogue_item.sku,
-                }
+                },
             )
             raise CartFulfillmentError('CourseMode not found') from exc
 
@@ -171,7 +179,7 @@ class PaidCourseCartHandler(BaseCartHandler):
                     'item_id': item.id,
                     'catalogue_item_id': item.catalogue_item.id,
                     'sku': item.catalogue_item.sku,
-                }
+                },
             )
             raise CartFulfillmentError('Course Mode found but item ref id mismatched. ')
 
@@ -180,7 +188,7 @@ class PaidCourseCartHandler(BaseCartHandler):
                 cart.user,
                 course_mode.course.id,
                 mode=course_mode.mode_slug,
-                check_access=True
+                check_access=True,
             )
             AuditLog.log(
                 action=AuditLog.AuditActions.USER_ENROLLED,
@@ -189,11 +197,10 @@ class PaidCourseCartHandler(BaseCartHandler):
                     'course_id': course_mode.course.id,
                     'mode_slug': course_mode.mode_slug,
                     'catalogue_item_id': item.catalogue_item.id,
-                }
+                },
             )
             logger.info(
-                f'User {cart.user.id} enrolled in course {course_mode.course.id} '
-                f'with mode {course_mode.mode_slug}'
+                f'User {cart.user.id} enrolled in course {course_mode.course.id} with mode {course_mode.mode_slug}'
             )
         except CourseEnrollmentException as exc:
             logger.exception(
@@ -206,7 +213,158 @@ class PaidCourseCartHandler(BaseCartHandler):
                 context={
                     'course_id': course_mode.course.id,
                     'mode_slug': course_mode.mode_slug,
-                    'catalogue_item_id': item.catalogue_item.id
-                }
+                    'catalogue_item_id': item.catalogue_item.id,
+                },
             )
             raise CartFulfillmentError('Unexpected enrollment error') from exc
+
+
+@register_handler(CatalogueItem.ItemType.PROGRAM_BUNDLE)
+class ProgramBundleCartHandler(BaseCartHandler):
+    """
+    Fulfillment handler for program bundle catalogue items.
+
+    A program bundle is a single CatalogueItem whose bulk_sku maps to
+    multiple courses via BundleCourseItem.  Validation ensures every
+    constituent course is purchasable; fulfillment enrolls the user in
+    all of them.
+    """
+
+    def validate_add_to_cart(self, user: get_user_model, catalogue_item: CatalogueItem) -> None:
+        """
+        Validate whether the user can purchase this program bundle.
+
+        Checks:
+        - The bundle has at least one constituent course.
+        - Each constituent course has a matching CourseMode (by SKU).
+        - Each CourseMode course_id matches the course CatalogueItem's item_ref_id.
+        - The user meets enrollment conditions for every course.
+        - No duplicate payment-pending carts exist for any course.
+
+        :param user: The user attempting to add the bundle to the cart.
+        :param catalogue_item: The program_bundle CatalogueItem.
+        :raises InvalidCartError: If any validation fails.
+        """
+        bundle_courses = BundleCourseItem.objects.filter(bundle=catalogue_item).select_related('course_item')
+
+        if not bundle_courses.exists():
+            raise InvalidCartError('Unable to add bundle to the cart: no courses linked to this bundle.')
+
+        for link in bundle_courses:
+            course_item = link.course_item
+            try:
+                course_mode = CourseMode.objects.get(sku=course_item.sku)
+                if str(course_mode.course.id) != course_item.item_ref_id:
+                    raise InvalidCartError(
+                        f'Bundle course {course_item.sku}: CourseMode course_id mismatch with catalogue item ref-id.'
+                    )
+                check_user_enroll_conditions(user, course_mode)
+                check_duplicate_cart_with_item(
+                    user,
+                    course_mode,
+                    status=Cart.Status.PAYMENT_PENDING,
+                    item_type=CatalogueItem.ItemType.PAID_COURSE,
+                )
+            except CourseMode.DoesNotExist as exc:
+                raise InvalidCartError(f'Bundle course {course_item.sku}: CourseMode not found.') from exc
+            except DuplicateCartError as exc:
+                raise InvalidCartError(
+                    f'Bundle course {course_item.sku}: user has existing cart with same course. {str(exc)}'
+                ) from exc
+            except CourseEnrollmentException as exc:
+                raise InvalidCartError(
+                    f'Bundle course {course_item.sku}: user does not fulfill enrollment conditions. {str(exc)}'
+                ) from exc
+
+    def fulfill(self, item: CartItem, processor_slug: str) -> None:
+        """
+        Fulfill a program bundle by enrolling the user in every constituent course.
+
+        :param item: The cart item representing a program bundle.
+        :param processor_slug: The payment processor slug.
+        :raises CartFulfillmentError: If any enrollment fails.
+        """
+        cart = item.cart
+        logger.debug(f'Processing program bundle item {item.id} in cart {cart.id}.')
+
+        bundle_courses = BundleCourseItem.objects.filter(bundle=item.catalogue_item).select_related('course_item')
+
+        if not bundle_courses.exists():
+            logger.error(f'No courses found for bundle SKU: {item.catalogue_item.sku} - Item ID: {item.id}')
+            AuditLog.log(
+                action=AuditLog.AuditActions.CART_FULFILLMENT_ERROR,
+                cart=cart,
+                context={
+                    'item_id': item.id,
+                    'catalogue_item_id': item.catalogue_item.id,
+                    'sku': item.catalogue_item.sku,
+                },
+            )
+            raise CartFulfillmentError('No courses linked to this bundle.')
+
+        for link in bundle_courses:
+            course_item = link.course_item
+            try:
+                course_mode = CourseMode.objects.get(sku=course_item.sku)
+            except CourseMode.DoesNotExist as exc:
+                logger.error(f'CourseMode not found for bundle course SKU: {course_item.sku} - Item ID: {item.id}')
+                AuditLog.log(
+                    action=AuditLog.AuditActions.CART_FULFILLMENT_ERROR,
+                    cart=cart,
+                    context={
+                        'item_id': item.id,
+                        'catalogue_item_id': course_item.id,
+                        'sku': course_item.sku,
+                    },
+                )
+                raise CartFulfillmentError(f'CourseMode not found for bundle course {course_item.sku}') from exc
+
+            if str(course_mode.course.id) != course_item.item_ref_id:
+                logger.error(f'CourseMode course_id mismatch for bundle course {course_item.sku} - Item ID: {item.id}')
+                AuditLog.log(
+                    action=AuditLog.AuditActions.CART_FULFILLMENT_ERROR,
+                    cart=cart,
+                    context={
+                        'item_id': item.id,
+                        'catalogue_item_id': course_item.id,
+                        'sku': course_item.sku,
+                    },
+                )
+                raise CartFulfillmentError(f'Bundle course {course_item.sku}: item ref id mismatched.')
+
+            try:
+                CourseEnrollment.enroll(
+                    cart.user,
+                    course_mode.course.id,
+                    mode=course_mode.mode_slug,
+                    check_access=True,
+                )
+                AuditLog.log(
+                    action=AuditLog.AuditActions.USER_ENROLLED,
+                    cart=cart,
+                    context={
+                        'course_id': course_mode.course.id,
+                        'mode_slug': course_mode.mode_slug,
+                        'catalogue_item_id': course_item.id,
+                    },
+                )
+                logger.info(
+                    f'User {cart.user.id} enrolled in course {course_mode.course.id} '
+                    f'with mode {course_mode.mode_slug} (bundle {item.catalogue_item.sku})'
+                )
+            except CourseEnrollmentException as exc:
+                logger.exception(
+                    f'Enrollment failed for user {cart.user.id} in course '
+                    f'{course_mode.course.id} (bundle {item.catalogue_item.sku}). '
+                    f'Item ID: {item.id}'
+                )
+                AuditLog.log(
+                    action=AuditLog.AuditActions.USER_ENROLLED_ERROR,
+                    cart=cart,
+                    context={
+                        'course_id': course_mode.course.id,
+                        'mode_slug': course_mode.mode_slug,
+                        'catalogue_item_id': course_item.id,
+                    },
+                )
+                raise CartFulfillmentError(f'Enrollment error for bundle course {course_item.sku}') from exc

@@ -7,7 +7,7 @@ from openedx.core.djangoapps.content.course_overviews.models import CourseOvervi
 from rest_framework import serializers
 
 from zeitlabs_payments.helpers import get_currency, relative_url_to_absolute_url
-from zeitlabs_payments.models import Cart, CartItem, Invoice
+from zeitlabs_payments.models import BundleCourseItem, Cart, CartItem, Invoice
 
 logger = logging.getLogger(__name__)
 
@@ -164,9 +164,7 @@ class CartItemSerializer(serializers.ModelSerializer):
         if callable(handler_method):
             return handler_method(obj)  # pylint: disable=not-callable
 
-        logger.warning(
-            f'No handler implemented for item type \'{item_type}\'. Returning empty details.'
-        )
+        logger.warning(f"No handler implemented for item type '{item_type}'. Returning empty details.")
         return {}
 
     def _get_paid_course_details(self, obj: CartItem) -> dict:
@@ -175,17 +173,29 @@ class CartItemSerializer(serializers.ModelSerializer):
         courses_map = self.context.get('prefetched_courses', {})
 
         course = (
-            courses_map.get(str(item_ref_id))
-            if courses_map
-            else CourseOverview.objects.filter(id=item_ref_id).first()
+            courses_map.get(str(item_ref_id)) if courses_map else CourseOverview.objects.filter(id=item_ref_id).first()
         )
         if not course:
             logger.warning(f'CourseOverview not found for id {item_ref_id}')
             return {'courses': []}
 
-        return {
-            'courses': CourseSerializer([course], many=True, context=self.context).data
-        }
+        return {'courses': CourseSerializer([course], many=True, context=self.context).data}
+
+    def _get_program_bundle_details(self, obj: CartItem) -> dict:
+        """Return details for a program bundle item, listing all constituent courses."""
+        courses_map = self.context.get('prefetched_courses', {})
+        bundle_links = BundleCourseItem.objects.filter(bundle=obj.catalogue_item).select_related('course_item')
+
+        courses = []
+        for link in bundle_links:
+            ref_id = link.course_item.item_ref_id
+            course = courses_map.get(str(ref_id)) if courses_map else CourseOverview.objects.filter(id=ref_id).first()
+            if course:
+                courses.append(course)
+            else:
+                logger.warning(f'CourseOverview not found for bundle course ref_id {ref_id}')
+
+        return {'courses': CourseSerializer(courses, many=True, context=self.context).data}
 
 
 class CartSerializer(serializers.ModelSerializer):
