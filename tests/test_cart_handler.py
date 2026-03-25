@@ -373,6 +373,54 @@ class TestProgramBundleCartHandler:
         with pytest.raises(InvalidCartError, match='user has existing cart with same course'):
             self.handler.validate_add_to_cart(self.learner_user, self.bundle_item)
 
+    def test_validate_add_to_cart_overlapping_bundle_cart(self):
+        """Should raise InvalidCartError when user has a pending cart with an overlapping bundle."""
+        # Create another bundle that shares a course with self.bundle_item
+        link = BundleCourseItem.objects.filter(bundle=self.bundle_item).first()
+        shared_course_item = link.course_item
+
+        other_bundle = CatalogueItem.objects.create(
+            sku='BUNDLE-OTHER',
+            type=CatalogueItem.ItemType.PROGRAM_BUNDLE,
+            title='Other Bundle',
+            item_ref_id='program-uuid-other',
+            price=60,
+            currency='SAR',
+        )
+        BundleCourseItem.objects.create(bundle=other_bundle, course_item=shared_course_item)
+
+        # User has a pending cart with the other bundle
+        existing_cart = Cart.objects.create(user=self.learner_user, status=Cart.Status.PAYMENT_PENDING)
+        existing_cart.items.create(
+            catalogue_item=other_bundle,
+            original_price=other_bundle.price,
+            final_price=other_bundle.price,
+        )
+
+        with pytest.raises(InvalidCartError, match='overlapping bundle purchase'):
+            self.handler.validate_add_to_cart(self.learner_user, self.bundle_item)
+
+        # Cleanup
+        existing_cart.delete()
+        BundleCourseItem.objects.filter(bundle=other_bundle).delete()
+        other_bundle.delete()
+
+    def test_validate_add_to_cart_bulk_sku_mismatch(self):
+        """Should raise InvalidCartError when CourseMode bulk_sku does not match bundle SKU."""
+        link = BundleCourseItem.objects.filter(bundle=self.bundle_item).first()
+        course_mode = CourseMode.objects.get(sku=link.course_item.sku)
+
+        # Set a mismatched bulk_sku
+        course_mode.bulk_sku = 'WRONG-BUNDLE-SKU'
+        course_mode.save()
+
+        with pytest.raises(InvalidCartError, match='bulk_sku.*does not match bundle SKU'):
+            self.handler.validate_add_to_cart(self.learner_user, self.bundle_item)
+
+        # Restore
+        course_mode.bulk_sku = ''
+        course_mode.save()
+
     # ── fulfill ──
 
     @patch('zeitlabs_payments.cart_handler.CourseEnrollment.enroll')

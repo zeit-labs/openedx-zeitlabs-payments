@@ -159,7 +159,7 @@ def test_cart_serializer_for_include_user_details(base_data):  # pylint: disable
 
 @pytest.mark.django_db
 def test_program_bundle_details_returns_courses(base_data):  # pylint: disable=unused-argument
-    """Test _get_program_bundle_details returns all linked courses for a bundle."""
+    """Test get_program_bundle_details returns all linked courses for a bundle."""
     user = get_user_model().objects.get(id=3)
     bundle_item = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
     cart = Cart.objects.create(user=user, status=Cart.Status.PENDING)
@@ -182,7 +182,7 @@ def test_program_bundle_details_returns_courses(base_data):  # pylint: disable=u
 @pytest.mark.django_db
 @patch('zeitlabs_payments.serializers.logger.warning')
 def test_program_bundle_details_warns_for_missing_course(mock_warning, base_data):  # pylint: disable=unused-argument
-    """Test _get_program_bundle_details logs warning when a linked course's CourseOverview is missing."""
+    """Test get_program_bundle_details logs warning when a linked course's CourseOverview is missing."""
     user = get_user_model().objects.get(id=3)
     bundle_item = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
 
@@ -216,7 +216,7 @@ def test_program_bundle_details_warns_for_missing_course(mock_warning, base_data
 
 @pytest.mark.django_db
 def test_program_bundle_details_empty_bundle(base_data):  # pylint: disable=unused-argument
-    """Test _get_program_bundle_details returns empty courses list for a bundle with no linked courses."""
+    """Test get_program_bundle_details returns empty courses list for a bundle with no linked courses."""
     user = get_user_model().objects.get(id=3)
     empty_bundle = CatalogueItem.objects.get(sku='BUNDLE-EMPTY')
     cart = Cart.objects.create(user=user, status=Cart.Status.PENDING)
@@ -232,7 +232,7 @@ def test_program_bundle_details_empty_bundle(base_data):  # pylint: disable=unus
 
 @pytest.mark.django_db
 def test_program_bundle_details_with_prefetched_courses(base_data):  # pylint: disable=unused-argument
-    """Test _get_program_bundle_details uses prefetched_courses from context when available."""
+    """Test get_program_bundle_details uses prefetched_courses from context when available."""
     user = get_user_model().objects.get(id=3)
     bundle_item = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
     cart = Cart.objects.create(user=user, status=Cart.Status.PENDING)

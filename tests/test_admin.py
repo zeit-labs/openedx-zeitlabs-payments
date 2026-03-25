@@ -1,4 +1,5 @@
 """Test for admin"""
+
 from ddt import data, ddt, unpack
 from django.contrib import admin
 from django.contrib.admin.sites import AdminSite
@@ -6,10 +7,58 @@ from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
-from zeitlabs_payments.admin import AuditLogAdmin, PaymentProcessorAdminPage
-from zeitlabs_payments.models import AuditLog
+from zeitlabs_payments.admin import AuditLogAdmin, CatalogueItemAdmin, PaymentProcessorAdminPage
+from zeitlabs_payments.models import AuditLog, CatalogueItem
 
 User = get_user_model()
+
+
+class CatalogueItemAdminTest(TestCase):
+    """Tests for CatalogueItemAdmin.get_inline_instances."""
+
+    def setUp(self):
+        """Set up admin instance and request factory."""
+        self.factory = RequestFactory()
+        self.admin_site = AdminSite()
+        self.admin_instance = CatalogueItemAdmin(CatalogueItem, self.admin_site)
+        self.superuser = User.objects.create_superuser(
+            username='inline_admin',
+            email='inline_admin@example.com',
+            password='pass',
+        )
+
+    def _make_request(self):
+        """Create a request with a superuser attached."""
+        request = self.factory.get('/admin/')
+        request.user = self.superuser
+        return request
+
+    def test_get_inline_instances_no_obj(self):
+        """get_inline_instances returns empty list when obj is None (add view)."""
+        result = self.admin_instance.get_inline_instances(self._make_request(), obj=None)
+        self.assertEqual(result, [])
+
+    def test_get_inline_instances_paid_course(self):
+        """get_inline_instances returns empty list for paid_course type."""
+        obj = CatalogueItem(
+            sku='TEST-SKU',
+            type=CatalogueItem.ItemType.PAID_COURSE,
+            price=100,
+            currency='IQD',
+        )
+        result = self.admin_instance.get_inline_instances(self._make_request(), obj=obj)
+        self.assertEqual(result, [])
+
+    def test_get_inline_instances_program_bundle(self):
+        """get_inline_instances returns inlines for program_bundle type."""
+        obj = CatalogueItem(
+            sku='TEST-BUNDLE',
+            type=CatalogueItem.ItemType.PROGRAM_BUNDLE,
+            price=150,
+            currency='IQD',
+        )
+        result = self.admin_instance.get_inline_instances(self._make_request(), obj=obj)
+        self.assertGreater(len(result), 0)
 
 
 class AuditLogAdminTest(TestCase):
@@ -32,9 +81,7 @@ class PaymentProcessorAdminPageTest(TestCase):
     """PaymentProcessorAdminPage test."""
 
     def setUp(self):
-        self.admin_user = User.objects.create_superuser(
-            username='admin', email='admin@example.com', password='pass'
-        )
+        self.admin_user = User.objects.create_superuser(username='admin', email='admin@example.com', password='pass')
         self.client.login(username='admin', password='pass')
 
         self.rf = RequestFactory()
@@ -53,12 +100,22 @@ class PaymentProcessorAdminPageTest(TestCase):
         ('missing models key', [{'app_label': 'zeitlabs_payments'}], 1),
         (
             'other model only',
-            [{'app_label': 'zeitlabs_payments', 'models': [{'object_name': 'AuditLog'}]}],
+            [
+                {
+                    'app_label': 'zeitlabs_payments',
+                    'models': [{'object_name': 'AuditLog'}],
+                }
+            ],
             1,
         ),
         (
             'already has PaymentProcessors',
-            [{'app_label': 'zeitlabs_payments', 'models': [{'object_name': 'PaymentProcessors'}]}],
+            [
+                {
+                    'app_label': 'zeitlabs_payments',
+                    'models': [{'object_name': 'PaymentProcessors'}],
+                }
+            ],
             1,
         ),
         (
@@ -84,13 +141,13 @@ class PaymentProcessorAdminPageTest(TestCase):
             zp_apps = [a for a in app_list if a.get('app_label') == 'zeitlabs_payments']
             if not zp_apps:
                 self.assertEqual(
-                    expected_count, 0, f'[{usecase}] expected no PaymentProcessors entry'
+                    expected_count,
+                    0,
+                    f'[{usecase}] expected no PaymentProcessors entry',
                 )
             else:
                 zp_models = zp_apps[0].get('models', [])
-                count = sum(
-                    1 for m in zp_models if m.get('object_name') == 'PaymentProcessors'
-                )
+                count = sum(1 for m in zp_models if m.get('object_name') == 'PaymentProcessors')
                 self.assertEqual(
                     count,
                     expected_count,

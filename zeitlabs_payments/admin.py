@@ -44,6 +44,15 @@ class CartItemAdmin(admin.ModelAdmin):
     search_fields = ('cart__id', 'catalogue_item__sku')
 
 
+class BundleCourseItemInline(admin.TabularInline):
+    """Inline for BundleCourseItem on CatalogueItem admin (when type is program_bundle)."""
+
+    model = BundleCourseItem
+    fk_name = 'bundle'
+    extra = 1
+    autocomplete_fields = ('course_item',)
+
+
 @admin.register(CatalogueItem)
 class CatalogueItemAdmin(admin.ModelAdmin):
     """
@@ -53,15 +62,13 @@ class CatalogueItemAdmin(admin.ModelAdmin):
     list_display = ('id', 'sku', 'type', 'price', 'currency')
     list_filter = ('type',)
     search_fields = ('sku',)
+    inlines = [BundleCourseItemInline]
 
-
-class BundleCourseItemInline(admin.TabularInline):
-    """Inline for BundleCourseItem on CatalogueItem admin (when type is program_bundle)."""
-
-    model = BundleCourseItem
-    fk_name = 'bundle'
-    extra = 1
-    autocomplete_fields = ('course_item',)
+    def get_inline_instances(self, request: Any, obj: Any = None) -> list:
+        """Only show BundleCourseItemInline when the item type is program_bundle."""
+        if obj and obj.type == CatalogueItem.ItemType.PROGRAM_BUNDLE:
+            return super().get_inline_instances(request, obj)
+        return []
 
 
 @admin.register(BundleCourseItem)

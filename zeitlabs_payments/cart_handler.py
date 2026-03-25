@@ -258,6 +258,11 @@ class ProgramBundleCartHandler(BaseCartHandler):
                     raise InvalidCartError(
                         f'Bundle course {course_item.sku}: CourseMode course_id mismatch with catalogue item ref-id.'
                     )
+                if getattr(course_mode, 'bulk_sku', None) and course_mode.bulk_sku != catalogue_item.sku:
+                    raise InvalidCartError(
+                        f'Bundle course {course_item.sku}: CourseMode bulk_sku '
+                        f'"{course_mode.bulk_sku}" does not match bundle SKU "{catalogue_item.sku}".'
+                    )
                 check_user_enroll_conditions(user, course_mode)
                 check_duplicate_cart_with_item(
                     user,
@@ -265,6 +270,18 @@ class ProgramBundleCartHandler(BaseCartHandler):
                     status=Cart.Status.PAYMENT_PENDING,
                     item_type=CatalogueItem.ItemType.PAID_COURSE,
                 )
+                # Also check for existing payment-pending carts with an overlapping bundle.
+                overlapping_bundle_ids = BundleCourseItem.objects.filter(
+                    course_item=course_item,
+                ).values_list('bundle_id', flat=True)
+                if CartItem.objects.filter(
+                    cart__user=user,
+                    cart__status=Cart.Status.PAYMENT_PENDING,
+                    catalogue_item_id__in=overlapping_bundle_ids,
+                ).exists():
+                    raise DuplicateCartError(
+                        f'Bundle course {course_item.sku}: user has existing cart with overlapping bundle purchase.'
+                    )
             except CourseMode.DoesNotExist as exc:
                 raise InvalidCartError(f'Bundle course {course_item.sku}: CourseMode not found.') from exc
             except DuplicateCartError as exc:
@@ -280,9 +297,13 @@ class ProgramBundleCartHandler(BaseCartHandler):
         """
         Fulfill a program bundle by enrolling the user in every constituent course.
 
+        Uses a two-pass approach: first validates all course modes exist and match,
+        then enrolls in a second pass. This prevents partial fulfillment if a later
+        course fails integrity checks.
+
         :param item: The cart item representing a program bundle.
         :param processor_slug: The payment processor slug.
-        :raises CartFulfillmentError: If any enrollment fails.
+        :raises CartFulfillmentError: If any validation or enrollment fails.
         """
         cart = item.cart
         logger.debug(f'Processing program bundle item {item.id} in cart {cart.id}.')
@@ -302,6 +323,8 @@ class ProgramBundleCartHandler(BaseCartHandler):
             )
             raise CartFulfillmentError('No courses linked to this bundle.')
 
+        # Pass 1: Validate all course modes exist and match before any enrollment.
+        validated_modes = []
         for link in bundle_courses:
             course_item = link.course_item
             try:
@@ -332,6 +355,10 @@ class ProgramBundleCartHandler(BaseCartHandler):
                 )
                 raise CartFulfillmentError(f'Bundle course {course_item.sku}: item ref id mismatched.')
 
+            validated_modes.append((course_item, course_mode))
+
+        # Pass 2: Enroll in all validated courses.
+        for course_item, course_mode in validated_modes:
             try:
                 CourseEnrollment.enroll(
                     cart.user,
