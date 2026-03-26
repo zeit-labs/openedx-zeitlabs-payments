@@ -27,9 +27,7 @@ class BaseCartHandler:
     """
 
     def validate_add_to_cart(
-        self,
-        user: get_user_model,  # pylint: disable=unused-argument
-        catalogue_item: CatalogueItem,  # pylint: disable=unused-argument
+        self, user: get_user_model, catalogue_item: CatalogueItem  # pylint: disable=unused-argument
     ) -> None:
         """
         Raise InvalidCartError if validation fails.
@@ -47,10 +45,7 @@ class BaseCartHandler:
         raise NotImplementedError('Subclasses must implement this.')
 
     def validate_item_and_create_cart(
-        self,
-        user: get_user_model,
-        catalog_item: CatalogueItem,
-        cancel_old_carts: bool = True,
+        self, user: get_user_model, catalog_item: CatalogueItem, cancel_old_carts: bool = True
     ) -> Cart:
         """
         Create an open cart for the given user.
@@ -88,11 +83,9 @@ def register_handler(item_type: str) -> Any:
     :param item_type: The type of catalogue item to register the handler for.
     :return: The class decorator function.
     """
-
     def wrapper(cls: Any) -> BaseCartHandler:
         CART_HANDLER[item_type] = cls()
         return cls
-
     return wrapper
 
 
@@ -125,10 +118,7 @@ class PaidCourseCartHandler(BaseCartHandler):
                 )
             check_user_enroll_conditions(user, course_mode)
             check_duplicate_cart_with_item(
-                user,
-                course_mode,
-                status=Cart.Status.PAYMENT_PENDING,
-                item_type=catalogue_item.ItemType.PAID_COURSE,
+                user, course_mode, status=Cart.Status.PAYMENT_PENDING, item_type=catalogue_item.ItemType.PAID_COURSE
             )
         except CourseMode.DoesNotExist as exc:
             raise InvalidCartError('Unable to add item to the cart as CourseMode not found') from exc
@@ -155,7 +145,9 @@ class PaidCourseCartHandler(BaseCartHandler):
         try:
             course_mode = CourseMode.objects.get(sku=item.catalogue_item.sku)
         except CourseMode.DoesNotExist as exc:
-            logger.error(f'CourseMode not found for SKU: {item.catalogue_item.sku} - Item ID: {item.id}')
+            logger.error(
+                f'CourseMode not found for SKU: {item.catalogue_item.sku} - Item ID: {item.id}'
+            )
             AuditLog.log(
                 action=AuditLog.AuditActions.CART_FULFILLMENT_ERROR,
                 cart=cart,
@@ -163,7 +155,7 @@ class PaidCourseCartHandler(BaseCartHandler):
                     'item_id': item.id,
                     'catalogue_item_id': item.catalogue_item.id,
                     'sku': item.catalogue_item.sku,
-                },
+                }
             )
             raise CartFulfillmentError('CourseMode not found') from exc
 
@@ -179,7 +171,7 @@ class PaidCourseCartHandler(BaseCartHandler):
                     'item_id': item.id,
                     'catalogue_item_id': item.catalogue_item.id,
                     'sku': item.catalogue_item.sku,
-                },
+                }
             )
             raise CartFulfillmentError('Course Mode found but item ref id mismatched. ')
 
@@ -188,7 +180,7 @@ class PaidCourseCartHandler(BaseCartHandler):
                 cart.user,
                 course_mode.course.id,
                 mode=course_mode.mode_slug,
-                check_access=True,
+                check_access=True
             )
             AuditLog.log(
                 action=AuditLog.AuditActions.USER_ENROLLED,
@@ -197,10 +189,11 @@ class PaidCourseCartHandler(BaseCartHandler):
                     'course_id': course_mode.course.id,
                     'mode_slug': course_mode.mode_slug,
                     'catalogue_item_id': item.catalogue_item.id,
-                },
+                }
             )
             logger.info(
-                f'User {cart.user.id} enrolled in course {course_mode.course.id} with mode {course_mode.mode_slug}'
+                f'User {cart.user.id} enrolled in course {course_mode.course.id} '
+                f'with mode {course_mode.mode_slug}'
             )
         except CourseEnrollmentException as exc:
             logger.exception(

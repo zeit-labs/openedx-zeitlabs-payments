@@ -7,7 +7,6 @@ from opaque_keys.edx.django.models import CourseKeyField
 
 class CourseOverview(models.Model):
     """Mock"""
-
     id = CourseKeyField(db_index=True, primary_key=True, max_length=255)  # pylint: disable=invalid-name
     org = models.CharField(max_length=255, db_collation='NOCASE')
     catalog_visibility = models.TextField(null=True)
@@ -29,7 +28,6 @@ class CourseOverview(models.Model):
 
 class CourseMode(models.Model):
     """Mock"""
-
     course = models.ForeignKey(
         CourseOverview,
         db_constraint=False,
@@ -42,9 +40,7 @@ class CourseMode(models.Model):
     min_price = models.IntegerField(default=0, verbose_name=('Price'))
     currency = models.CharField(default='usd', max_length=8)
     _expiration_datetime = models.DateTimeField(
-        default=None,
-        null=True,
-        blank=True,
+        default=None, null=True, blank=True,
         verbose_name=('Upgrade Deadline'),
         db_column='expiration_datetime',
     )
@@ -84,7 +80,6 @@ class CourseEnrollmentManager(models.Manager):
 
 class CourseEnrollment(models.Model):
     """Mock"""
-
     user = models.ForeignKey(get_user_model(), on_delete=models.CASCADE)
     course = models.ForeignKey(CourseOverview, on_delete=models.CASCADE)
     is_active = models.BooleanField()
@@ -98,19 +93,14 @@ class CourseEnrollment(models.Model):
         db_table = 'student_courseenrollment'
 
     @classmethod
-    def enroll(
-        cls,
-        user,
-        course_key,
-        mode=None,
-        check_access=False,
-        can_upgrade=False,
-        enterprise_uuid=None,
-    ):
+    def enroll(cls, user, course_key, mode=None, check_access=False, can_upgrade=False, enterprise_uuid=None):
         cls.objects.get_or_create(
             user=user,
             course_id=course_key,
-            defaults={'mode': mode or CourseMode.AUDIT, 'is_active': True},
+            defaults={
+                'mode': mode or CourseMode.AUDIT,
+                'is_active': True
+            }
         )
 
     @classmethod

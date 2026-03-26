@@ -164,7 +164,9 @@ class CartItemSerializer(serializers.ModelSerializer):
         if callable(handler_method):
             return handler_method(obj)  # pylint: disable=not-callable
 
-        logger.warning(f"No handler implemented for item type '{item_type}'. Returning empty details.")
+        logger.warning(
+            f'No handler implemented for item type \'{item_type}\'. Returning empty details.'
+        )
         return {}
 
     def get_paid_course_details(self, obj: CartItem) -> dict:
@@ -173,13 +175,17 @@ class CartItemSerializer(serializers.ModelSerializer):
         courses_map = self.context.get('prefetched_courses', {})
 
         course = (
-            courses_map.get(str(item_ref_id)) if courses_map else CourseOverview.objects.filter(id=item_ref_id).first()
+            courses_map.get(str(item_ref_id))
+            if courses_map
+            else CourseOverview.objects.filter(id=item_ref_id).first()
         )
         if not course:
             logger.warning(f'CourseOverview not found for id {item_ref_id}')
             return {'courses': []}
 
-        return {'courses': CourseSerializer([course], many=True, context=self.context).data}
+        return {
+            'courses': CourseSerializer([course], many=True, context=self.context).data
+        }
 
     def get_program_bundle_details(self, obj: CartItem) -> dict:
         """Return details for a program bundle item, listing all constituent courses."""

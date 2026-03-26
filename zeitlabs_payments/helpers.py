@@ -59,7 +59,9 @@ class ZeitLabsPluginSettings:
     invoice_prefix: str = field(
         default_factory=lambda: ZeitLabsPluginSettings.get_by_zeitlabs_key('invoice_prefix', '')
     )
-    organization: str = field(default_factory=lambda: ZeitLabsPluginSettings.get_by_zeitlabs_key('organization', ''))
+    organization: str = field(
+        default_factory=lambda: ZeitLabsPluginSettings.get_by_zeitlabs_key('organization', '')
+    )
     customer_number: str = field(
         default_factory=lambda: ZeitLabsPluginSettings.get_by_zeitlabs_key('customer_number', '')
     )
@@ -69,16 +71,22 @@ class ZeitLabsPluginSettings:
     valid_currency: str = field(
         default_factory=lambda: ZeitLabsPluginSettings.get_by_zeitlabs_key('valid_currency', '!!!')
     )
-    support_url: str = field(default_factory=lambda: ZeitLabsPluginSettings.get_by_zeitlabs_key('support_url', ''))
-    support_email: str = field(default_factory=lambda: ZeitLabsPluginSettings.get_by_zeitlabs_key('support_email', ''))
-    logo_url: str = field(default_factory=lambda: ZeitLabsPluginSettings.get_by_zeitlabs_key('logo_url', ''))
+    support_url: str = field(
+        default_factory=lambda: ZeitLabsPluginSettings.get_by_zeitlabs_key('support_url', '')
+    )
+    support_email: str = field(
+        default_factory=lambda: ZeitLabsPluginSettings.get_by_zeitlabs_key('support_email', '')
+    )
+    logo_url: str = field(
+        default_factory=lambda: ZeitLabsPluginSettings.get_by_zeitlabs_key('logo_url', '')
+    )
     root_url: str = field(
         default_factory=lambda: ZeitLabsPluginSettings.get_by_root_key(
             'LMS_ROOT_URL',
             ZeitLabsPluginSettings.get_by_root_key(
                 'ECOMMERCE_PUBLIC_URL_ROOT',
-                'ZeitLabs Payments: neither LMS_ROOT_URL nor ECOMMERCE_PUBLIC_URL_ROOT is set!',
-            ),
+                'ZeitLabs Payments: neither LMS_ROOT_URL nor ECOMMERCE_PUBLIC_URL_ROOT is set!'
+            )
         )
     )
 
@@ -170,7 +178,9 @@ def sanitize_text(
     return sanitized[:max_length]
 
 
-def relative_url_to_absolute_url(relative_url: str, request: Any) -> Optional[str]:
+def relative_url_to_absolute_url(
+    relative_url: str, request: Any
+) -> Optional[str]:
     """
     Convert a relative URL to an absolute URL using request's scheme and site domain.
 
@@ -210,7 +220,6 @@ def get_order_description(cart: Cart, max_length: int = None) -> str:
     :param cart: The cart.
     :return: The order description.
     """
-
     def _get_product_description(item: CartItem) -> str:
         """Return the product description."""
         result = get_course_id(item)
@@ -222,7 +231,7 @@ def get_order_description(cart: Cart, max_length: int = None) -> str:
     max_index = len(items) - 1
 
     for index, item in enumerate(items):
-        description += f'{_get_product_description(item).replace(";", "_") or "-"}'
+        description += f"{_get_product_description(item).replace(';', '_') or '-'}"
         if index < max_index:
             description += ' // '
 
@@ -301,7 +310,7 @@ def check_user_enroll_conditions(user: get_user_model, course_mode: CourseMode) 
         logger.warning(
             'User %s attempted to enroll in %s, but they were already enrolled',
             user.username,
-            str(course_mode.course.id),
+            str(course_mode.course.id)
         )
         raise AlreadyEnrolledError('User is already enrolled in the course.')
 
@@ -334,7 +343,9 @@ def cancel_old_pending_carts(user: get_user_model) -> None:
 
     :param user: User whose carts need to be cancelled.
     """
-    pending_carts = list(Cart.objects.filter(user=user, status=Cart.Status.PENDING))
+    pending_carts = list(
+        Cart.objects.filter(user=user, status=Cart.Status.PENDING)
+    )
 
     if not pending_carts:
         logger.debug(f'No pending carts to cancel for user {user}.')
@@ -352,7 +363,7 @@ def cancel_old_pending_carts(user: get_user_model) -> None:
             context={
                 'old_status': Cart.Status.PENDING,
                 'new_status': Cart.Status.CANCELLED,
-            },
+            }
         )
 
 
@@ -360,7 +371,7 @@ def check_duplicate_cart_with_item(
     user: get_user_model,
     course_mode: CourseMode,
     status: str = None,
-    item_type: str = None,
+    item_type: str = None
 ) -> None:
     """
     Check if there is existing cart.
@@ -382,7 +393,9 @@ def check_duplicate_cart_with_item(
     duplicate_cart = Cart.objects.filter(**filters).first()
 
     if duplicate_cart:
-        raise DuplicateCartError(f'Duplicate cart found ID: {duplicate_cart.id}, state: {status}.')
+        raise DuplicateCartError(
+            f'Duplicate cart found ID: {duplicate_cart.id}, state: {status}.'
+        )
 
 
 def generate_invoice_qr_code(invoice_number: str) -> str:
@@ -395,7 +408,10 @@ def generate_invoice_qr_code(invoice_number: str) -> str:
     :params order_number (int): The order number to include in the checkout receipt URL.
     :returns: str: A QR code in SVG format, rendered as a string.
     """
-    receipt_url = reverse('zeitlabs_payments:invoice', args=[invoice_number])
+    receipt_url = reverse(
+        'zeitlabs_payments:invoice',
+        args=[invoice_number]
+    )
     request = get_current_request()
     url = request.build_absolute_uri(receipt_url)
 

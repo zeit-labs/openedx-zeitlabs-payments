@@ -20,7 +20,6 @@ class TestBaseCartHandler:
     """
     Tests for BaseCartHandler.
     """
-
     strategy = BaseCartHandler()
     cart_item = MagicMock()
     user = None
@@ -51,7 +50,6 @@ class TestPaidCourseCartHandler:
     """
     Tests for PaidCourseCartHandler.
     """
-
     fulfillment = learner_user = catalog_item = course_mode = None
 
     def setup_method(self):
@@ -73,11 +71,11 @@ class TestPaidCourseCartHandler:
             (
                 'custom-sku-with_invlaid_ref_id',
                 'Unable to add item to the cart as Course mode found with given sku but course_id'
-                ' mismatch with catalogue item ref-id.',
+                ' mismatch with catalogue item ref-id.'
             ),
             (
                 'sku-does-not-match-to-any-course-mode',
-                'Unable to add item to the cart as CourseMode not found',
+                'Unable to add item to the cart as CourseMode not found'
             ),
         ],
     )
@@ -93,7 +91,7 @@ class TestPaidCourseCartHandler:
                 title='Invalid SKU course',
                 item_ref_id='irrelevant',
                 price=100,
-                currency='SAR',
+                currency='SAR'
             )
         else:
             course_item = CatalogueItem.objects.get(sku=sku)
@@ -108,18 +106,19 @@ class TestPaidCourseCartHandler:
                 'zeitlabs_payments.helpers.CourseEnrollment.is_enrolled',
                 True,
                 'Unable to add item to the cart as user: user3 does not fulfill enrollment conditions. '
-                'User is already enrolled in the course.',
+                'User is already enrolled in the course.'
             ),
             (
                 'zeitlabs_payments.helpers.CourseEnrollment.objects.is_course_full',
                 True,
-                'Unable to add item to the cart as user: user3 does not fulfill enrollment conditions. Course is Full.',
+                'Unable to add item to the cart as user: user3 does not fulfill enrollment conditions. '
+                'Course is Full.'
             ),
             (
                 'zeitlabs_payments.helpers.CourseEnrollment.is_enrollment_closed',
                 True,
                 'Unable to add item to the cart as user: user3 does not fulfill enrollment conditions. '
-                'Enrollment is closed.',
+                'Enrollment is closed.'
             ),
         ],
     )
@@ -145,7 +144,7 @@ class TestPaidCourseCartHandler:
         existing_cart.items.create(
             catalogue_item=self.catalog_item,
             original_price=self.catalog_item.price,
-            final_price=self.catalog_item.price,
+            final_price=self.catalog_item.price
         )
         assert existing_cart.status == Cart.Status.PAYMENT_PENDING
         with pytest.raises(InvalidCartError) as exc:
@@ -170,7 +169,7 @@ class TestPaidCourseCartHandler:
         cart_item = cart.items.create(
             catalogue_item=self.catalog_item,
             original_price=self.catalog_item.price,
-            final_price=self.catalog_item.price,
+            final_price=self.catalog_item.price
         )
         assert not AuditLog.objects.filter(
             action=AuditLog.AuditActions.USER_ENROLLED,
@@ -178,14 +177,14 @@ class TestPaidCourseCartHandler:
             details=(
                 'User enrolled to the course: course-v1:org1+1+1 with mode: no-id-professional '
                 'during cart fulfillment for catalogue_item: 1.'
-            ),
+            )
         ).exists()
         self.fulfillment.fulfill(cart_item, 'processor')
         mock_enroll.assert_called_once_with(
             self.learner_user,
             self.course_mode.course.id,
             mode='no-id-professional',
-            check_access=True,
+            check_access=True
         )
         assert AuditLog.objects.filter(
             action=AuditLog.AuditActions.USER_ENROLLED,
@@ -193,7 +192,7 @@ class TestPaidCourseCartHandler:
             details=(
                 'User enrolled to the course: course-v1:org1+1+1 with mode: no-id-professional '
                 'during cart fulfillment for catalogue_item: 1.'
-            ),
+            )
         ).exists()
 
     def test_fulfill_course_mode_not_found(self):
@@ -204,7 +203,7 @@ class TestPaidCourseCartHandler:
         cart_item = cart.items.create(
             catalogue_item=self.catalog_item,
             original_price=self.catalog_item.price,
-            final_price=self.catalog_item.price,
+            final_price=self.catalog_item.price
         )
         self.course_mode.delete()
         with pytest.raises(CartFulfillmentError, match='CourseMode not found'):
@@ -216,7 +215,7 @@ class TestPaidCourseCartHandler:
             details=(
                 f'Error during cart fulfillment for item: {cart_item.id}, catalogue_item:'
                 f' {cart_item.id} due to invalid SKU: {self.catalog_item.sku} or unsupported type.'
-            ),
+            )
         ).exists()
 
     def test_fulfill_course_mode_found_but_invlaid_ref_id(self):
@@ -228,7 +227,7 @@ class TestPaidCourseCartHandler:
         cart_item = cart.items.create(
             catalogue_item=self.catalog_item,
             original_price=self.catalog_item.price,
-            final_price=self.catalog_item.price,
+            final_price=self.catalog_item.price
         )
         with pytest.raises(CartFulfillmentError, match='Course Mode found but item ref id mismatched.'):
             self.fulfillment.fulfill(cart_item, 'processor')
@@ -239,7 +238,7 @@ class TestPaidCourseCartHandler:
             details=(
                 f'Error during cart fulfillment for item: {cart_item.id}, catalogue_item:'
                 f' {self.catalog_item.id} due to invalid SKU: {self.catalog_item.sku} or unsupported type.'
-            ),
+            )
         ).exists()
 
     @patch('zeitlabs_payments.cart_handler.CourseEnrollment.enroll')
@@ -251,7 +250,7 @@ class TestPaidCourseCartHandler:
         cart_item = cart.items.create(
             catalogue_item=self.catalog_item,
             original_price=self.catalog_item.price,
-            final_price=self.catalog_item.price,
+            final_price=self.catalog_item.price
         )
         mock_enroll.side_effect = CourseEnrollmentException('Enrollment failed')
 

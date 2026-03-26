@@ -1,5 +1,4 @@
 """Zeitlabs payments models."""
-
 import re
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
@@ -98,7 +97,9 @@ class Transaction(TimeStampedModel):
     currency = models.CharField(max_length=3)
     response = models.JSONField(blank=True, null=True)
     reason = models.TextField(blank=True, null=True)
-    initiator_user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    initiator_user = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True
+    )
 
 
 class WebhookEvent(TimeStampedModel):
@@ -150,14 +151,21 @@ class AuditLog(TimeStampedModel):
         AuditActions.BAD_RESPONSE_SIGNATURE: 'Bad response signature detected: {data}.',
         AuditActions.RECEIVED_RESPONSE: 'Received response from payment gateway: {data}.',
         AuditActions.RESPONSE_INVALID_CART: (
-            'Invalid cart state found. Cart is in state: {cart_status} instead of {required_cart_state}.'
+            'Invalid cart state found. Cart '
+            'is in state: {cart_status} instead of {required_cart_state}.'
         ),
         AuditActions.TRANSACTION_ROLLED_BACK: (
             'Transaction: {transaction_id} for cart: {cart_id} and site: {site_id} rolled back.'
         ),
-        AuditActions.INVALID_TRANSACTION: ('Transaction: {transaction_id} is in invalid state: {status}.'),
-        AuditActions.CART_STATUS_UPDATED: ('Status updated for cart from: {old_status} to: {new_status}.'),
-        AuditActions.CART_FULFILLED: ('Cart fulfilled successfully.'),
+        AuditActions.INVALID_TRANSACTION: (
+            'Transaction: {transaction_id} is in invalid state: {status}.'
+        ),
+        AuditActions.CART_STATUS_UPDATED: (
+            'Status updated for cart from: {old_status} to: {new_status}.'
+        ),
+        AuditActions.CART_FULFILLED: (
+            'Cart fulfilled successfully.'
+        )
     }
 
     action = models.CharField(max_length=32)
@@ -190,7 +198,9 @@ class AuditLog(TimeStampedModel):
             required_keys = set(re.findall(r'{(\w+)}', template))
             missing_keys = required_keys - context.keys()
             if missing_keys:
-                raise ValidationError(f"Missing template parameters for action '{action}': {', '.join(missing_keys)}")
+                raise ValidationError(
+                    f"Missing template parameters for action '{action}': {', '.join(missing_keys)}"
+                )
 
         details = template.format(**context) if template else str(context)
         return cls.objects.create(
@@ -350,12 +360,12 @@ class TaxRule(TimeStampedModel):
         max_length=20,
         choices=TaxType.choices,
         default=TaxType.PERCENT,
-        help_text='Whether the tax is percentage-based or fixed amount.',
+        help_text='Whether the tax is percentage-based or fixed amount.'
     )
     tax_value = models.DecimalField(
         max_digits=10,
         decimal_places=2,
-        help_text='If percentage: store rate (e.g., 15 for 15%). If fixed: store amount (e.g., 2.50).',
+        help_text='If percentage: store rate (e.g., 15 for 15%). If fixed: store amount (e.g., 2.50).'
     )
     is_active = models.BooleanField(default=True)
 

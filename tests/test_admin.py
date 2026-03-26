@@ -1,5 +1,4 @@
 """Test for admin"""
-
 from ddt import data, ddt, unpack
 from django.contrib import admin
 from django.contrib.admin.sites import AdminSite
@@ -81,7 +80,9 @@ class PaymentProcessorAdminPageTest(TestCase):
     """PaymentProcessorAdminPage test."""
 
     def setUp(self):
-        self.admin_user = User.objects.create_superuser(username='admin', email='admin@example.com', password='pass')
+        self.admin_user = User.objects.create_superuser(
+            username='admin', email='admin@example.com', password='pass'
+        )
         self.client.login(username='admin', password='pass')
 
         self.rf = RequestFactory()
@@ -100,22 +101,12 @@ class PaymentProcessorAdminPageTest(TestCase):
         ('missing models key', [{'app_label': 'zeitlabs_payments'}], 1),
         (
             'other model only',
-            [
-                {
-                    'app_label': 'zeitlabs_payments',
-                    'models': [{'object_name': 'AuditLog'}],
-                }
-            ],
+            [{'app_label': 'zeitlabs_payments', 'models': [{'object_name': 'AuditLog'}]}],
             1,
         ),
         (
             'already has PaymentProcessors',
-            [
-                {
-                    'app_label': 'zeitlabs_payments',
-                    'models': [{'object_name': 'PaymentProcessors'}],
-                }
-            ],
+            [{'app_label': 'zeitlabs_payments', 'models': [{'object_name': 'PaymentProcessors'}]}],
             1,
         ),
         (
@@ -141,13 +132,13 @@ class PaymentProcessorAdminPageTest(TestCase):
             zp_apps = [a for a in app_list if a.get('app_label') == 'zeitlabs_payments']
             if not zp_apps:
                 self.assertEqual(
-                    expected_count,
-                    0,
-                    f'[{usecase}] expected no PaymentProcessors entry',
+                    expected_count, 0, f'[{usecase}] expected no PaymentProcessors entry'
                 )
             else:
                 zp_models = zp_apps[0].get('models', [])
-                count = sum(1 for m in zp_models if m.get('object_name') == 'PaymentProcessors')
+                count = sum(
+                    1 for m in zp_models if m.get('object_name') == 'PaymentProcessors'
+                )
                 self.assertEqual(
                     count,
                     expected_count,

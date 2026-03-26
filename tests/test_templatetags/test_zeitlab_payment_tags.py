@@ -13,7 +13,10 @@ def test_generate_invoice_qr_code_tag(mock_reverse, mock_get_request):
     mock_request.build_absolute_uri.return_value = 'https://example.com/invoice/12345/'
     mock_get_request.return_value = mock_request
 
-    tpl = Template('{% load zeitlab_payment_tags %}{% generate_invoice_qr_code invoice_number %}')
+    tpl = Template(
+        '{% load zeitlab_payment_tags %}'
+        '{% generate_invoice_qr_code invoice_number %}'
+    )
     ctx = Context({'invoice_number': '12345'})
     rendered = tpl.render(ctx)
 

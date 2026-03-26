@@ -1,5 +1,4 @@
 """Django admin view for the models."""
-
 from typing import Any
 
 from django.contrib import admin
@@ -103,12 +102,7 @@ class TransactionAdmin(admin.ModelAdmin):
         'created_at',
     )
     list_filter = ('type', 'status', 'gateway', 'method', 'currency', 'created_at')
-    search_fields = (
-        'gateway_transaction_id',
-        'cart__id',
-        'initiator_user__username',
-        'initiator_user__email',
-    )
+    search_fields = ('gateway_transaction_id', 'cart__id', 'initiator_user__username', 'initiator_user__email')
     readonly_fields = ('id', 'created_at')
     raw_id_fields = ('cart', 'initiator_user')
 
@@ -128,12 +122,7 @@ class WebhookEventAdmin(admin.ModelAdmin):
         'handled',
     )
     list_filter = ('gateway', 'event_type', 'handled', 'created_at')
-    search_fields = (
-        'id',
-        'gateway',
-        'event_type',
-        'related_transaction__gateway_transaction_id',
-    )
+    search_fields = ('id', 'gateway', 'event_type', 'related_transaction__gateway_transaction_id')
     readonly_fields = ('id', 'created_at')
     raw_id_fields = ('related_transaction',)
 
@@ -146,13 +135,7 @@ class AuditLogAdmin(admin.ModelAdmin):
 
     list_display = ('id', 'cart', 'action', 'gateway', 'created_at', 'details')
     list_filter = ('action', 'gateway', 'created_at')
-    search_fields = (
-        'cart__user__username',
-        'cart__user__email',
-        'action',
-        'details',
-        'gateway',
-    )
+    search_fields = ('cart__user__username', 'cart__user__email', 'action', 'details', 'gateway')
     readonly_fields = ('cart', 'action', 'gateway', 'details', 'created_at')
     ordering = ('-created_at',)
 
@@ -216,14 +199,7 @@ class TaxRuleAdmin(admin.ModelAdmin):
     Admin for TaxRule model.
     """
 
-    list_display = (
-        'name',
-        'tax_type',
-        'tax_value',
-        'is_active',
-        'created_at',
-        'updated_at',
-    )
+    list_display = ('name', 'tax_type', 'tax_value', 'is_active', 'created_at', 'updated_at')
     list_filter = ('tax_type', 'is_active')
     search_fields = ('name',)
     ordering = ('-is_active', '-id')
@@ -255,7 +231,7 @@ class PaymentProcessorAdminPage:
             slug: {
                 'cls': cls,
                 'name': cls.NAME,
-                'path': f'{cls.__module__}.{cls.__name__}',
+                'path': f'{cls.__module__}.{cls.__name__}'
             }
             for slug, cls in PROCESSORS.items()
         }
@@ -291,28 +267,18 @@ class PaymentProcessorAdminPage:
             app_list = list(original_get_app_list(request, app_label))
 
             # find the app dict for zeitlabs_payments, if it exists and add custom Processor Link/app
-            zp_app = next(
-                (app for app in app_list if app.get('app_label') == 'zeitlabs_payments'),
-                None,
-            )
+            zp_app = next((app for app in app_list if app.get('app_label') == 'zeitlabs_payments'), None)
             if zp_app is not None:
                 models = zp_app.setdefault('models', [])
                 if 'PaymentProcessors' not in [m.get('object_name') for m in models]:
-                    models.append(
-                        {
-                            'name': 'Payment Processors',
-                            'object_name': 'PaymentProcessors',
-                            'admin_url': reverse(f'admin:{self.URL_NAME}'),
-                            'add_url': None,
-                            'view_only': True,
-                            'perms': {
-                                'add': False,
-                                'change': False,
-                                'delete': False,
-                                'view': True,
-                            },
-                        }
-                    )
+                    models.append({
+                        'name': 'Payment Processors',
+                        'object_name': 'PaymentProcessors',
+                        'admin_url': reverse(f'admin:{self.URL_NAME}'),
+                        'add_url': None,
+                        'view_only': True,
+                        'perms': {'add': False, 'change': False, 'delete': False, 'view': True},
+                    })
             return app_list
 
         admin.site.get_app_list = custom_get_app_list

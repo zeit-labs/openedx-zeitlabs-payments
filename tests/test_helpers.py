@@ -45,7 +45,7 @@ def test_get_currency_valid(base_data: None) -> None:  # pylint: disable=unused-
     user_cart.items.create(
         catalogue_item=course_item,
         original_price=course_item.price,
-        final_price=course_item.price,
+        final_price=course_item.price
     )
     assert get_currency(user_cart) == 'SAR'
 
@@ -64,7 +64,7 @@ def test_get_currency_raises_for_invalid_currency(base_data: None) -> None:  # p
     user_cart.items.create(
         catalogue_item=course_item,
         original_price=course_item.price,
-        final_price=course_item.price,
+        final_price=course_item.price
     )
     with pytest.raises(Exception, match='Currency not supported: invlaid-curr'):
         get_currency(user_cart)
@@ -77,7 +77,7 @@ def test_get_currency_raises_for_invalid_currency(base_data: None) -> None:  # p
         ('ar-SA', 'ar'),
         ('fr-FR', 'en'),
         (None, 'en'),
-    ],
+    ]
 )
 def test_get_language_with_code(language_code: str, expected: str) -> None:
     """
@@ -106,38 +106,25 @@ def test_get_language_missing_attr() -> None:
 @pytest.mark.parametrize(
     'text, pattern, max_len, expected, usecase',
     [
-        (
-            'hello@world',
-            r'[^a-zA-Z0-9]',
-            None,
-            'hello_world',
-            'Replaces "@" with underscore when no max length.',
-        ),
-        (
-            'hello@world.com',
-            r'[^a-zA-Z0-9]',
-            10,
-            'hello_worl',
-            'Truncates to 10 chars without dot in pattern.',
-        ),
-        (
-            'hello.world@example.com',
-            r'[^a-zA-Z0-9\.]',
-            10,
-            'hello.w...',
-            'Truncates with ellipsis if dot allowed in pattern.',
-        ),
-        ('test', '', 10, '', 'Returns empty string if pattern is empty.'),
-        (
-            'Name: Tehreem Sadat!',
-            r'[^a-zA-Z0-9]',
-            20,
-            'Name__Tehreem_Sadat_',
-            'Replaces spaces and special chars with underscores.',
-        ),
+        ('hello@world', r'[^a-zA-Z0-9]', None, 'hello_world',
+         'Replaces "@" with underscore when no max length.'),
+        ('hello@world.com', r'[^a-zA-Z0-9]', 10, 'hello_worl',
+         'Truncates to 10 chars without dot in pattern.'),
+        ('hello.world@example.com', r'[^a-zA-Z0-9\.]', 10, 'hello.w...',
+         'Truncates with ellipsis if dot allowed in pattern.'),
+        ('test', '', 10, '',
+         'Returns empty string if pattern is empty.'),
+        ('Name: Tehreem Sadat!', r'[^a-zA-Z0-9]', 20, 'Name__Tehreem_Sadat_',
+         'Replaces spaces and special chars with underscores.'),
     ],
 )
-def test_sanitize_text_cases(text: str, pattern: str, max_len: int, expected: str, usecase: str) -> None:
+def test_sanitize_text_cases(
+    text: str,
+    pattern: str,
+    max_len: int,
+    expected: str,
+    usecase: str
+) -> None:
     """
     Test sanitize_text with multiple edge cases.
 
@@ -159,7 +146,10 @@ def test_relative_url_to_absolute_url_valid() -> None:
 
     :return: None
     """
-    request = MagicMock(scheme='https', site=Site.objects.create(domain='test.com', name='test.com'))
+    request = MagicMock(
+        scheme='https',
+        site=Site.objects.create(domain='test.com', name='test.com')
+    )
     result = relative_url_to_absolute_url('/checkout', request)
     assert result == f'{request.scheme}://{request.site.domain}/checkout'
 
@@ -190,20 +180,8 @@ def test_relative_url_to_absolute_url_none_request() -> None:
         ('test', 'username', str, None, 'Correct type: str'),
         ([1, 2, 3], 'items', list, None, 'Correct type: list'),
         (None, 'amount', int, 'amount is required and must be (int)', 'Param is None'),
-        (
-            '123',
-            'amount',
-            int,
-            'amount is required and must be (int)',
-            'Param is str, expected int',
-        ),
-        (
-            {'key': 'val'},
-            'items',
-            list,
-            'items is required and must be (list)',
-            'Param is dict, expected list',
-        ),
+        ('123', 'amount', int, 'amount is required and must be (int)', 'Param is str, expected int'),
+        ({'key': 'val'}, 'items', list, 'items is required and must be (list)', 'Param is dict, expected list'),
     ],
 )
 def test_verify_param(
@@ -265,9 +243,7 @@ def test_get_customer_name(
             get_customer_name('not-cart')
     else:
         user = User.objects.create(
-            username=f'{first_name}_{last_name}',
-            first_name=first_name or '',
-            last_name=last_name or '',
+            username=f'{first_name}_{last_name}', first_name=first_name or '', last_name=last_name or ''
         )
         cart = Cart.objects.create(user=user)
         result = get_customer_name(cart)
@@ -365,12 +341,20 @@ def test_get_order_description_multiple_items(base_data: Any) -> None:  # pylint
     course2 = CatalogueItem.objects.get(sku='custom-sku-2')
 
     cart = Cart.objects.create(user_id=3, status=Cart.Status.PENDING)
-    cart.items.create(catalogue_item=course1, original_price=course1.price, final_price=course1.price)
-    cart.items.create(catalogue_item=course2, original_price=course2.price, final_price=course2.price)
+    cart.items.create(
+        catalogue_item=course1,
+        original_price=course1.price,
+        final_price=course1.price
+    )
+    cart.items.create(
+        catalogue_item=course2,
+        original_price=course2.price,
+        final_price=course2.price
+    )
 
     result = get_order_description(cart)
 
-    expected = f'{course1.item_ref_id.replace("+", "_")} // {course2.item_ref_id.replace("+", "_")}'
+    expected = f"{course1.item_ref_id.replace('+', '_')} // {course2.item_ref_id.replace('+', '_')}"
     assert expected == result
     assert len(result) <= MAX_ORDER_DESCRIPTION_LENGTH_DEFAULT
 
@@ -400,7 +384,7 @@ def test_generate_invoice_number_no_previous_invoice():
     [
         ('TEST-100005', 'TEST-100006'),
         ('TEST-INVALID', 'TEST-100001'),
-    ],
+    ]
 )
 def test_generate_invoice_number_with_existing_invoice(existing_invoice_number, expected_invoice_number):
     """
@@ -411,7 +395,7 @@ def test_generate_invoice_number_with_existing_invoice(existing_invoice_number, 
         invoice_number=existing_invoice_number,
         total=100,
         cart=Cart.objects.create(user=User.objects.get(id=3), status=Cart.Status.PAID),
-        gross_total=100,
+        gross_total=100
     )
     invoice_number = generate_invoice_number(request=None)
     assert invoice_number == expected_invoice_number
@@ -433,23 +417,17 @@ def test_check_user_enroll_conditions_success():
     [
         (
             'zeitlabs_payments.helpers.CourseEnrollment.is_enrollment_closed',
-            True,
-            EnrollmentClosedError,
-            'Enrollment is closed.',
+            True, EnrollmentClosedError, 'Enrollment is closed.'
         ),
         (
             'zeitlabs_payments.helpers.CourseEnrollment.objects.is_course_full',
-            True,
-            CourseFullError,
-            'Course is Full.',
+            True, CourseFullError, 'Course is Full.'
         ),
         (
             'zeitlabs_payments.helpers.CourseEnrollment.is_enrolled',
-            True,
-            AlreadyEnrolledError,
-            'User is already enrolled in the course.',
+            True, AlreadyEnrolledError, 'User is already enrolled in the course.'
         ),
-    ],
+    ]
 )
 def test_check_user_enroll_conditions_failures(patch_target, return_value, expected_exception, expected_msg):
     """
@@ -475,7 +453,8 @@ def test_cancel_old_pending_carts():
     cancel_old_pending_carts(user)
 
     all_carts = Cart.objects.filter(user=user)
-    assert all(c.status == Cart.Status.CANCELLED for c in all_carts), 'All user carts should be in CANCELLED status'
+    assert all(c.status == Cart.Status.CANCELLED for c in all_carts), \
+        'All user carts should be in CANCELLED status'
 
     audit_logs = AuditLog.objects.filter(
         action=AuditLog.AuditActions.CART_STATUS_UPDATED,
@@ -515,7 +494,11 @@ def test_duplicate_exists_but_different_item_type():
     course_mode = CourseMode.objects.get(sku='custom-sku-1')
     item = CatalogueItem.objects.get(sku='custom-sku-1')
     cart = Cart.objects.create(user=user, status=Cart.Status.PROCESSING)
-    cart.items.create(catalogue_item=item, original_price=item.price, final_price=item.price)
+    cart.items.create(
+        catalogue_item=item,
+        original_price=item.price,
+        final_price=item.price
+    )
     item.type = 'other_type'
     item.save()
 
@@ -530,7 +513,11 @@ def test_duplicate_exists_with_matching_item_type():
     course_mode = CourseMode.objects.get(sku='custom-sku-1')
     item = CatalogueItem.objects.get(sku='custom-sku-1')
     cart = Cart.objects.create(user=user, status=Cart.Status.PROCESSING)
-    cart.items.create(catalogue_item=item, original_price=item.price, final_price=item.price)
+    cart.items.create(
+        catalogue_item=item,
+        original_price=item.price,
+        final_price=item.price
+    )
 
     with pytest.raises(DuplicateCartError):
         check_duplicate_cart_with_item(user, course_mode, item_type=item.ItemType.PAID_COURSE)
@@ -548,7 +535,7 @@ def test_duplicate_exists_but_different_course():
     cart.items.create(
         catalogue_item=another_item,
         original_price=another_item.price,
-        final_price=another_item.price,
+        final_price=another_item.price
     )
 
     check_duplicate_cart_with_item(user, course_mode_requested)
@@ -562,7 +549,11 @@ def test_duplicate_exists_when_custom_status_provided():
     item = CatalogueItem.objects.get(sku='custom-sku-1')
 
     cart = Cart.objects.create(user=user, status=Cart.Status.PENDING)
-    cart.items.create(catalogue_item=item, original_price=item.price, final_price=item.price)
+    cart.items.create(
+        catalogue_item=item,
+        original_price=item.price,
+        final_price=item.price
+    )
 
     # Should raise when checking PENDING explicitly
     with pytest.raises(DuplicateCartError):
@@ -587,7 +578,9 @@ def test_multiple_carts_but_one_matching():
     with pytest.raises(DuplicateCartError) as exc:
         check_duplicate_cart_with_item(user, course_mode)
 
-    assert str(exc.value) == (f'Duplicate cart found ID: {cart2.id}, state: {Cart.Status.PROCESSING}.')
+    assert str(exc.value) == (
+        f'Duplicate cart found ID: {cart2.id}, state: {Cart.Status.PROCESSING}.'
+    )
 
 
 @pytest.mark.django_db

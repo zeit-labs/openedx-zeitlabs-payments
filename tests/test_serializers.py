@@ -26,16 +26,16 @@ def test_course_serializer_course_image_exception(mock_relative_url):
 
 @pytest.mark.django_db
 @patch('zeitlabs_payments.serializers.logger.warning')
-def test_cart_item_serializer_for_paid_course_type_and_invalid_ref_id(  # pylint: disable=unused-argument
+def test_cart_item_serializer_for_paid_course_type_and_invalid_ref_id(
     mock_warning, base_data
-):
+):  # pylint: disable=unused-argument
     user = get_user_model().objects.get(id=3)
     course_item = CatalogueItem.objects.get(sku='custom-sku-with_invlaid_ref_id')
     cart = Cart.objects.create(user=user, status=Cart.Status.PENDING)
     cart.items.create(
         catalogue_item=course_item,
         original_price=course_item.price,
-        final_price=course_item.price,
+        final_price=course_item.price
     )
     data = CartSerializer(instance=cart).data
     assert data.get('items')[0]['details']['courses'] == []
@@ -65,7 +65,7 @@ def test_cart_serializer_returns_serialized_items(base_data):  # pylint: disable
     cart.items.create(
         catalogue_item=course_item,
         original_price=course_item.price,
-        final_price=course_item.price,
+        final_price=course_item.price
     )
     serializer = CartSerializer(instance=cart)
     data = serializer.data
@@ -92,7 +92,7 @@ def test_cart_serializer_for_include_invoice(base_data):  # pylint: disable=unus
     cart.items.create(
         catalogue_item=course_item,
         original_price=course_item.price,
-        final_price=course_item.price,
+        final_price=course_item.price
     )
     invoice = Invoice.objects.create(
         cart=cart,
@@ -100,7 +100,7 @@ def test_cart_serializer_for_include_invoice(base_data):  # pylint: disable=unus
         total=cart.total,
         currency=course_item.currency,
         invoice_number='TEST-12345',
-        status=Invoice.InvoiceStatus.PAID,
+        status=Invoice.InvoiceStatus.PAID
     )
     # include_invoice is unset, invoice should not be returned in data
     serializer = CartSerializer(instance=cart)
@@ -138,7 +138,7 @@ def test_cart_serializer_for_include_user_details(base_data):  # pylint: disable
     cart.items.create(
         catalogue_item=course_item,
         original_price=course_item.price,
-        final_price=course_item.price,
+        final_price=course_item.price
     )
 
     # include_user_details is unset, only user id should be returned

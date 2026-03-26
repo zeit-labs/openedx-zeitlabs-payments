@@ -19,7 +19,6 @@ class TestAuditLogModel:
     """
     Tests for AuditLog.log method.
     """
-
     cart = None
 
     def setup_method(self):
@@ -39,7 +38,7 @@ class TestAuditLogModel:
             action=AuditLog.AuditActions.CART_FULFILLMENT_ERROR,
             context=context,
             cart=self.cart,
-            gateway='payfort',
+            gateway='payfort'
         )
 
         assert log.action == AuditLog.AuditActions.CART_FULFILLMENT_ERROR
@@ -57,15 +56,12 @@ class TestAuditLogModel:
             'sku': 'SKU-123',
         }
 
-        with pytest.raises(
-            ValidationError,
-            match="Missing template parameters for action 'cart_fulfillment_error'",
-        ):
+        with pytest.raises(ValidationError, match="Missing template parameters for action 'cart_fulfillment_error'"):
             AuditLog.log(
                 action=AuditLog.AuditActions.CART_FULFILLMENT_ERROR,
                 context=incomplete_context,
                 cart=self.cart,
-                gateway='payfort',
+                gateway='payfort'
             )
 
     def test_log_unknown_action_stores_context_as_string(self):
@@ -74,7 +70,12 @@ class TestAuditLogModel:
         """
         context = {'foo': 'bar'}
 
-        log = AuditLog.log(action='UnknownAction', context=context, cart=self.cart, gateway='payfort')
+        log = AuditLog.log(
+            action='UnknownAction',
+            context=context,
+            cart=self.cart,
+            gateway='payfort'
+        )
 
         assert log.action == 'UnknownAction'
         assert log.details == str(context)
@@ -91,7 +92,7 @@ class TestTaxRule:
             name='VAT',
             tax_type=TaxRule.TaxType.PERCENT,
             tax_value=Decimal('15.00'),
-            is_active=True,
+            is_active=True
         )
         base_price = Decimal('100.00')
         tax = TaxRule.calculate_tax(base_price, rule)
@@ -102,7 +103,7 @@ class TestTaxRule:
             name='Fixed Tax',
             tax_type=TaxRule.TaxType.FIXED,
             tax_value=Decimal('5.00'),
-            is_active=True,
+            is_active=True
         )
         base_price = Decimal('100.00')
         tax = TaxRule.calculate_tax(base_price, rule)
@@ -117,7 +118,7 @@ class TestTaxRule:
             name='Fixed Tax',
             tax_type=TaxRule.TaxType.FIXED,
             tax_value=Decimal('5.00'),
-            is_active=True,
+            is_active=True
         )
         tax = TaxRule.calculate_tax(None, rule)
         assert tax == Decimal('0.00')
@@ -127,13 +128,13 @@ class TestTaxRule:
             name='Old Tax',
             tax_type=TaxRule.TaxType.PERCENT,
             tax_value=Decimal('5.00'),
-            is_active=True,
+            is_active=True
         )
         latest_rule = TaxRule.objects.create(
             name='New Tax',
             tax_type=TaxRule.TaxType.FIXED,
             tax_value=Decimal('10.00'),
-            is_active=True,
+            is_active=True
         )
 
         base_price = Decimal('200.00')
@@ -158,7 +159,7 @@ class TestTaxRule:
             name='Service Tax',
             tax_type=TaxRule.TaxType.PERCENT,
             tax_value=Decimal('12.50'),
-            is_active=True,
+            is_active=True
         )
         assert str(rule) == 'Service Tax - 12.50%'
 
@@ -167,7 +168,7 @@ class TestTaxRule:
             name='Processing Fee',
             tax_type=TaxRule.TaxType.FIXED,
             tax_value=Decimal('3.00'),
-            is_active=True,
+            is_active=True
         )
         assert str(rule) == 'Processing Fee - 3.00'
 
@@ -179,7 +180,7 @@ def test_usage_count_sums_correctly():
         discount_type=Coupon.DiscountType.PERCENTAGE,
         discount_value=Decimal('15.00'),
         max_usage=10,
-        expires_at=timezone.now() + timezone.timedelta(days=10),
+        expires_at=timezone.now() + timezone.timedelta(days=10)
     )
     user1 = User.objects.get(id=1)
     user2 = User.objects.get(id=2)

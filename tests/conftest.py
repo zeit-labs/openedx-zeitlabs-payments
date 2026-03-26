@@ -1,5 +1,4 @@
 """Required fixtures for tests."""
-
 # tests/conftest.py
 import random
 
@@ -44,8 +43,8 @@ COURSES = {
                         'enabled': True,
                         'override': {
                             'price': 50,  # catalogue item contains price different from course mode, should be okay
-                        },
-                    },
+                        }
+                    }
                 },
                 CourseMode.VERIFIED: {
                     'override_mode': {
@@ -56,10 +55,10 @@ COURSES = {
                         'override': {
                             # catalogue_item does not contain valid course_id in item_ref_id
                             'item_ref_id': 'course-v1:invalid+1+1',
-                        },
-                    },
-                },
-            },
+                        }
+                    }
+                }
+            }
         },
         2: {
             'modes': {
@@ -68,10 +67,18 @@ COURSES = {
                 },
             }
         },
-        3: {'modes': {}},
+        3: {
+            'modes': {}
+        },
     },
     'org2': {
-        1: {'modes': {CourseMode.NO_ID_PROFESSIONAL_MODE: {'catalogue_item': {'enabled': True}}}},
+        1: {
+            'modes': {
+                CourseMode.NO_ID_PROFESSIONAL_MODE: {
+                    'catalogue_item': {'enabled': True}
+                }
+            }
+        },
         2: {'modes': {}},
         3: {
             'modes': {
@@ -82,11 +89,11 @@ COURSES = {
                     },
                     'catalogue_item': {
                         'enabled': True,
-                    },
+                    }
                 }
             }
-        },
-    },
+        }
+    }
 }
 
 
