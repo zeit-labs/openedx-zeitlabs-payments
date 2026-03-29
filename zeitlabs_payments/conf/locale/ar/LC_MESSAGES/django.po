@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: zeitlabs-payments 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-05 17:50+0300\n"
+"POT-Creation-Date: 2026-03-30 00:26+0300\n"
 "PO-Revision-Date: 2026-01-01 00:00+0000\n"
 "Last-Translator: Zeitlabs <support@zeitlabs.com>\n"
 "Language-Team: Arabic <ar@li.org>\n"
@@ -17,33 +17,31 @@ msgstr ""
 "Plural-Forms: nplurals=6; plural=n==0 ? 0 : n==1 ? 1 : n==2 ? 2 : n%100>=3 "
 "&& n%100<=10 ? 3 : n%100>=11 ? 4 : 5;\n"
 
-#: models.py:42
-#, fuzzy
-#| msgid "Payment Pending"
+#: models.py:43
 msgid "Pending"
 msgstr "قيد الانتظار"
 
-#: models.py:43
+#: models.py:44
 msgid "Processing"
 msgstr "قيد المعالجة"
 
-#: models.py:44
+#: models.py:45
 msgid "Paid"
 msgstr "مدفوع"
 
-#: models.py:45
+#: models.py:46
 msgid "Cancelled"
 msgstr "ملغى"
 
-#: models.py:46 templates/zeitlabs_payments/payment_pending.html:18
+#: models.py:47 templates/zeitlabs_payments/payment_pending.html:18
 msgid "Payment Pending"
 msgstr "الدفع قيد الانتظار"
 
-#: models.py:47
+#: models.py:48
 msgid "Refund Requested"
 msgstr "تم طلب الاسترداد"
 
-#: models.py:48
+#: models.py:49
 msgid "Refunded"
 msgstr "تم استرداده"
 
@@ -58,46 +56,51 @@ msgstr "نص تجريبي لإنشاء ملف مصدر الترجمة (.po). م�
 msgid "Checkout"
 msgstr "إتمام الشراء"
 
-#: templates/zeitlabs_payments/checkout.html:58
+#: templates/zeitlabs_payments/checkout.html:34
+msgid "Program"
+msgstr "برنامج"
+
+#: templates/zeitlabs_payments/checkout.html:87
 msgid "Have a coupon code?"
 msgstr "هل لديك رمز قسيمة؟"
 
-#: templates/zeitlabs_payments/checkout.html:62
+#: templates/zeitlabs_payments/checkout.html:91
 msgid "Enter coupon code"
 msgstr "أدخل رمز القسيمة"
 
-#: templates/zeitlabs_payments/checkout.html:64
+#: templates/zeitlabs_payments/checkout.html:93
 msgid "Apply"
 msgstr "تطبيق"
 
-#: templates/zeitlabs_payments/checkout.html:72
+#: templates/zeitlabs_payments/checkout.html:101
 #: templates/zeitlabs_payments/invoice.html:115
 msgid "Subtotal"
 msgstr "المجموع الفرعي"
 
-#: templates/zeitlabs_payments/checkout.html:76
+#: templates/zeitlabs_payments/checkout.html:105
 #: templates/zeitlabs_payments/invoice.html:81
 #: templates/zeitlabs_payments/invoice.html:123
+#: templates/zeitlabs_payments/manual_payment_confirm.html:110
 msgid "Total"
 msgstr "المجموع الكلي"
 
-#: templates/zeitlabs_payments/checkout.html:100
+#: templates/zeitlabs_payments/checkout.html:129
 msgid "Have questions?"
 msgstr "هل لديك أسئلة؟"
 
-#: templates/zeitlabs_payments/checkout.html:101
+#: templates/zeitlabs_payments/checkout.html:130
 msgid "Please read our FAQs to view common questions about our certificates."
 msgstr "يرجى قراءة الأسئلة الشائعة لعرض الأسئلة المتكررة حول شهاداتنا."
 
-#: templates/zeitlabs_payments/checkout.html:115
+#: templates/zeitlabs_payments/checkout.html:144
 msgid "No cart exists"
 msgstr "لا توجد سلة تسوق"
 
-#: templates/zeitlabs_payments/checkout.html:116
+#: templates/zeitlabs_payments/checkout.html:145
 msgid "Your shopping cart is empty. Please add items to continue."
 msgstr "سلة التسوق فارغة. يرجى إضافة عناصر للمتابعة."
 
-#: templates/zeitlabs_payments/checkout.html:118
+#: templates/zeitlabs_payments/checkout.html:147
 #: templates/zeitlabs_payments/invalid_cart.html:27
 msgid "Browse Courses"
 msgstr "تصفح الدورات"
@@ -179,6 +182,22 @@ msgstr "الذهاب إلى الدورة"
 msgid "Print Receipt"
 msgstr "طباعة الإيصال"
 
+#: templates/zeitlabs_payments/manual_payment_confirm.html:98
+msgid "Confirm Your Payment"
+msgstr "تأكيد الدفع الخاص بك"
+
+#: templates/zeitlabs_payments/manual_payment_confirm.html:99
+msgid "Please review your order details below and confirm your payment."
+msgstr "يرجى مراجعة تفاصيل طلبك أدناه وتأكيد الدفع."
+
+#: templates/zeitlabs_payments/manual_payment_confirm.html:116
+msgid "Cancel"
+msgstr "إلغاء"
+
+#: templates/zeitlabs_payments/manual_payment_confirm.html:119
+msgid "Confirm Payment"
+msgstr "تأكيد الدفع"
+
 #: templates/zeitlabs_payments/payment_decline.html:18
 msgid "Payment Declined"
 msgstr "تم رفض الدفع"
@@ -247,10 +266,8 @@ msgid "Thank you for your purchase!"
 msgstr "شكراً لك على الشراء!"
 
 #: templates/zeitlabs_payments/payment_successful.html:26
-#, fuzzy
-#| msgid "Browse More Courses"
 msgid "View Your Courses"
-msgstr "تصفح المزيد من الدورات"
+msgstr "عرض دوراتك"
 
 #: templates/zeitlabs_payments/payment_successful.html:29
 msgid "Browse More Courses"

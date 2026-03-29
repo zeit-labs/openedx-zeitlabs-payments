@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-05 17:50+0300\n"
+"POT-Creation-Date: 2026-03-30 00:26+0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,31 +17,31 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: models.py:42
+#: models.py:43
 msgid "Pending"
 msgstr ""
 
-#: models.py:43
+#: models.py:44
 msgid "Processing"
 msgstr ""
 
-#: models.py:44
+#: models.py:45
 msgid "Paid"
 msgstr ""
 
-#: models.py:45
+#: models.py:46
 msgid "Cancelled"
 msgstr ""
 
-#: models.py:46 templates/zeitlabs_payments/payment_pending.html:18
+#: models.py:47 templates/zeitlabs_payments/payment_pending.html:18
 msgid "Payment Pending"
 msgstr ""
 
-#: models.py:47
+#: models.py:48
 msgid "Refund Requested"
 msgstr ""
 
-#: models.py:48
+#: models.py:49
 msgid "Refunded"
 msgstr ""
 
@@ -56,46 +56,51 @@ msgstr ""
 msgid "Checkout"
 msgstr ""
 
-#: templates/zeitlabs_payments/checkout.html:58
+#: templates/zeitlabs_payments/checkout.html:34
+msgid "Program"
+msgstr ""
+
+#: templates/zeitlabs_payments/checkout.html:87
 msgid "Have a coupon code?"
 msgstr ""
 
-#: templates/zeitlabs_payments/checkout.html:62
+#: templates/zeitlabs_payments/checkout.html:91
 msgid "Enter coupon code"
 msgstr ""
 
-#: templates/zeitlabs_payments/checkout.html:64
+#: templates/zeitlabs_payments/checkout.html:93
 msgid "Apply"
 msgstr ""
 
-#: templates/zeitlabs_payments/checkout.html:72
+#: templates/zeitlabs_payments/checkout.html:101
 #: templates/zeitlabs_payments/invoice.html:115
 msgid "Subtotal"
 msgstr ""
 
-#: templates/zeitlabs_payments/checkout.html:76
+#: templates/zeitlabs_payments/checkout.html:105
 #: templates/zeitlabs_payments/invoice.html:81
 #: templates/zeitlabs_payments/invoice.html:123
+#: templates/zeitlabs_payments/manual_payment_confirm.html:110
 msgid "Total"
 msgstr ""
 
-#: templates/zeitlabs_payments/checkout.html:100
+#: templates/zeitlabs_payments/checkout.html:129
 msgid "Have questions?"
 msgstr ""
 
-#: templates/zeitlabs_payments/checkout.html:101
+#: templates/zeitlabs_payments/checkout.html:130
 msgid "Please read our FAQs to view common questions about our certificates."
 msgstr ""
 
-#: templates/zeitlabs_payments/checkout.html:115
+#: templates/zeitlabs_payments/checkout.html:144
 msgid "No cart exists"
 msgstr ""
 
-#: templates/zeitlabs_payments/checkout.html:116
+#: templates/zeitlabs_payments/checkout.html:145
 msgid "Your shopping cart is empty. Please add items to continue."
 msgstr ""
 
-#: templates/zeitlabs_payments/checkout.html:118
+#: templates/zeitlabs_payments/checkout.html:147
 #: templates/zeitlabs_payments/invalid_cart.html:27
 msgid "Browse Courses"
 msgstr ""
@@ -175,6 +180,22 @@ msgstr ""
 
 #: templates/zeitlabs_payments/invoice.html:148
 msgid "Print Receipt"
+msgstr ""
+
+#: templates/zeitlabs_payments/manual_payment_confirm.html:98
+msgid "Confirm Your Payment"
+msgstr ""
+
+#: templates/zeitlabs_payments/manual_payment_confirm.html:99
+msgid "Please review your order details below and confirm your payment."
+msgstr ""
+
+#: templates/zeitlabs_payments/manual_payment_confirm.html:116
+msgid "Cancel"
+msgstr ""
+
+#: templates/zeitlabs_payments/manual_payment_confirm.html:119
+msgid "Confirm Payment"
 msgstr ""
 
 #: templates/zeitlabs_payments/payment_decline.html:18
