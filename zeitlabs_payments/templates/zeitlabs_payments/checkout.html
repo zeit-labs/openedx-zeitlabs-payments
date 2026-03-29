@@ -26,25 +26,54 @@
                     <!-- Cart Items -->
                     <div class="basket-items">
                         {% for item in cart.items %}
-                            {% for course in item.details.courses %}
-                            <div class="basket-item">
-                                <div class="basket-item-image">
-                                    <img src="{{ course.course_image }}" alt="{{ course.course_name }}" />
-                                </div>
-                                <div class="basket-item-details">
-                                    <div class="basket-item-title">{{ item.title }}</div>
-                                    <div class="basket-item-description">
-                                        <div class="course-id">{{ course.course_id }}</div>
-                                        {% if item.description %}
-                                            <br>{{ item.description }}
-                                        {% endif %}
+                            {% if item.type == "program_bundle" %}
+                                {# Program bundle: show program title header with price, then each course #}
+                                <div class="basket-item basket-item--bundle-header">
+                                    <div class="basket-item-details">
+                                        <div class="basket-item-title">
+                                            <span class="badge-program">{% trans "Program" %}</span>
+                                            {{ item.title }}
+                                        </div>
+                                    </div>
+                                    <div class="basket-item-price">
+                                        <div class="price">{{ item.final_price }} {{ item.currency|currency_symbol }}</div>
                                     </div>
                                 </div>
-                                <div class="basket-item-price">
-                                    <div class="price">{{ item.final_price }} {{ item.currency|currency_symbol }}</div>
+                                {% for course in item.details.courses %}
+                                <div class="basket-item basket-item--bundle-course">
+                                    <div class="basket-item-image">
+                                        <img src="{{ course.course_image }}" alt="{{ course.course_name }}" />
+                                    </div>
+                                    <div class="basket-item-details">
+                                        <div class="basket-item-title">{{ course.course_name }}</div>
+                                        <div class="basket-item-description">
+                                            <div class="course-id">{{ course.course_id }}</div>
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
-                            {% endfor %}
+                                {% endfor %}
+                            {% else %}
+                                {# Single paid course: show course name with price #}
+                                {% for course in item.details.courses %}
+                                <div class="basket-item">
+                                    <div class="basket-item-image">
+                                        <img src="{{ course.course_image }}" alt="{{ course.course_name }}" />
+                                    </div>
+                                    <div class="basket-item-details">
+                                        <div class="basket-item-title">{{ course.course_name }}</div>
+                                        <div class="basket-item-description">
+                                            <div class="course-id">{{ course.course_id }}</div>
+                                            {% if item.description %}
+                                                <br>{{ item.description }}
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                    <div class="basket-item-price">
+                                        <div class="price">{{ item.final_price }} {{ item.currency|currency_symbol }}</div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            {% endif %}
                         {% endfor %}
                     </div>
 

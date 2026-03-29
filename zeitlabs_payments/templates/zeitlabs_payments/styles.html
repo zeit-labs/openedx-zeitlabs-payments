@@ -555,6 +555,55 @@ header.global-header .mobile-menu.hidden {
   text-decoration: line-through;
 }
 
+/* Program Bundle - Header row (title + price, no image) */
+.basket-item--bundle-header {
+  background: var(--color-secondary);
+  color: var(--color-white);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  margin-bottom: 0;
+  padding: var(--spacing-sm) var(--spacing-md);
+}
+
+.basket-item--bundle-header .basket-item-title {
+  color: var(--color-white);
+  font-size: var(--font-size-base);
+}
+
+.basket-item--bundle-header .basket-item-price .price {
+  color: var(--color-white);
+}
+
+.basket-item--bundle-header:hover {
+  background: var(--color-secondary-light);
+  box-shadow: none;
+}
+
+/* Program Bundle - Course rows (indented, no price) */
+.basket-item--bundle-course {
+  border-radius: 0;
+  margin-bottom: 0;
+  padding-inline-start: calc(var(--spacing-md) + var(--spacing-lg));
+  border-inline-start: 3px solid var(--color-secondary);
+}
+
+.basket-item--bundle-course:last-child {
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  margin-bottom: var(--spacing-sm);
+}
+
+/* Program badge */
+.badge-program {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.2);
+  color: var(--color-white);
+  border-radius: var(--radius-sm);
+  margin-inline-end: var(--spacing-xs);
+  vertical-align: middle;
+}
+
 /* Voucher Section - Compact */
 .voucher-section {
   padding: var(--spacing-sm) var(--spacing-md);
