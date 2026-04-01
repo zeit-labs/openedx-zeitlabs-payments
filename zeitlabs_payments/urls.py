@@ -33,6 +33,7 @@ urlpatterns: list = [
         name='payment-success',
     ),
     re_path(r'^payment/v1/invoice/(.+)/$', views.InvoiceView.as_view(), name='invoice'),
+    re_path(r'^payment/v1/history/$', views.OrderHistoryView.as_view(), name='order-history'),
     re_path(r'^api/cart/v1/cart/$', views.CartView.as_view(), name='cart-add'),
     re_path(
         r'^api/payment/v1/manual/$',

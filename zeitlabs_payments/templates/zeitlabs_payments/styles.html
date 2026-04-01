@@ -143,7 +143,8 @@ header.global-header .mobile-menu.hidden {
 .payment-buttons, .payment-buttons *,
 .help-section, .help-section *,
 .receipt-card, .receipt-card *,
-.status-card, .status-card * {
+.status-card, .status-card *,
+.order-history .oh-card, .order-history .oh-card * {
   box-sizing: border-box;
 }
 
@@ -172,14 +173,16 @@ header.global-header .mobile-menu.hidden {
 /* RTL Support - Scoped to payment containers only */
 .basket[dir="rtl"],
 .receipt[dir="rtl"],
-.status-page[dir="rtl"] {
+.status-page[dir="rtl"],
+.order-history[dir="rtl"] {
   direction: rtl;
   text-align: right;
 }
 
 .basket[dir="ltr"],
 .receipt[dir="ltr"],
-.status-page[dir="ltr"] {
+.status-page[dir="ltr"],
+.order-history[dir="ltr"] {
   direction: ltr;
   text-align: left;
 }
@@ -189,32 +192,33 @@ header.global-header .mobile-menu.hidden {
    ============================================ */
 .basket h1, .basket h2, .basket h3, .basket h4, .basket h5, .basket h6,
 .receipt h1, .receipt h2, .receipt h3, .receipt h4, .receipt h5, .receipt h6,
-.status-page h1, .status-page h2, .status-page h3, .status-page h4, .status-page h5, .status-page h6 {
+.status-page h1, .status-page h2, .status-page h3, .status-page h4, .status-page h5, .status-page h6,
+.order-history h1, .order-history h2, .order-history h3, .order-history h4, .order-history h5, .order-history h6 {
   font-family: var(--font-family);
   font-weight: 700;
   line-height: 1.3;
   color: var(--color-gray-900);
 }
 
-.basket h1, .receipt h1, .status-page h1 { font-size: var(--font-size-4xl); }
-.basket h2, .receipt h2, .status-page h2 { font-size: var(--font-size-3xl); }
-.basket h3, .receipt h3, .status-page h3 { font-size: var(--font-size-2xl); }
-.basket h4, .receipt h4, .status-page h4 { font-size: var(--font-size-xl); }
-.basket h5, .receipt h5, .status-page h5 { font-size: var(--font-size-lg); }
-.basket h6, .receipt h6, .status-page h6 { font-size: var(--font-size-base); }
+.basket h1, .receipt h1, .status-page h1, .order-history h1 { font-size: var(--font-size-4xl); }
+.basket h2, .receipt h2, .status-page h2, .order-history h2 { font-size: var(--font-size-3xl); }
+.basket h3, .receipt h3, .status-page h3, .order-history h3 { font-size: var(--font-size-2xl); }
+.basket h4, .receipt h4, .status-page h4, .order-history h4 { font-size: var(--font-size-xl); }
+.basket h5, .receipt h5, .status-page h5, .order-history h5 { font-size: var(--font-size-lg); }
+.basket h6, .receipt h6, .status-page h6, .order-history h6 { font-size: var(--font-size-base); }
 
-.basket p, .receipt p, .status-page p {
+.basket p, .receipt p, .status-page p, .order-history p {
   margin-bottom: var(--spacing-md);
   color: var(--color-gray-600);
 }
 
-.basket a, .receipt a, .status-page a {
+.basket a, .receipt a, .status-page a, .order-history a {
   color: var(--color-primary);
   text-decoration: none;
   transition: color var(--transition-fast);
 }
 
-.basket a:hover, .receipt a:hover, .status-page a:hover {
+.basket a:hover, .receipt a:hover, .status-page a:hover, .order-history a:hover {
   color: var(--color-primary-dark);
 }
 
@@ -223,7 +227,8 @@ header.global-header .mobile-menu.hidden {
    ============================================ */
 .basket .container,
 .receipt .container,
-.status-page .container {
+.status-page .container,
+.order-history .container {
   width: 100%;
   max-width: 1200px;
   margin-inline: auto;
@@ -232,7 +237,8 @@ header.global-header .mobile-menu.hidden {
 
 .basket .row,
 .receipt .row,
-.status-page .row {
+.status-page .row,
+.order-history .row {
   display: flex;
   flex-wrap: wrap;
   margin-inline: calc(var(--spacing-md) * -1);
@@ -240,7 +246,8 @@ header.global-header .mobile-menu.hidden {
 
 .basket .col,
 .receipt .col,
-.status-page .col {
+.status-page .col,
+.order-history .col {
   flex: 1;
   padding-inline: var(--spacing-md);
 }
@@ -433,7 +440,8 @@ header.global-header .mobile-menu.hidden {
 }
 
 .receipt,
-.status-page {
+.status-page,
+.order-history {
   /* Header protection: Ensure these containers don't block header dropdown */
   overflow: visible !important;
 }

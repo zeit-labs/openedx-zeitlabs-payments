@@ -483,3 +483,82 @@ class PaymentDeclineViewTest(BaseTestViewMixin):
         assert response.status_code == 200
         assert 'merchant_reference' in response.context
         assert response.context['merchant_reference'] == merchant_reference
+
+
+@pytest.mark.usefixtures('base_data')
+class OrderHistoryViewTest(BaseTestViewMixin):
+    """Tests for OrderHistoryView — payment history page."""
+
+    VIEW_NAME = 'zeitlabs_payments:order-history'
+
+    def test_redirect_when_anonymous(self):
+        """Anonymous users should be redirected to the login page."""
+        response = self.client.get(self.url)
+        assert response.status_code == 302
+        assert '/login' in response.url or '/accounts/login' in response.url
+
+    def test_empty_history(self):
+        """Authenticated user with no orders sees the empty-state message."""
+        user = User.objects.get(id=self.learner1_id)
+        self.login_user(user)
+
+        response = self.client.get(self.url)
+        assert response.status_code == 200
+        assert 'records' in response.context
+        assert response.context['records'].count() == 0
+
+    def test_history_shows_user_orders(self):
+        """Authenticated user sees their own orders with invoices."""
+        user = User.objects.get(id=self.learner1_id)
+        other_user = User.objects.get(id=self.learner2_id)
+        course_item = CatalogueItem.objects.get(sku='custom-sku-1')
+
+        # Create a paid cart with invoice for the logged-in user
+        user_cart = Cart.objects.create(user=user, status=Cart.Status.PAID)
+        user_cart.items.create(
+            catalogue_item=course_item,
+            original_price=course_item.price,
+            final_price=course_item.price,
+        )
+        Invoice.objects.create(
+            cart=user_cart,
+            invoice_number='INV-USER',
+            currency='SAR',
+            status='paid',
+            gross_total=50,
+            total=50,
+        )
+
+        # Create a paid cart for *another* user — should NOT appear
+        other_cart = Cart.objects.create(user=other_user, status=Cart.Status.PAID)
+        other_cart.items.create(
+            catalogue_item=course_item,
+            original_price=course_item.price,
+            final_price=course_item.price,
+        )
+        Invoice.objects.create(
+            cart=other_cart,
+            invoice_number='INV-OTHER',
+            currency='SAR',
+            status='paid',
+            gross_total=50,
+            total=50,
+        )
+
+        self.login_user(user)
+        response = self.client.get(self.url)
+
+        assert response.status_code == 200
+        records = response.context['records']
+        cart_ids = [c.id for c in records]
+        assert user_cart.id in cart_ids
+        assert other_cart.id not in cart_ids
+
+    def test_history_template_used(self):
+        """Verify the correct template is rendered."""
+        user = User.objects.get(id=self.learner1_id)
+        self.login_user(user)
+
+        response = self.client.get(self.url)
+        assert response.status_code == 200
+        self.assertTemplateUsed(response, 'zeitlabs_payments/order_history.html')

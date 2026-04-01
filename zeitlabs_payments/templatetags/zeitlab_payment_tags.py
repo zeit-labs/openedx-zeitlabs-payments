@@ -1,16 +1,19 @@
 """
-This module provides custom Django template tags.
+Custom Django template tags and filters for zeitlabs-payments.
 
-These tags can be used to extend template functionality, such as generating dynamic
-content like QR codes or handling other custom template logic within Django views.
-Additional tags can be added to further enhance template capabilities.
+Provides QR-code generation, currency formatting, invoice URL
+building, and payment-status display helpers used across payment
+templates.
 """
+
 from babel.core import Locale
 from babel.numbers import get_currency_symbol
 from django import template
+from django.urls import reverse
 from django.utils.translation import get_language
 
 from zeitlabs_payments.helpers import generate_invoice_qr_code as generate_qr_code
+from zeitlabs_payments.models import Cart
 
 register = template.Library()
 
@@ -33,7 +36,8 @@ def generate_invoice_qr_code(invoice_number: str) -> str:
 def currency_symbol(code: str) -> str:
     """
     Render a currency symbol based on the current active Django language.
-    Example: "sar" -> "ر.س." when current language is Arabic.
+
+    Example: ``"sar"`` -> ``"ر.س."`` when the current language is Arabic.
     """
     if not code:
         return ''
@@ -46,9 +50,21 @@ def currency_symbol(code: str) -> str:
     try:
         Locale.parse(babel_locale)
     except Exception:  # pylint: disable=broad-except
-        babel_locale = (lang.split('-')[0] or 'en')
+        babel_locale = lang.split('-')[0] or 'en'
 
     try:
         return get_currency_symbol(code, locale=babel_locale)
     except Exception:  # pylint: disable=broad-except
         return code
+
+
+@register.filter
+def invoice_url(invoice_number: str) -> str:
+    """Return the URL path for the given invoice number."""
+    return reverse('zeitlabs_payments:invoice', args=[invoice_number])
+
+
+@register.filter
+def payment_status_display(status_value: str) -> str:
+    """Return the human-readable, translatable label for a cart payment status."""
+    return Cart.get_status_display(status_value)
