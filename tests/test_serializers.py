@@ -6,7 +6,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
 
-from zeitlabs_payments.models import Cart, CartItem, CatalogueItem, Invoice
+from zeitlabs_payments.models import BundleCourseItem, Cart, CartItem, CatalogueItem, Invoice
 from zeitlabs_payments.serializers import CartItemSerializer, CartSerializer, CourseSerializer
 
 
@@ -155,3 +155,101 @@ def test_cart_serializer_for_include_user_details(base_data):  # pylint: disable
     assert isinstance(data['user'], dict)
     assert data['user']['username'] == user.username
     assert data['user']['email'] == user.email
+
+
+@pytest.mark.django_db
+def test_program_bundle_details_returns_courses(base_data):  # pylint: disable=unused-argument
+    """Test get_program_bundle_details returns all linked courses for a bundle."""
+    user = get_user_model().objects.get(id=3)
+    bundle_item = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
+    cart = Cart.objects.create(user=user, status=Cart.Status.PENDING)
+    cart.items.create(
+        catalogue_item=bundle_item,
+        original_price=bundle_item.price,
+        final_price=bundle_item.price,
+    )
+    data = CartSerializer(instance=cart).data
+    details = data['items'][0]['details']
+    assert 'courses' in details
+    assert len(details['courses']) == 2
+
+    course_ids = {c['course_id'] for c in details['courses']}
+    # These are the two courses linked in conftest's _create_program_bundles
+    assert 'course-v1:org1+1+1' in course_ids
+    assert 'course-v1:org2+1+1' in course_ids
+
+
+@pytest.mark.django_db
+@patch('zeitlabs_payments.serializers.logger.warning')
+def test_program_bundle_details_warns_for_missing_course(mock_warning, base_data):  # pylint: disable=unused-argument
+    """Test get_program_bundle_details logs warning when a linked course's CourseOverview is missing."""
+    user = get_user_model().objects.get(id=3)
+    bundle_item = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
+
+    # Create a third course CatalogueItem whose item_ref_id has no CourseOverview
+    ghost_course_item = CatalogueItem.objects.create(
+        sku='ghost-course-sku',
+        type=CatalogueItem.ItemType.PAID_COURSE,
+        item_ref_id='course-v1:ghost+0+0',
+        price=10,
+        currency='SAR',
+    )
+    BundleCourseItem.objects.create(bundle=bundle_item, course_item=ghost_course_item)
+
+    cart = Cart.objects.create(user=user, status=Cart.Status.PENDING)
+    cart.items.create(
+        catalogue_item=bundle_item,
+        original_price=bundle_item.price,
+        final_price=bundle_item.price,
+    )
+    data = CartSerializer(instance=cart).data
+    details = data['items'][0]['details']
+
+    # Should still contain the 2 valid courses (ghost is skipped)
+    assert len(details['courses']) == 2
+    mock_warning.assert_called_once_with('CourseOverview not found for bundle course ref_id course-v1:ghost+0+0')
+
+    # Cleanup the ghost link for other tests
+    BundleCourseItem.objects.filter(bundle=bundle_item, course_item=ghost_course_item).delete()
+    ghost_course_item.delete()
+
+
+@pytest.mark.django_db
+def test_program_bundle_details_empty_bundle(base_data):  # pylint: disable=unused-argument
+    """Test get_program_bundle_details returns empty courses list for a bundle with no linked courses."""
+    user = get_user_model().objects.get(id=3)
+    empty_bundle = CatalogueItem.objects.get(sku='BUNDLE-EMPTY')
+    cart = Cart.objects.create(user=user, status=Cart.Status.PENDING)
+    cart.items.create(
+        catalogue_item=empty_bundle,
+        original_price=empty_bundle.price,
+        final_price=empty_bundle.price,
+    )
+    data = CartSerializer(instance=cart).data
+    details = data['items'][0]['details']
+    assert details == {'courses': []}
+
+
+@pytest.mark.django_db
+def test_program_bundle_details_with_prefetched_courses(base_data):  # pylint: disable=unused-argument
+    """Test get_program_bundle_details uses prefetched_courses from context when available."""
+    user = get_user_model().objects.get(id=3)
+    bundle_item = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
+    cart = Cart.objects.create(user=user, status=Cart.Status.PENDING)
+    cart.items.create(
+        catalogue_item=bundle_item,
+        original_price=bundle_item.price,
+        final_price=bundle_item.price,
+    )
+
+    # Pre-fetch only one of the two courses, to test the map path and the missing path
+    course_1 = CourseOverview.objects.get(id='course-v1:org1+1+1')
+    prefetched = {'course-v1:org1+1+1': course_1}  # org2+1+1 intentionally omitted
+
+    serializer = CartSerializer(instance=cart, context={'prefetched_courses': prefetched})
+    data = serializer.data
+    details = data['items'][0]['details']
+
+    # Only the one prefetched course should appear (the other is not in map -> None -> skipped)
+    assert len(details['courses']) == 1
+    assert details['courses'][0]['course_id'] == 'course-v1:org1+1+1'

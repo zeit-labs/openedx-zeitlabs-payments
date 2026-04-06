@@ -54,6 +54,12 @@ class CourseMode(models.Model):
         blank=True,
         verbose_name='SKU',
     )
+    bulk_sku = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        verbose_name='Bulk SKU',
+    )
 
     HONOR = 'honor'
     VERIFIED = 'verified'

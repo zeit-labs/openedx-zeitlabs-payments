@@ -208,6 +208,8 @@ def get_course_id(item: CartItem) -> Optional[str]:
                 f'and ref_id: "{item.catalogue_item.item_ref_id}".'
             ) from exc
         return str(course.id)
+    if item.catalogue_item.type == CatalogueItem.ItemType.PROGRAM_BUNDLE:
+        return item.catalogue_item.item_ref_id
     raise GatewayError(f'Catalogue Item type: "{item.catalogue_item.type}" not supported.')
 
 
