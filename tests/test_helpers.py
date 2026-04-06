@@ -581,3 +581,75 @@ def test_multiple_carts_but_one_matching():
     assert str(exc.value) == (
         f'Duplicate cart found ID: {cart2.id}, state: {Cart.Status.PROCESSING}.'
     )
+
+
+@pytest.mark.django_db
+def test_get_course_id_program_bundle(base_data: Any) -> None:  # pylint: disable=unused-argument
+    """
+    Test get_course_id returns item_ref_id directly for program_bundle type.
+
+    :param base_data: Fixture data for test setup.
+    :return: None
+    """
+    bundle_item = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
+    cart = Cart.objects.create(user=User.objects.get(id=3), status=Cart.Status.PENDING)
+    cart_item = CartItem.objects.create(
+        catalogue_item=bundle_item,
+        original_price=bundle_item.price,
+        final_price=bundle_item.price,
+        cart=cart,
+    )
+    result = get_course_id(cart_item)
+    assert result == 'program-uuid-pro-cert'
+
+
+@pytest.mark.django_db
+def test_get_order_description_with_program_bundle(base_data: Any) -> None:  # pylint: disable=unused-argument
+    """
+    Test get_order_description works with a program_bundle item in the cart.
+
+    :param base_data: Fixture data for test setup.
+    :return: None
+    """
+    bundle_item = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
+    cart = Cart.objects.create(user_id=3, status=Cart.Status.PENDING)
+    cart.items.create(
+        catalogue_item=bundle_item,
+        original_price=bundle_item.price,
+        final_price=bundle_item.price,
+    )
+    result = get_order_description(cart)
+    # program_bundle's get_course_id returns item_ref_id directly
+    assert 'program-uuid-pro-cert' in result
+    assert len(result) <= MAX_ORDER_DESCRIPTION_LENGTH_DEFAULT
+
+
+@pytest.mark.django_db
+def test_get_order_description_mixed_items(base_data: Any) -> None:  # pylint: disable=unused-argument
+    """
+    Test get_order_description with both a paid_course and a program_bundle in the same cart.
+
+    :param base_data: Fixture data for test setup.
+    :return: None
+    """
+    course_item = CatalogueItem.objects.get(sku='custom-sku-1')
+    bundle_item = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
+
+    cart = Cart.objects.create(user_id=3, status=Cart.Status.PENDING)
+    cart.items.create(
+        catalogue_item=course_item,
+        original_price=course_item.price,
+        final_price=course_item.price,
+    )
+    cart.items.create(
+        catalogue_item=bundle_item,
+        original_price=bundle_item.price,
+        final_price=bundle_item.price,
+    )
+
+    result = get_order_description(cart)
+    # Both items should appear separated by ' // '
+    assert 'course-v1:org1_1_1' in result  # + replaced with _ by sanitize
+    assert 'program-uuid-pro-cert' in result
+    assert ' // ' in result
+    assert len(result) <= MAX_ORDER_DESCRIPTION_LENGTH_DEFAULT
