@@ -116,10 +116,20 @@ class Command(BaseCommand):
             help="Retry migration for previously failed entries."
         )
 
+        parser.add_argument(
+            "--fix-previous-dates-only",
+            action="store_true",
+            help=(
+                "Update created_at dates for previously migrated records only. No new migration records will be created."
+                "It will only update previosly successfull mapped records."
+            )
+        )
+
     def handle(self, *args, **options):
         self.enable_debug_printing = options["debug_printing"]
         self.enable_debug_file_logging = options["debug_file_logging"]
         self.debug_file_name = options["file_log_name"]
+        self.fix_previous_dates_only = options["fix_previous_dates_only"]
         if self.enable_debug_file_logging and not self.debug_file_name:
             raise CommandError("When --debug-file-logging is set, --file-log-name must also be provided.")
         if self.enable_debug_file_logging:
@@ -131,23 +141,27 @@ class Command(BaseCommand):
         self.log_heading('================================================')
         self.log_heading('🛠️  Starting Ecommerce Data Migration Command  *')
         self.log_heading('================================================')
+
         self.no_dry_run = options["no_dry_run"]
-        if self.no_dry_run:
-            self.log_warning("⚠️  Running in EXECUTION mode (not dry-run)!")
-        else:
-            self.log_warning("ℹ️  Running in DRY-RUN mode (no data will be written).")
-
         self.batch_size = options["batch_size"]
-
         self.retry_failed = options["retry_failed"]
-        if self.retry_failed:
-            self.log_warning("🔄  Retry mode enabled: only previously succeeded entries will be skipped.")
-        else:
-            self.log_warning("⏭️  Standard mode: all previously attempted entries will be skipped.")
-
         self.disable_migration_map = options["disable_migration_map"]
-        if self.disable_migration_map:
-            self.log_warning("⚠️  MigrationMap usage is DISABLED. This may lead to duplicate data! use with caution.")
+
+        if self.fix_previous_dates_only:
+            self.log_warning("ℹ️  No new records will be created. It will only fix dates for already mapped records.")
+        else:
+            if self.no_dry_run:
+                self.log_warning("⚠️  Running in EXECUTION mode (not dry-run)!")
+            else:
+                self.log_warning("ℹ️  Running in DRY-RUN mode (no data will be written).")
+
+            if self.retry_failed:
+                self.log_warning("🔄  Retry mode enabled: only previously succeeded entries will be skipped.")
+            else:
+                self.log_warning("⏭️  Standard mode: all previously attempted entries will be skipped.")
+
+            if self.disable_migration_map:
+                self.log_warning("⚠️  MigrationMap usage is DISABLED. This may lead to duplicate data! use with caution.")
 
         connections.databases['ecommerce'] = {
             'ENGINE': options['db_engine'],
@@ -169,6 +183,11 @@ class Command(BaseCommand):
         self.test_db_connection()
 
         self.log_success(f"Starting Ecommerce data migration with batch size {self.batch_size}...")
+        self.default_timezone = pytz.timezone(connections['ecommerce'].settings_dict.get('TIME_ZONE', 'UTC'))
+
+        if self.fix_previous_dates_only:
+            self.update_dates_in_previous_records()
+            return
 
         self.migrate_catalogue_items()
         self.migrate_carts()
@@ -245,6 +264,87 @@ class Command(BaseCommand):
             error_msg=error_msg,
         )
 
+    def update_dates_in_previous_records(self):
+        all_records_mapping = MigrationMap.objects.filter(
+            succeeded=True,
+            target_id__isnull=False
+        )
+
+        MODEL_MAP = {
+            'Cart': Cart,
+            'CatalogueItem': CatalogueItem,
+            'AuditLog': AuditLog,
+            'Transaction': Transaction,
+            'Invoice': Invoice
+        }
+
+        # Comment table names that we dont want to process:
+        distinct_mappings = [
+            {'target_model': 'CatalogueItem', 'source_table': 'partner_stockrecord'},
+            {'target_model': 'Cart', 'source_table': 'basket_basket'},
+            {'target_model': 'AuditLog', 'source_table': 'payment_paymentprocessorresponse'},
+            {'target_model': 'Transaction', 'source_table': 'order_paymentevent'},
+            # {'target_model': 'Invoice', 'source_table': 'order_order'},
+        ]
+
+        for mapping in distinct_mappings:
+            tgt_model_name = mapping['target_model']
+            src_table_name = mapping['source_table']
+            self.stdout.write(self.style.NOTICE(f"\nProcessing mapping: Legacy '{src_table_name}' -> Target '{tgt_model_name}'"))
+
+            TargetModel = MODEL_MAP.get(tgt_model_name)
+            if not TargetModel:
+                self.stdout.write(self.style.ERROR(f"❌ Could not find  model '{tgt_model_name}' in Model Mapping."))
+                continue
+
+            id_map = {
+                int(m['source_id']): int(m['target_id'])
+                for m in all_records_mapping.filter(
+                    target_model=tgt_model_name,
+                    source_table=src_table_name,
+                ).values('source_id', 'target_id')
+            }
+            source_ids = list(id_map.keys())
+            total_items = len(source_ids)
+            total_updated = 0
+
+            for i in range(0, total_items, self.batch_size):
+                chunk_source_ids = source_ids[i:i + self.batch_size]
+                format_strings = ', '.join(['%s'] * len(chunk_source_ids))
+                date_column = "date_created"
+
+                if tgt_model_name == 'AuditLog':
+                    date_column = "created"
+                elif tgt_model_name == 'Invoice':
+                    date_column = 'date_placed'
+
+                legacy_query = f"SELECT id, {date_column} FROM {src_table_name} WHERE id IN ({format_strings})"
+
+                with connections['ecommerce'].cursor() as cursor:
+                    cursor.execute(legacy_query, chunk_source_ids)
+                    rows = cursor.fetchall()
+
+                if not rows:
+                    continue
+
+                with db_transaction.atomic():
+                    updated_count = 0
+                    for src_id, original_date in rows:
+
+                        if not original_date:
+                            continue
+                        target_id = id_map.get(src_id)
+
+                        # uncomment modified_at if we want to sync modified_at as well.
+                        TargetModel.objects.filter(id=target_id).update(
+                            created_at=timezone.make_aware(original_date, self.default_timezone),
+                            # modified_at=timezone.make_aware(original_date, self.default_timezone),
+                        )
+                        updated_count += 1
+                total_updated += updated_count
+                self.stdout.write(self.style.SUCCESS(f"  ✔ Updated {updated_count} records for {tgt_model_name} in this batch."))
+            self.stdout.write(self.style.SUCCESS(f"  ✔ Total Updated {total_updated} out of total items: {total_items} for {tgt_model_name}."))
+
     def migrate_catalogue_items(self):
         self.log_info("\n==========> Migrating Catalogue Items")
         source_table = "partner_stockrecord"
@@ -310,7 +410,9 @@ class Command(BaseCommand):
                                     item_ref_id=course_id,
                                     price=price or 0,
                                     currency=price_currency or "SAR",
-                                    created_at=date_created,
+                                )
+                                CatalogueItem.objects.filter(id=item.id).update(
+                                    created_at=timezone.make_aware(date_created, self.default_timezone)
                                 )
 
                                 self.save_success_audit(
@@ -462,7 +564,9 @@ class Command(BaseCommand):
                                             id=basket_id,
                                             user=user_map.get(owner_lms_user_id),
                                             status=cart_status,
-                                            created_at=date_created,
+                                        )
+                                        Cart.objects.filter(id=cart.id).update(
+                                            created_at=timezone.make_aware(date_created, self.default_timezone)
                                         )
                                         self.save_success_audit(
                                             source_table=source_table_cart,
@@ -600,7 +704,8 @@ class Command(BaseCommand):
                 id,
                 processor_name,
                 response,
-                basket_id
+                basket_id,
+                created
             FROM
                 payment_paymentprocessorresponse
             WHERE id > 322625
@@ -616,7 +721,7 @@ class Command(BaseCommand):
                 if not rows:
                     break
 
-                for resp_id, processor_name, response, basket_id in rows:
+                for resp_id, processor_name, response, basket_id, created in rows:
                     attempts += 1
                     self.log_attempt(source_table, resp_id)
 
@@ -634,7 +739,9 @@ class Command(BaseCommand):
                                     action="received_gateway_response",
                                     details=response,
                                 )
-
+                                AuditLog.objects.filter(id=log.id).update(
+                                    created_at=timezone.make_aware(created, self.default_timezone)
+                                )
                                 self.save_success_audit(
                                     source_table=source_table,
                                     source_id=resp_id,
@@ -732,8 +839,10 @@ class Command(BaseCommand):
                                     type="payment",
                                     status=event_name,
                                     amount=amount,
-                                    currency=currency,
-                                    created_at=date_created,
+                                    currency=currency
+                                )
+                                Transaction.objects.filter(id=log.id).update(
+                                    created_at=timezone.make_aware(date_created, self.default_timezone)
                                 )
                                 self.save_success_audit(
                                     source_table=source_table,
@@ -827,8 +936,6 @@ class Command(BaseCommand):
         with connections['ecommerce'].cursor() as cursor:
             cursor.execute(query)
             seen_invoices = {}
-
-            default_time_zone = pytz.timezone(connections['ecommerce'].settings_dict.get('TIME_ZONE', 'UTC'))
             while True:
                 rows = cursor.fetchmany(self.batch_size)
                 if not rows:
@@ -887,7 +994,7 @@ class Command(BaseCommand):
                                             total=order_total_incl_tax,
                                             tax_total=order_total_incl_tax - order_total_excl_tax,
                                             currency=currency,
-                                            paid_at=timezone.make_aware(order_date, default_time_zone),
+                                            paid_at=timezone.make_aware(order_date, self.default_timezone),
                                             related_transaction=transactions.filter(
                                                 gateway_transaction_id=payment_reference,
                                                 gateway=payment_processor,
