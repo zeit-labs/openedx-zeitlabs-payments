@@ -307,10 +307,11 @@ class BaseProcessor:
             handler = CART_HANDLER.get(item.catalogue_item.type)
 
             if not handler:
-                logger.error(
+                msg = (
                     f'No fulfillment handler registered for item type: {item.catalogue_item.type} '
                     f'for item {item.catalogue_item.id} in cart {cart.id}'
                 )
+                logger.error(msg)
                 AuditLog.log(
                     action=AuditLog.AuditActions.CART_FULFILLMENT_ERROR,
                     cart=cart,
@@ -318,6 +319,7 @@ class BaseProcessor:
                         'item_id': item.id,
                         'catalogue_item_id': item.catalogue_item.id,
                         'sku': item.catalogue_item.sku,
+                        'error': msg
                     }
                 )
                 raise CartFulfillmentError(f'Unsupported catalogue item type: {item.catalogue_item.type}')
@@ -395,7 +397,7 @@ class BaseProcessor:
                     record_webhook_event=record_webhook_event,
                 )
 
-        except DuplicateTransactionError:
+        except DuplicateTransactionError as exc:
             AuditLog.log(
                 action=AuditLog.AuditActions.DUPLICATE_TRANSACTION,
                 cart=cart,
@@ -403,6 +405,8 @@ class BaseProcessor:
                 context={
                     'transaction_id': transaction_id,
                     'cart_status': cart.status,
+                    'error': f'Failed cart: {cart.id} as {transaction_id} already exist in records.',
+                    'exception': str(exc)
                 },
             )
             logger.warning(f'Duplicate transaction for cart {cart.id}, ID {transaction_id}')
@@ -417,6 +421,8 @@ class BaseProcessor:
                     'transaction_id': transaction_id,
                     'cart_id': cart.id,
                     'site_id': site_id,
+                    'error': 'Exception occured on handle payment.',
+                    'exception': str(e)
                 },
             )
             logger.exception(f'Payment transaction failed and rolled back for cart {cart.id}: {e}')
@@ -437,4 +443,12 @@ class BaseProcessor:
 
         except Exception as e:  # pylint: disable=broad-exception-caught
             logger.exception(f'Failed to fulfill cart {cart.id} or to create invoice: {e}')
+            AuditLog.log(
+                action=AuditLog.AuditActions.SYSTEM_ERROR,
+                cart=cart,
+                gateway=self.SLUG,
+                context={
+                    'error_message': str(e)
+                },
+            )
             return None

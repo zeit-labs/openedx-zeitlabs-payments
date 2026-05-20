@@ -18,7 +18,7 @@ from zeitlabs_payments.models import AuditLog, BundleCourseItem, Cart, CartItem,
 logger = logging.getLogger(__name__)
 
 
-CART_HANDLER = {}
+CART_HANDLER: dict = {}
 
 
 class BaseCartHandler:
@@ -145,9 +145,10 @@ class PaidCourseCartHandler(BaseCartHandler):
         try:
             course_mode = CourseMode.objects.get(sku=item.catalogue_item.sku)
         except CourseMode.DoesNotExist as exc:
-            logger.error(
+            msg = (
                 f'CourseMode not found for SKU: {item.catalogue_item.sku} - Item ID: {item.id}'
             )
+            logger.error(msg)
             AuditLog.log(
                 action=AuditLog.AuditActions.CART_FULFILLMENT_ERROR,
                 cart=cart,
@@ -155,15 +156,18 @@ class PaidCourseCartHandler(BaseCartHandler):
                     'item_id': item.id,
                     'catalogue_item_id': item.catalogue_item.id,
                     'sku': item.catalogue_item.sku,
+                    'error': msg,
+                    'exception': str(exc)
                 }
             )
             raise CartFulfillmentError('CourseMode not found') from exc
 
         if str(course_mode.course.id) != item.catalogue_item.item_ref_id:
-            logger.error(
+            msg = (
                 f'CourseMode found with sku: {item.catalogue_item.sku} but course id: {course_mode.course.id} does '
                 f'not match with item ref id {item.catalogue_item.item_ref_id} - Item ID: {item.id}'
             )
+            logger.error(msg)
             AuditLog.log(
                 action=AuditLog.AuditActions.CART_FULFILLMENT_ERROR,
                 cart=cart,
@@ -171,6 +175,7 @@ class PaidCourseCartHandler(BaseCartHandler):
                     'item_id': item.id,
                     'catalogue_item_id': item.catalogue_item.id,
                     'sku': item.catalogue_item.sku,
+                    'error': msg
                 }
             )
             raise CartFulfillmentError('Course Mode found but item ref id mismatched. ')
@@ -196,10 +201,11 @@ class PaidCourseCartHandler(BaseCartHandler):
                 f'with mode {course_mode.mode_slug}'
             )
         except CourseEnrollmentException as exc:
-            logger.exception(
+            msg = (
                 f'Unexpected error while enrolling user {cart.user.id} in course: '
                 f'{course_mode.course.id}. Item ID: {item.id}'
             )
+            logger.exception(msg)
             AuditLog.log(
                 action=AuditLog.AuditActions.USER_ENROLLED_ERROR,
                 cart=cart,
@@ -207,6 +213,8 @@ class PaidCourseCartHandler(BaseCartHandler):
                     'course_id': course_mode.course.id,
                     'mode_slug': course_mode.mode_slug,
                     'catalogue_item_id': item.catalogue_item.id,
+                    'error': msg,
+                    'exception': str(exc)
                 },
             )
             raise CartFulfillmentError('Unexpected enrollment error') from exc
@@ -304,7 +312,8 @@ class ProgramBundleCartHandler(BaseCartHandler):
         bundle_courses = BundleCourseItem.objects.filter(bundle=item.catalogue_item).select_related('course_item')
 
         if not bundle_courses.exists():
-            logger.error(f'No courses found for bundle SKU: {item.catalogue_item.sku} - Item ID: {item.id}')
+            msg = f'No courses found for bundle SKU: {item.catalogue_item.sku} - Item ID: {item.id}'
+            logger.error(msg)
             AuditLog.log(
                 action=AuditLog.AuditActions.CART_FULFILLMENT_ERROR,
                 cart=cart,
@@ -312,6 +321,7 @@ class ProgramBundleCartHandler(BaseCartHandler):
                     'item_id': item.id,
                     'catalogue_item_id': item.catalogue_item.id,
                     'sku': item.catalogue_item.sku,
+                    'error': msg
                 },
             )
             raise CartFulfillmentError('No courses linked to this bundle.')
@@ -323,7 +333,8 @@ class ProgramBundleCartHandler(BaseCartHandler):
             try:
                 course_mode = CourseMode.objects.get(sku=course_item.sku)
             except CourseMode.DoesNotExist as exc:
-                logger.error(f'CourseMode not found for bundle course SKU: {course_item.sku} - Item ID: {item.id}')
+                msg = f'CourseMode not found for bundle course SKU: {course_item.sku} - Item ID: {item.id}'
+                logger.error(msg)
                 AuditLog.log(
                     action=AuditLog.AuditActions.CART_FULFILLMENT_ERROR,
                     cart=cart,
@@ -331,12 +342,15 @@ class ProgramBundleCartHandler(BaseCartHandler):
                         'item_id': item.id,
                         'catalogue_item_id': course_item.id,
                         'sku': course_item.sku,
+                        'error': msg,
+                        'exception': str(exc)
                     },
                 )
                 raise CartFulfillmentError(f'CourseMode not found for bundle course {course_item.sku}') from exc
 
             if str(course_mode.course.id) != course_item.item_ref_id:
-                logger.error(f'CourseMode course_id mismatch for bundle course {course_item.sku} - Item ID: {item.id}')
+                msg = f'CourseMode course_id mismatch for bundle course {course_item.sku} - Item ID: {item.id}'
+                logger.error(msg)
                 AuditLog.log(
                     action=AuditLog.AuditActions.CART_FULFILLMENT_ERROR,
                     cart=cart,
@@ -344,6 +358,7 @@ class ProgramBundleCartHandler(BaseCartHandler):
                         'item_id': item.id,
                         'catalogue_item_id': course_item.id,
                         'sku': course_item.sku,
+                        'error': msg
                     },
                 )
                 raise CartFulfillmentError(f'Bundle course {course_item.sku}: item ref id mismatched.')
@@ -373,11 +388,12 @@ class ProgramBundleCartHandler(BaseCartHandler):
                     f'with mode {course_mode.mode_slug} (bundle {item.catalogue_item.sku})'
                 )
             except CourseEnrollmentException as exc:
-                logger.exception(
+                msg = (
                     f'Enrollment failed for user {cart.user.id} in course '
                     f'{course_mode.course.id} (bundle {item.catalogue_item.sku}). '
                     f'Item ID: {item.id}'
                 )
+                logger.exception(msg)
                 AuditLog.log(
                     action=AuditLog.AuditActions.USER_ENROLLED_ERROR,
                     cart=cart,
@@ -385,6 +401,8 @@ class ProgramBundleCartHandler(BaseCartHandler):
                         'course_id': course_mode.course.id,
                         'mode_slug': course_mode.mode_slug,
                         'catalogue_item_id': course_item.id,
+                        'error': msg,
+                        'exception': str(exc)
                     },
                 )
                 raise CartFulfillmentError(f'Enrollment error for bundle course {course_item.sku}') from exc

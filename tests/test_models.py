@@ -91,7 +91,7 @@ class TestAuditLogModel:
         log = AuditLog.log(action='UnknownAction', context=context, cart=self.cart, gateway='payfort')
 
         assert log.action == 'UnknownAction'
-        assert log.details == str(context)
+        assert log.details == 'foo: bar'
         assert log.cart == self.cart
         assert log.gateway == 'payfort'
 

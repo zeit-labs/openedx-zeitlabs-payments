@@ -215,6 +215,8 @@ class TestPaidCourseCartHandler:
             details=(
                 f'Error during cart fulfillment for item: {cart_item.id}, catalogue_item:'
                 f' {cart_item.id} due to invalid SKU: {self.catalog_item.sku} or unsupported type.'
+                f' | Extra Context -> error: CourseMode not found for SKU: {self.catalog_item.sku}'
+                f' - Item ID: {cart_item.id}, exception: CourseMode matching query does not exist.'
             )
         ).exists()
 
@@ -232,13 +234,18 @@ class TestPaidCourseCartHandler:
         with pytest.raises(CartFulfillmentError, match='Course Mode found but item ref id mismatched.'):
             self.fulfillment.fulfill(cart_item, 'processor')
 
+        expected_details = (
+            f'Error during cart fulfillment for item: {cart_item.id}, catalogue_item:'
+            f' {self.catalog_item.id} due to invalid SKU: {self.catalog_item.sku} or unsupported type.'
+            f' | Extra Context -> error: CourseMode found with sku: {self.catalog_item.sku} but course id:'
+            f' {self.course_mode.course_id} does not match with item ref id {self.catalog_item.item_ref_id}'
+            f' - Item ID: {cart_item.id}'
+        )
+
         assert AuditLog.objects.filter(
             action=AuditLog.AuditActions.CART_FULFILLMENT_ERROR,
             cart=cart,
-            details=(
-                f'Error during cart fulfillment for item: {cart_item.id}, catalogue_item:'
-                f' {self.catalog_item.id} due to invalid SKU: {self.catalog_item.sku} or unsupported type.'
-            )
+            details=expected_details
         ).exists()
 
     @patch('zeitlabs_payments.cart_handler.CourseEnrollment.enroll')
@@ -246,24 +253,28 @@ class TestPaidCourseCartHandler:
         """
         Should log and raise CartFulfillmentError when enrollment fails.
         """
+        exception_msg = 'Enrollment failed'
         cart = Cart.objects.create(user=self.learner_user, status=Cart.Status.PROCESSING)
         cart_item = cart.items.create(
             catalogue_item=self.catalog_item,
             original_price=self.catalog_item.price,
             final_price=self.catalog_item.price
         )
-        mock_enroll.side_effect = CourseEnrollmentException('Enrollment failed')
+        mock_enroll.side_effect = CourseEnrollmentException(exception_msg)
 
         with pytest.raises(CartFulfillmentError, match='Unexpected enrollment error'):
             self.fulfillment.fulfill(cart_item, 'processor')
 
+        expected_details = (
+            f'Unable to complete user enrollment to course: {self.course_mode.course_id} with mode: no-id-professional '
+            f'during cart fulfillment for catalogue_item: {self.catalog_item.id}. | Extra Context ->'
+            f' error: Unexpected error while enrolling user 3 in course: {self.course_mode.course_id}.'
+            f' Item ID: 1, exception: {exception_msg}'
+        )
         assert AuditLog.objects.filter(
             action=AuditLog.AuditActions.USER_ENROLLED_ERROR,
             cart=cart,
-            details=(
-                'Unable to complete user enrollment to course: course-v1:org1+1+1 with mode: no-id-professional '
-                'during cart fulfillment for catalogue_item: 1.'
-            ),
+            details=expected_details
         ).exists()
 
 

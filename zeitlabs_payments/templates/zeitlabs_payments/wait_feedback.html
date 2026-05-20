@@ -26,7 +26,7 @@
 
         <h2 class="status-title" id="status-message">{% trans "Processing Your Payment..." %}</h2>
         
-        <p class="status-message">
+        <p class="status-message" id="status-message-description">
             {% trans "Please wait while we confirm your payment. This may take a few moments." %}
         </p>
 
@@ -269,6 +269,10 @@
     flex-shrink: 0;
 }
 
+#status-message {
+    overflow-wrap: break-word;
+}
+
 /* Mobile Responsive */
 @media (max-width: 480px) {
     .processing-card {
@@ -297,9 +301,12 @@
     const successUrl = "{{ ecommerce_success_url|safe }}";
     const statusUrl = "{{ ecommerce_status_url|safe }}";
     const statusMessage = document.getElementById("status-message");
+    const statusMessageDescription = document.getElementById("status-message-description");
+    const processingIcon = document.getElementsByClassName('processing-icon')[0]
     const step1 = document.getElementById("step-1");
     const step2 = document.getElementById("step-2");
     const step3 = document.getElementById("step-3");
+    const failedOrderMessage = "{% trans 'Unable to complete order. Contact support.' %}"
     let attempts = 0;
 
     function updateSteps(currentStep) {
@@ -350,11 +357,21 @@
         })
         .then(({ status, data }) => {
             if (status === 200) {
-                updateSteps(4);
-                statusMessage.textContent = "{% trans 'Payment Confirmed! Redirecting...' %}";
-                setTimeout(() => {
-                    window.location.href = data.invoice_url;
-                }, 1000);
+                if (data.invoice_url) {
+                    updateSteps(4);
+                    statusMessage.textContent = "{% trans 'Payment Confirmed! Redirecting...' %}";
+                    setTimeout(() => {
+                        window.location.href = data.invoice_url;
+                    }, 1000);
+                } else if (data.msg){
+                    statusMessage.textContent = data.msg;
+                    statusMessageDescription.textContent = failedOrderMessage;
+                    processingIcon.style.display = "none";
+                } else {
+                    statusMessage.textContent = failedOrderMessage;
+                    statusMessageDescription.textContent = ''
+                    processingIcon.style.display = "none";
+                }
             } else if (status === 202) {
                 if (attempts < {{ ecommerce_max_attempts }}) {
                     setTimeout(checkStatus, {{ ecommerce_wait_time }});
@@ -364,6 +381,8 @@
             } else if (status === 400) {
                 if (data.error) {
                     statusMessage.textContent = data.error;
+                    statusMessageDescription.textContent = failedOrderMessage;
+                    processingIcon.style.display = "none";
                 } else {
                     window.location.href = errorUrl;
                 }

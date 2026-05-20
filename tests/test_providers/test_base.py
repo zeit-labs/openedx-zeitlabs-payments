@@ -335,7 +335,12 @@ def test_process_payment_duplicate_transaction(cart):  # pylint: disable=redefin
     audit_log = AuditLog.objects.filter(
         gateway='dummy', cart=cart, action=AuditLog.AuditActions.DUPLICATE_TRANSACTION
     )[0]
-    assert audit_log.details == 'Transaction with id: 12345 already existed. Cart has status: processing.'
+    expected_details = (
+        'Transaction with id: 12345 already existed. Cart has status: processing.'
+        ' | Extra Context -> error: Failed cart: 1 as 12345 already exist in records.,'
+        ' exception: Transaction already exist with given transaction_id: 12345'
+    )
+    assert audit_log.details == expected_details
 
 
 @pytest.mark.django_db

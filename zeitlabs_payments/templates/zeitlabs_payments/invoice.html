@@ -59,7 +59,7 @@
                 </div>
                 <div class="summary-item">
                     <dt>{% trans "Order Date" %}</dt>
-                    <dd>{{ invoice.cart.updated_at|date:"F d, Y" }}</dd>
+                    <dd>{{ invoice.paid_at|date:"F d, Y" }}</dd>
                 </div>
                 {% if payment_method %}
                 <div class="summary-item">

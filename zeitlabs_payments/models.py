@@ -141,6 +141,7 @@ class AuditLog(TimeStampedModel):
         INVALID_TRANSACTION = 'invalid_transaction'
         CART_STATUS_UPDATED = 'cart_status_updated'
         CART_FULFILLED = 'cart_fulfilled'
+        SYSTEM_ERROR = 'system_error'
 
     TEMPLATES = {
         AuditActions.CART_FULFILLMENT_ERROR: (
@@ -202,13 +203,23 @@ class AuditLog(TimeStampedModel):
         template = cls.TEMPLATES.get(action, '')
 
         # Validate required template parameters
+        required_keys = set()
         if template:
             required_keys = set(re.findall(r'{(\w+)}', template))
             missing_keys = required_keys - context.keys()
             if missing_keys:
                 raise ValidationError(f"Missing template parameters for action '{action}': {', '.join(missing_keys)}")
 
-        details = template.format(**context) if template else str(context)
+        details = template.format(**context) if template else ''
+
+        extra_keys = context.keys() - required_keys
+        if extra_keys:
+            extra_details = ', '.join(f'{k}: {context[k]}' for k in sorted(extra_keys))
+            if details:
+                details = f'{details} | Extra Context -> {extra_details}'
+            else:
+                details = extra_details
+
         return cls.objects.create(
             action=action,
             cart=cart,
