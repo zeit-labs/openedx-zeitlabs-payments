@@ -1,18 +1,18 @@
 """Processors registry"""
-from typing import Dict, Type
-
-import pkg_resources
+from importlib.metadata import entry_points as _entry_points
 
 from .base import BaseProcessor
 
-PROCESSORS: Dict[str, Type[BaseProcessor]] = {}
+entry_points = _entry_points
+
+PROCESSORS: dict[str, type[BaseProcessor]] = {}
 
 
 def load_entrypoint_processors() -> None:
     """
     Discover and register processors defined via entry_points.
     """
-    for ep in pkg_resources.iter_entry_points(group='zeitlabs_payments.v1'):
+    for ep in entry_points(group='zeitlabs_payments.v1'):
         cls = ep.load()
         slug = getattr(cls, 'SLUG', None)
         if not slug:

@@ -68,6 +68,10 @@
       });
     }
 
-    window.onload = checkStatus;
+    if (document.readyState === 'complete') {
+        checkStatus();
+    } else {
+        window.addEventListener('load', checkStatus);
+    }
   </script>
 {% endblock %}
