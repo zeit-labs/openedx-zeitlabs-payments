@@ -1,0 +1,304 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-30 00:26+0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: models.py:43
+msgid "Pending"
+msgstr ""
+
+#: models.py:44
+msgid "Processing"
+msgstr ""
+
+#: models.py:45
+msgid "Paid"
+msgstr ""
+
+#: models.py:46
+msgid "Cancelled"
+msgstr ""
+
+#: models.py:47 templates/zeitlabs_payments/payment_pending.html:18
+msgid "Payment Pending"
+msgstr ""
+
+#: models.py:48
+msgid "Refund Requested"
+msgstr ""
+
+#: models.py:49
+msgid "Refunded"
+msgstr ""
+
+#: templates/zeitlabs_payments/base.html:4
+msgid ""
+"Dummy text to generate a translation (.po) source file. It is safe to delete "
+"this line. It is also safe to delete (load i18n) above if there are no other "
+"(trans) tags in the file"
+msgstr ""
+
+#: templates/zeitlabs_payments/checkout.html:16
+msgid "Checkout"
+msgstr ""
+
+#: templates/zeitlabs_payments/checkout.html:34
+msgid "Program"
+msgstr ""
+
+#: templates/zeitlabs_payments/checkout.html:87
+msgid "Have a coupon code?"
+msgstr ""
+
+#: templates/zeitlabs_payments/checkout.html:91
+msgid "Enter coupon code"
+msgstr ""
+
+#: templates/zeitlabs_payments/checkout.html:93
+msgid "Apply"
+msgstr ""
+
+#: templates/zeitlabs_payments/checkout.html:101
+#: templates/zeitlabs_payments/invoice.html:115
+msgid "Subtotal"
+msgstr ""
+
+#: templates/zeitlabs_payments/checkout.html:105
+#: templates/zeitlabs_payments/invoice.html:81
+#: templates/zeitlabs_payments/invoice.html:123
+#: templates/zeitlabs_payments/manual_payment_confirm.html:110
+msgid "Total"
+msgstr ""
+
+#: templates/zeitlabs_payments/checkout.html:129
+msgid "Have questions?"
+msgstr ""
+
+#: templates/zeitlabs_payments/checkout.html:130
+msgid "Please read our FAQs to view common questions about our certificates."
+msgstr ""
+
+#: templates/zeitlabs_payments/checkout.html:144
+msgid "No cart exists"
+msgstr ""
+
+#: templates/zeitlabs_payments/checkout.html:145
+msgid "Your shopping cart is empty. Please add items to continue."
+msgstr ""
+
+#: templates/zeitlabs_payments/checkout.html:147
+#: templates/zeitlabs_payments/invalid_cart.html:27
+msgid "Browse Courses"
+msgstr ""
+
+#: templates/zeitlabs_payments/invalid_cart.html:18
+msgid "Cannot Add Item"
+msgstr ""
+
+#: templates/zeitlabs_payments/invalid_cart.html:23
+msgid "If you need help, please contact admin support team."
+msgstr ""
+
+#: templates/zeitlabs_payments/invalid_cart.html:30
+#: templates/zeitlabs_payments/payment_decline.html:36
+#: templates/zeitlabs_payments/payment_error.html:38
+#: templates/zeitlabs_payments/payment_pending.html:31
+msgid "Contact Support"
+msgstr ""
+
+#: templates/zeitlabs_payments/invoice.html:12
+#, python-format
+msgid "Receipt for %(order_number)s"
+msgstr ""
+
+#: templates/zeitlabs_payments/invoice.html:25
+msgid "Invoice"
+msgstr ""
+
+#: templates/zeitlabs_payments/invoice.html:27
+msgid "Logo"
+msgstr ""
+
+#: templates/zeitlabs_payments/invoice.html:37
+msgid "Tax Number:"
+msgstr ""
+
+#: templates/zeitlabs_payments/invoice.html:47
+msgid "Customer Name"
+msgstr ""
+
+#: templates/zeitlabs_payments/invoice.html:57
+msgid "Invoice Number"
+msgstr ""
+
+#: templates/zeitlabs_payments/invoice.html:61
+msgid "Order Date"
+msgstr ""
+
+#: templates/zeitlabs_payments/invoice.html:66
+msgid "Payment Method"
+msgstr ""
+
+#: templates/zeitlabs_payments/invoice.html:73
+msgid "Order Details"
+msgstr ""
+
+#: templates/zeitlabs_payments/invoice.html:77
+msgid "Product"
+msgstr ""
+
+#: templates/zeitlabs_payments/invoice.html:78
+msgid "Description"
+msgstr ""
+
+#: templates/zeitlabs_payments/invoice.html:79
+msgid "Unit Price"
+msgstr ""
+
+#: templates/zeitlabs_payments/invoice.html:80
+#: templates/zeitlabs_payments/invoice.html:119
+msgid "VAT"
+msgstr ""
+
+#: templates/zeitlabs_payments/invoice.html:138
+msgid "Go to Course"
+msgstr ""
+
+#: templates/zeitlabs_payments/invoice.html:148
+msgid "Print Receipt"
+msgstr ""
+
+#: templates/zeitlabs_payments/manual_payment_confirm.html:98
+msgid "Confirm Your Payment"
+msgstr ""
+
+#: templates/zeitlabs_payments/manual_payment_confirm.html:99
+msgid "Please review your order details below and confirm your payment."
+msgstr ""
+
+#: templates/zeitlabs_payments/manual_payment_confirm.html:116
+msgid "Cancel"
+msgstr ""
+
+#: templates/zeitlabs_payments/manual_payment_confirm.html:119
+msgid "Confirm Payment"
+msgstr ""
+
+#: templates/zeitlabs_payments/payment_decline.html:18
+msgid "Payment Declined"
+msgstr ""
+
+#: templates/zeitlabs_payments/payment_decline.html:20
+msgid ""
+"Your payment was declined by the payment provider and could not be completed."
+msgstr ""
+
+#: templates/zeitlabs_payments/payment_decline.html:24
+#: templates/zeitlabs_payments/payment_error.html:27
+msgid "Reference:"
+msgstr ""
+
+#: templates/zeitlabs_payments/payment_decline.html:28
+msgid "Please try again or use a different payment method."
+msgstr ""
+
+#: templates/zeitlabs_payments/payment_decline.html:32
+#: templates/zeitlabs_payments/payment_error.html:42
+msgid "Try Again"
+msgstr ""
+
+#: templates/zeitlabs_payments/payment_error.html:18
+msgid "Payment Error"
+msgstr ""
+
+#: templates/zeitlabs_payments/payment_error.html:20
+msgid "Something went wrong while processing your payment."
+msgstr ""
+
+#: templates/zeitlabs_payments/payment_error.html:23
+msgid "We couldn't process your transaction completely at this time."
+msgstr ""
+
+#: templates/zeitlabs_payments/payment_error.html:32
+msgid "Please contact us for further support."
+msgstr ""
+
+#: templates/zeitlabs_payments/payment_pending.html:20
+msgid "Payment confirmation not received yet."
+msgstr ""
+
+#: templates/zeitlabs_payments/payment_pending.html:23
+msgid ""
+"If payment was successful and you're still seeing this message, please wait "
+"for a while. If your enrollment doesn't update after that, kindly contact us."
+msgstr ""
+
+#: templates/zeitlabs_payments/payment_pending.html:27
+msgid "Go to Dashboard"
+msgstr ""
+
+#: templates/zeitlabs_payments/payment_successful.html:17
+msgid "Payment Successful!"
+msgstr ""
+
+#: templates/zeitlabs_payments/payment_successful.html:19
+msgid "Your payment was successful and your enrollment has been updated."
+msgstr ""
+
+#: templates/zeitlabs_payments/payment_successful.html:22
+msgid "Thank you for your purchase!"
+msgstr ""
+
+#: templates/zeitlabs_payments/payment_successful.html:26
+msgid "View Your Courses"
+msgstr ""
+
+#: templates/zeitlabs_payments/payment_successful.html:29
+msgid "Browse More Courses"
+msgstr ""
+
+#: templates/zeitlabs_payments/wait_feedback.html:27
+msgid "Processing Your Payment..."
+msgstr ""
+
+#: templates/zeitlabs_payments/wait_feedback.html:30
+msgid "Please wait while we confirm your payment. This may take a few moments."
+msgstr ""
+
+#: templates/zeitlabs_payments/wait_feedback.html:42
+msgid "Payment Submitted"
+msgstr ""
+
+#: templates/zeitlabs_payments/wait_feedback.html:51
+msgid "Verifying Payment"
+msgstr ""
+
+#: templates/zeitlabs_payments/wait_feedback.html:60
+msgid "Completing Order"
+msgstr ""
+
+#: templates/zeitlabs_payments/wait_feedback.html:65
+msgid "Transaction ID:"
+msgstr ""
+
+#: templates/zeitlabs_payments/wait_feedback.html:75
+msgid "Please do not close this page or press the back button."
+msgstr ""
+
+#: templates/zeitlabs_payments/wait_feedback.html:354
+msgid "Payment Confirmed! Redirecting..."
+msgstr ""

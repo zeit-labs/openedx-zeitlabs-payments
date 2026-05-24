@@ -1,57 +1,44 @@
 {% extends "main_django.html" %}
 {% load i18n %}
 {% load static %}
+{% get_current_language_bidi as LANGUAGE_BIDI %}
 
 {% block body %}
-<style>
-    .message-box {
-        font-family: Arial, sans-serif;
-        background: #fff;
-        padding: 2rem 3rem;
-        box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        text-align: center;
-        border-radius: 8px;
-        max-width: 600px;
-        margin: 10vh auto;
-    }
-    .message-box h1 {
-        color: #f0ad4e;
-        margin-bottom: 1rem;
-    }
-    .message-box p {
-        margin-bottom: 1rem;
-    }
-    .message-box a {
-        display: inline-block;
-        padding: 0.5rem 1rem;
-        background-color: #f0ad4e;
-        color: #fff;
-        text-decoration: none;
-        border-radius: 4px;
-        margin-top: 1rem;
-    }
-    .message-box a:hover {
-        background-color: #ee961a;
-    }    
-</style>
+{% include "zeitlabs_payments/styles.html" %}
 
-<div class="payment-failed">
-    <div class="message-box">
-        <h1>{% trans "Payment Declined" %}</h1>
-        <p>
+<div class="status-page" dir="{% if LANGUAGE_BIDI %}rtl{% else %}ltr{% endif %}">
+    <div class="status-card">
+        <div class="status-icon warning">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+        </div>
+        <h2 class="status-title">{% trans "Payment Declined" %}</h2>
+        <p class="status-message">
             {% trans "Your payment was declined by the payment provider and could not be completed." %}
         </p>
         {% if merchant_reference %}
-        <p>
-            {% blocktrans with ref=merchant_reference %}
-                Your reference number is: {{ ref }}
-            {% endblocktrans %}
-        </p>
+        <div class="status-reference">
+            {% trans "Reference:" %} {{ merchant_reference }}
+        </div>
         {% endif %}
-        <p>
+        <p class="status-message">
             {% trans "Please try again or use a different payment method." %}
         </p>
-        {{ test }}
+        <div class="status-actions">
+            <a href="javascript:history.back()" class="btn btn-primary">
+                {% trans "Try Again" %}
+            </a>
+            {% if support_url %}
+            <a href="{{ support_url }}" class="btn btn-primary">
+                {% trans "Contact Support" %}
+            </a>
+            {% endif %}
+        </div>
     </div>
 </div>
+<!-- Load eduba-theme header JavaScript for dropdown functionality -->
+<script src="{% static 'js/header/header.js' %}"></script>
 {% endblock %}

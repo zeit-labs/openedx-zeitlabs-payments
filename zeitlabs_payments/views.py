@@ -26,7 +26,27 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 
-class CheckoutView(LoginRequiredMixin, TemplateView):
+class ContextMixing(TemplateView):
+    """
+    Mixin to add common context data to views.
+    """
+
+    def get_context_data(self, **kwargs: Any) -> dict:
+        """
+        Return Context dictionary including common settings.
+        """
+        context = super().get_context_data(**kwargs)
+        context.update(
+            {
+                'support_url': get_settings().support_url,
+                'support_email': get_settings().support_email,
+                'logo_url': get_settings().logo_url,
+            }
+        )
+        return context
+
+
+class CheckoutView(LoginRequiredMixin, ContextMixing):
     """
     View responsible for rendering the checkout page.
 
@@ -245,47 +265,50 @@ class CartView(APIView):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
-class PaymentErrorView(TemplateView):
+class PaymentErrorView(ContextMixing):
     """Render the template that shows the error message to the user when the payment handling is failed."""
 
     template_name = 'zeitlabs_payments/payment_error.html'
 
     def get(self, request: Any, *args: Any, **kwargs: Any) -> Any:
         """Handle the GET request."""
-        context = {
+        context = self.get_context_data()
+        context.update({
             'merchant_reference': args[0],
-        }
+        })
         return render(request, self.template_name, context)
 
 
-class PaymentDeclineView(TemplateView):
+class PaymentDeclineView(ContextMixing):
     """Render the template that shows the error message to the user when the payment handling is failed."""
 
     template_name = 'zeitlabs_payments/payment_decline.html'
 
     def get(self, request: Any, *args: Any, **kwargs: Any) -> Any:
         """Handle the GET request."""
-        context = {
+        context = self.get_context_data()
+        context.update({
             'merchant_reference': args[0],
             'test': 'abcd hello'
-        }
+        })
         return render(request, self.template_name, context)
 
 
-class PaymentSuccessView(TemplateView):
+class PaymentSuccessView(ContextMixing):
     """Render the template that shows the error message to the user when the payment handling is failed."""
 
     template_name = 'zeitlabs_payments/payment_successful.html'
 
     def get(self, request: Any, *args: Any, **kwargs: Any) -> Any:
         """Handle the GET request."""
-        context = {
+        context = self.get_context_data()
+        context.update({
             'merchant_reference': args[0],
-        }
+        })
         return render(request, self.template_name, context)
 
 
-class InvoiceView(LoginRequiredMixin, TemplateView):
+class InvoiceView(LoginRequiredMixin, ContextMixing):
     """Render Invoice with given invoice number."""
 
     template_name = 'zeitlabs_payments/invoice.html'
@@ -302,11 +325,12 @@ class InvoiceView(LoginRequiredMixin, TemplateView):
         if getattr(invoice, 'related_transaction', None):
             payment_method = invoice.related_transaction.gateway
 
-        context = {
+        context = self.get_context_data()
+        context.update({
             'invoice': invoice,
             'payment_method': payment_method,
             'organization': get_settings().organization,
             'tax_number': get_settings().customer_number,
             'currency': get_currency(invoice.cart)
-        }
+        })
         return render(request, self.template_name, context)

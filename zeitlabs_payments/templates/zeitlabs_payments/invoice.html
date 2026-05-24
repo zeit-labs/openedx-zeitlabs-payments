@@ -4,7 +4,7 @@
 {% load l10n %}
 {% load static %}
 {% load enterprise %}
-{% load  zeitlab_payment_tags %}
+{% load zeitlab_payment_tags %}
 {% get_current_language_bidi as LANGUAGE_BIDI %}
 
 {% block title %}
@@ -15,110 +15,142 @@
   {% endfilter %}
 {% endblock title %}
 
-
 {% block body %}
 {% include "zeitlabs_payments/styles.html" %}
 
-<div id="receipt-container" dir="ltr" class="receipt container content-container" data-currency="{{ currency }}" data-order-id="{{ invoice.invoice_number}}" data-total-amount="{{ invoice.total }}" data-back-button="1">
-  <div id="messages"></div>
-  <div class="receipt-header">
-    <h2 class="receipt">Invoice</h2>
-    <img class="navbar-brand-logo" alt="dev logo" src="/static/nelp-ecommerce-theme/images/default-logo.png">
-  </div>
-  <p>{{ organization }}</p>
-  <p>{% trans "Tax no:" as tmsg %}{{ tmsg | force_escape }} {{ tax_number }}</p>
-  <hr class="solid">
-  <div class="list-info">
-      <div class="info-item payment-info row">
-        <div class="order-headers order-summary">
-          <dl>
-            <div class="order-summary-item">
-              <dt>{% trans "Name:" as tmsg %}{{ tmsg | force_escape }}</dt>
-                <dd>
-                  {% if invoice.cart.user.full_name %}
-                    {{ invoice.cart.user.full_name }}
-                  {% else %}
-                    {{ invoice.cart.user.first_name }} {{ invoice.cart.user.last_name }}
-                  {% endif %}
-                </dd>
-            </div>
-            <div class="order-summary-item">
-              <dt>{% trans "Invoice Number:" as tmsg %}{{ tmsg | force_escape }}</dt>
-              <dd>{{ invoice.invoice_number  }}</dd>
-            </div>
-            <div class="order-summary-item">
-              <dt>{% trans "Order Date:" as tmsg %}{{ tmsg | force_escape }}</dt>
-              <dd>{{ invoice.cart.updated_at|date:"F d, Y" }}
-              </dd>
-            </div>
-            <div class="order-summary-item">
-                {% if payment_method %}
-                  <dt>{% trans "Payment Method:" as tmsg %}{{ tmsg | force_escape }}</dt>
-                  <dd>{{ payment_method }}</dd>
-                {% endif %}
-            </div>
-          </dl>
-        </div>
-      </div>
-      <h2>{% trans "Order Information" as tmsg %}{{ tmsg | force_escape }}</h2>
-      <div class="table">
-        <dl class="order-lines">
-          <div class="header">
-            <dt aria-hidden="true">{% trans "Product" as tmsg %}{{ tmsg | force_escape }}</dt>
-            <dt aria-hidden="true">{% trans "Description" as tmsg %}{{ tmsg | force_escape }}</dt>
-            <dt aria-hidden="true">{% trans "Unit Price" as tmsg %}{{ tmsg | force_escape }}</dt>
-            <dt aria-hidden="true">{% trans "VAT" as tmsg %}{{ tmsg | force_escape }}</dt>
-            <dt aria-hidden="true">{% trans "Total" as tmsg %}{{ tmsg | force_escape }}</dt>
-          </div>
-          {% for invoice_item in invoice.items.all %}
-            <div class="order-line-data">
-              <div class="product-description-container">
-                <dt class="product sr">Product:</dt>
-                <dd class="product">
-                  {% if invoice_item.cart_item.catalogue_item.title %}
-                      {{ invoice_item.cart_item.catalogue_item.title }}
-                  {% endif %}
-                </dd>
-                <dt class="course-description sr">Description:</dt>
-                <dd class="course-description">
-                  <span>
-                    {% if invoice_item.cart_item.catalogue_item.description %}
-                        {{ invoice_item.cart_item.catalogue_item.description }}
-                    {% endif %}
-                  </span>
-                </dd>
-              </div>
-              <div class="product-data-container">
-                <dt class="line-price sr">{% trans "Unit Price:" as tmsg %}{{ tmsg | force_escape }}</dt>
-                <dd class="line-price price">{{ invoice_item.original_price }} {{ currency }}</dd>
-                <dt class="line-vat sr">{% trans "VAT" as tmsg %}{{ tmsg | force_escape }}</dt>
-                <dd class="line-vat vat">{{ invoice_item.tax_amount }} {{ currency }}</dd>
-                <dt class="line-total sr">{% trans "Total:" as tmsg %}{{ tmsg | force_escape }}</dt>
-                <dd class="line-total total">{{ invoice_item.price }} {{ currency }}</dd>
-              </div>
-            </div>
-          {% endfor %}
-        </dl>
-        <div class="total-container">
-          <div class="order-totals">
-            <div class="order-total">
-              <div class="description">{% trans "Subtotal" as tmsg %}{{ tmsg | force_escape }}</div>
-              <div class="price">{{ invoice.gross_total }} {{ currency }}</div>
-            </div>
-            <div class="order-total">
-              <div class="description">{% trans "VAT" as tmsg %}{{ tmsg | force_escape }}</div>
-              <div class="price">{{ invoice.tax_total }} {{ currency }}</div>
-            </div>
-            <div class="order-total">
-              <div class="description">{% trans "Total" as tmsg %}{{ tmsg | force_escape }}</div>
-              <div class="price">{{ invoice.total }} {{ currency }}</div>
-            </div>
-          </div>
-          {% generate_invoice_qr_code invoice.invoice_number %}
+<div class="receipt" dir="{% if LANGUAGE_BIDI %}rtl{% else %}ltr{% endif %}">
+    <div class="receipt-card">
+        <!-- Header -->
+        <div class="receipt-header">
+            <h2>{% trans "Invoice" %}</h2>
+            {% if logo_url %}
+            <img class="logo" alt="{% trans 'Logo' %}" src="{{ logo_url }}">
+            {% endif %}
         </div>
 
+        <!-- Company Info -->
+        <div class="receipt-company-info">
+            {% if organization %}
+            <p><strong>{{ organization }}</strong></p>
+            {% endif %}
+            {% if tax_number %}
+            <p>{% trans "Tax Number:" %} {{ tax_number }}</p>
+            {% endif %}
+        </div>
+
+        <div class="receipt-body">
+            <div id="messages"></div>
+
+            <!-- Order Summary -->
+            <div class="order-summary-grid">
+                <div class="summary-item">
+                    <dt>{% trans "Customer Name" %}</dt>
+                    <dd>
+                        {% if invoice.cart.user.full_name %}
+                            {{ invoice.cart.user.full_name }}
+                        {% else %}
+                            {{ invoice.cart.user.first_name }} {{ invoice.cart.user.last_name }}
+                        {% endif %}
+                    </dd>
+                </div>
+                <div class="summary-item">
+                    <dt>{% trans "Invoice Number" %}</dt>
+                    <dd>{{ invoice.invoice_number }}</dd>
+                </div>
+                <div class="summary-item">
+                    <dt>{% trans "Order Date" %}</dt>
+                    <dd>{{ invoice.cart.updated_at|date:"F d, Y" }}</dd>
+                </div>
+                {% if payment_method %}
+                <div class="summary-item">
+                    <dt>{% trans "Payment Method" %}</dt>
+                    <dd>{{ payment_method }}</dd>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Order Items -->
+            <h3 class="mb-3">{% trans "Order Details" %}</h3>
+            <table class="order-table">
+                <thead>
+                    <tr>
+                        <th>{% trans "Product" %}</th>
+                        <th>{% trans "Description" %}</th>
+                        <th>{% trans "Unit Price" %}</th>
+                        <th>{% trans "VAT" %}</th>
+                        <th>{% trans "Total" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for invoice_item in invoice.items.all %}
+                    <tr>
+                        <td>
+                            <div class="product-name">
+                                {{ invoice_item.cart_item.catalogue_item.title|default:"-" }}
+                            </div>
+                        </td>
+                        <td>
+                            <div class="product-description">
+                                {{ invoice_item.cart_item.catalogue_item.description|default:"-" }}
+                            </div>
+                        </td>
+                        <td>{{ invoice_item.original_price }} {{ currency|currency_symbol }}</td>
+                        <td>{{ invoice_item.tax_amount }} {{ currency|currency_symbol }}</td>
+                        <td>{{ invoice_item.price }} {{ currency|currency_symbol }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <!-- Totals & QR Code -->
+            <div class="qr-section">
+                <!-- QR Code -->
+                <div class="qr-code">
+                    {% generate_invoice_qr_code invoice.invoice_number %}
+                </div>
+
+                <!-- Order Totals -->
+                <div class="order-totals" style="flex: 1; max-width: none;">
+                    <div class="totals-row">
+                        <span class="totals-label">{% trans "Subtotal" %}</span>
+                        <span class="totals-value">{{ invoice.gross_total }} {{ currency|currency_symbol }}</span>
+                    </div>
+                    <div class="totals-row">
+                        <span class="totals-label">{% trans "VAT" %}</span>
+                        <span class="totals-value">{{ invoice.tax_total }} {{ currency|currency_symbol }}</span>
+                    </div>
+                    <div class="totals-row">
+                        <span class="totals-label">{% trans "Total" %}</span>
+                        <span class="totals-value">{{ invoice.total }} {{ currency|currency_symbol }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Print Button -->
+            <div class="text-center mt-4 invoice-actions">
+                {% for invoice_item in invoice.items.all %}
+                    {% if invoice_item.cart_item.catalogue_item.type == 'paid_course' %}
+                    <a href="/courses/{{ invoice_item.cart_item.catalogue_item.item_ref_id }}/course/" class="btn btn-primary go-to-course-button">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                        </svg>
+                        {% trans "Go to Course" %}
+                    </a>
+                    {% endif %}
+                {% endfor %}
+                <button class="print-receipt-button" onclick="window.print()">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="6 9 6 2 18 2 18 9"/>
+                        <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+                        <rect x="6" y="14" width="12" height="8"/>
+                    </svg>
+                    {% trans "Print Receipt" %}
+                </button>
+            </div>
+        </div>
     </div>
-  </div>
-  <button class="print-receipt-button" onclick="window.print()">{% trans "Print Receipt" as tmsg %}{{ tmsg | force_escape }}</button>
 </div>
+<!-- Load eduba-theme header JavaScript for dropdown functionality -->
+<script src="{% static 'js/header/header.js' %}"></script>
 {% endblock %}

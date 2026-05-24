@@ -5,12 +5,12 @@ These tags can be used to extend template functionality, such as generating dyna
 content like QR codes or handling other custom template logic within Django views.
 Additional tags can be added to further enhance template capabilities.
 """
-import qrcode
-import qrcode.image.svg
-from crum import get_current_request
+from babel.core import Locale
+from babel.numbers import get_currency_symbol
 from django import template
-from django.urls import reverse
-from django.utils.safestring import mark_safe
+from django.utils.translation import get_language
+
+from zeitlabs_payments.helpers import generate_invoice_qr_code as generate_qr_code
 
 register = template.Library()
 
@@ -26,16 +26,29 @@ def generate_invoice_qr_code(invoice_number: str) -> str:
     :params order_number (int): The order number to include in the checkout receipt URL.
     :returns: str: A QR code in SVG format, rendered as a string.
     """
-    receipt_url = reverse(
-        'zeitlabs_payments:invoice',
-        args=[invoice_number]
-    )
-    request = get_current_request()
-    url = request.build_absolute_uri(receipt_url)
+    return generate_qr_code(invoice_number)
 
-    qr = qrcode.QRCode(image_factory=qrcode.image.svg.SvgPathImage)
-    qr.add_data(url)
-    qr.make(fit=True)
-    img = qr.make_image()
 
-    return mark_safe(img.to_string(encoding='unicode'))
+@register.filter
+def currency_symbol(code: str) -> str:
+    """
+    Render a currency symbol based on the current active Django language.
+    Example: "sar" -> "ر.س." when current language is Arabic.
+    """
+    if not code:
+        return ''
+
+    code = str(code).upper()
+
+    lang = get_language() or 'en'
+    babel_locale = lang.replace('-', '_')
+
+    try:
+        Locale.parse(babel_locale)
+    except Exception:  # pylint: disable=broad-except
+        babel_locale = (lang.split('-')[0] or 'en')
+
+    try:
+        return get_currency_symbol(code, locale=babel_locale)
+    except Exception:  # pylint: disable=broad-except
+        return code

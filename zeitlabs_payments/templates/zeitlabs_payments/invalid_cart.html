@@ -1,34 +1,35 @@
 {% extends "main_django.html" %}
 {% load i18n %}
+{% load static %}
+{% get_current_language_bidi as LANGUAGE_BIDI %}
 
 {% block body %}
-<style>
-    .cart .container {
-        padding: 25px 20px 30px 20px; 
-    }
-    .message-error-content {
-        border-top: 4px solid #B20610;
-        padding: 1.25rem 1.25rem;
-        background: #fcfcfc;
-        box-shadow: 0 1px 2px 1px rgba(167, 164, 164, 0.25);
-    }
-    .message-error-content h3 {
-        margin-bottom: 10px;
-        font-weight: bold;
-    }
-</style>
+{% include "zeitlabs_payments/styles.html" %}
 
-<main dir="ltr" id="main-content" aria-label="Checkout" tabindex="-1">
-    <div class="cart " bis_skin_checked="1">
-        <div class="container" bis_skin_checked="1">
-            <div class="message-error-content" bis_skin_checked="1">
-                <h3>{% trans "Cannot Add Item" %}</h3>
-                <p>{{ error_message }}</p>
-                <div class="mt-4">
-                    <p>{% trans "If you need help, please contact admin support team." %}</p>
-                </div>
-            </div>
+<div class="status-page" dir="{% if LANGUAGE_BIDI %}rtl{% else %}ltr{% endif %}">
+    <div class="status-card">
+        <div class="status-icon error">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="15" y1="9" x2="9" y2="15"/>
+                <line x1="9" y1="9" x2="15" y2="15"/>
+            </svg>
+        </div>
+        <h2 class="status-title">{% trans "Cannot Add Item" %}</h2>
+        <p class="status-message">
+            {{ error_message }}
+        </p>
+        <p class="status-message">
+            {% trans "If you need help, please contact admin support team." %}
+        </p>
+        <div class="status-actions">
+            <a href="/" class="btn btn-primary">
+                {% trans "Browse Courses" %}
+            </a>
+            <a href="/contact-support" class="btn btn-outline">
+                {% trans "Contact Support" %}
+            </a>
         </div>
     </div>
-</main>
+</div>
 {% endblock %}
