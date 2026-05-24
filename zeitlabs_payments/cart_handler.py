@@ -18,7 +18,7 @@ from zeitlabs_payments.models import AuditLog, BundleCourseItem, Cart, CartItem,
 logger = logging.getLogger(__name__)
 
 
-CART_HANDLER = {}
+CART_HANDLER: dict = {}
 
 
 class BaseCartHandler:
