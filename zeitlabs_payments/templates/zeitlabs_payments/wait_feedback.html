@@ -293,9 +293,9 @@
 </style>
 
 <script type="text/javascript">
-    const errorUrl = "{{ ecommerce_error_url|safe }}";
-    const successUrl = "{{ ecommerce_success_url|safe }}";
-    const statusUrl = "{{ ecommerce_status_url|safe }}";
+    const errorUrl = "{{ ecommerce_error_url|escapejs }}";
+    const successUrl = "{{ ecommerce_success_url|escapejs }}";
+    const statusUrl = "{{ ecommerce_status_url|escapejs }}";
     const statusMessage = document.getElementById("status-message");
     const step1 = document.getElementById("step-1");
     const step2 = document.getElementById("step-2");
@@ -362,11 +362,7 @@
                     window.location.href = errorUrl;
                 }
             } else if (status === 400) {
-                if (data.error) {
-                    statusMessage.textContent = data.error;
-                } else {
-                    window.location.href = errorUrl;
-                }
+                window.location.href = "{% if ecommerce_decline_url %}{{ ecommerce_decline_url|escapejs }}{% else %}{{ ecommerce_error_url|escapejs }}{% endif %}";
             } else {
                 window.location.href = errorUrl;
             }
@@ -377,8 +373,12 @@
         });
     }
 
-    window.onload = checkStatus;
-</script>
+    if (document.readyState === 'complete') {
+        checkStatus();
+    } else {
+        window.addEventListener('load', checkStatus);
+    }
+  </script>
 <!-- Load eduba-theme header JavaScript for dropdown functionality -->
 <script src="{% static 'js/header/header.js' %}"></script>
 {% endblock %}
