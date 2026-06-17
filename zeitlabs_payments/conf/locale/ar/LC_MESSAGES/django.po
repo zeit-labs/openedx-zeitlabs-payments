@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: zeitlabs-payments 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-30 00:26+0300\n"
+"POT-Creation-Date: 2026-04-01 21:32+0300\n"
 "PO-Revision-Date: 2026-01-01 00:00+0000\n"
 "Last-Translator: Zeitlabs <support@zeitlabs.com>\n"
 "Language-Team: Arabic <ar@li.org>\n"
@@ -57,6 +57,8 @@ msgid "Checkout"
 msgstr "إتمام الشراء"
 
 #: templates/zeitlabs_payments/checkout.html:34
+#: templates/zeitlabs_payments/order_history.html:449
+#: templates/zeitlabs_payments/order_history.html:492
 msgid "Program"
 msgstr "برنامج"
 
@@ -126,6 +128,7 @@ msgid "Receipt for %(order_number)s"
 msgstr "إيصال للطلب رقم %(order_number)s"
 
 #: templates/zeitlabs_payments/invoice.html:25
+#: templates/zeitlabs_payments/order_history.html:430
 msgid "Invoice"
 msgstr "فاتورة"
 
@@ -184,7 +187,7 @@ msgstr "طباعة الإيصال"
 
 #: templates/zeitlabs_payments/manual_payment_confirm.html:98
 msgid "Confirm Your Payment"
-msgstr "تأكيد الدفع الخاص بك"
+msgstr "تأكيد الدفع"
 
 #: templates/zeitlabs_payments/manual_payment_confirm.html:99
 msgid "Please review your order details below and confirm your payment."
@@ -197,6 +200,39 @@ msgstr "إلغاء"
 #: templates/zeitlabs_payments/manual_payment_confirm.html:119
 msgid "Confirm Payment"
 msgstr "تأكيد الدفع"
+
+#: templates/zeitlabs_payments/order_history.html:8
+#: templates/zeitlabs_payments/order_history.html:414
+msgid "Payment History"
+msgstr "سجل المدفوعات"
+
+#: templates/zeitlabs_payments/order_history.html:415
+msgid "Track and manage your academic investments"
+msgstr "تتبع وإدارة استثماراتك الأكاديمية"
+
+#: templates/zeitlabs_payments/order_history.html:420
+msgid "Your Invoices"
+msgstr "فواتيرك"
+
+#: templates/zeitlabs_payments/order_history.html:429
+msgid "Date"
+msgstr "التاريخ"
+
+#: templates/zeitlabs_payments/order_history.html:431
+msgid "Item"
+msgstr "العنصر"
+
+#: templates/zeitlabs_payments/order_history.html:432
+msgid "Amount"
+msgstr "المبلغ"
+
+#: templates/zeitlabs_payments/order_history.html:433
+msgid "Status"
+msgstr "الحالة"
+
+#: templates/zeitlabs_payments/order_history.html:528
+msgid "You have not made any payments yet."
+msgstr "لم تقم بأي عمليات دفع بعد."
 
 #: templates/zeitlabs_payments/payment_decline.html:18
 msgid "Payment Declined"

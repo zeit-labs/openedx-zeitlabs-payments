@@ -1,0 +1,534 @@
+{% extends "main_django.html" %}
+{% load i18n l10n %}
+{% load static %}
+{% load zeitlab_payment_tags %}
+
+{% get_current_language_bidi as LANGUAGE_BIDI %}
+
+{% block title %}{% trans "Payment History" %}{% endblock title %}
+
+{% block headextra %}
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% endblock headextra %}
+
+{% block body %}
+    {% include "zeitlabs_payments/styles.html" %}
+    <style>
+        /* ============================================
+           Order History Page — Scoped under .order-history
+           Follows the same pattern as .basket, .receipt, .status-page
+           ============================================ */
+
+        /* ---------- Page wrapper ---------- */
+        .order-history {
+            min-height: 80vh;
+            padding-top: 0;
+            background: var(--color-gray-100);
+            font-family: var(--font-family);
+            overflow: visible !important;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* ---------- Hero banner ---------- */
+        .order-history .oh-hero {
+            background: linear-gradient(135deg, var(--color-secondary) 0%, var(--color-secondary-dark) 100%);
+            color: var(--color-white);
+            padding: var(--spacing-3xl) var(--spacing-lg);
+            text-align: center;
+        }
+
+        .order-history .oh-hero h1 {
+            font-size: var(--font-size-3xl);
+            font-weight: 700;
+            color: var(--color-white);
+            margin: 0;
+            text-align: center !important;
+        }
+
+        .order-history .oh-hero p {
+            color: rgba(255, 255, 255, 0.75);
+            margin: var(--spacing-xs) 0 0;
+            font-size: var(--font-size-base);
+            text-align: center !important;
+        }
+
+        /* ---------- Content card ---------- */
+        .order-history .oh-card {
+            background: var(--color-white);
+            border-radius: var(--radius-xl);
+            box-shadow: var(--shadow-lg);
+            border: 1px solid var(--color-gray-200);
+            max-width: 960px;
+            margin: calc(var(--spacing-xl) * -0.5) auto var(--spacing-2xl);
+            padding: var(--spacing-xl);
+            position: relative;
+            z-index: 2;
+        }
+
+        .order-history .oh-card-title {
+            color: var(--color-secondary);
+            font-size: var(--font-size-xl);
+            font-weight: 700;
+            text-align: center !important;
+            margin: 0 0 var(--spacing-lg);
+            padding-bottom: var(--spacing-md);
+            border-bottom: 2px solid var(--color-gray-200);
+        }
+
+        /* ---------- Desktop table ---------- */
+        .order-history .oh-desktop-table {
+            display: block;
+        }
+
+        .order-history .oh-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            text-align: match-parent;
+        }
+
+        .order-history .oh-table thead th {
+            background-color: var(--color-gray-50);
+            color: var(--color-gray-600);
+            font-size: var(--font-size-xs);
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: var(--spacing-md) var(--spacing-md);
+            border-bottom: 2px solid var(--color-gray-200);
+            white-space: nowrap;
+        }
+
+        .order-history .oh-table tbody tr {
+            transition: background-color var(--transition-fast);
+        }
+
+        .order-history .oh-table tbody tr:hover {
+            background-color: var(--color-gray-50);
+        }
+
+        .order-history .oh-table td {
+            padding: var(--spacing-md);
+            border-bottom: 1px solid var(--color-gray-200);
+            color: var(--color-gray-800);
+            font-size: var(--font-size-sm);
+            vertical-align: middle;
+        }
+
+        .order-history .oh-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .order-history .oh-table .oh-col-date {
+            white-space: nowrap;
+            color: var(--color-gray-600);
+        }
+
+        .order-history .oh-table .oh-col-invoice a {
+            color: var(--color-primary);
+            font-weight: 600;
+            text-decoration: none;
+        }
+
+        .order-history .oh-table .oh-col-invoice a:hover {
+            color: var(--color-primary-dark);
+            text-decoration: underline;
+        }
+
+        .order-history .oh-table .oh-col-item {
+            max-width: 280px;
+        }
+
+        .order-history .oh-table .oh-col-item a {
+            color: var(--color-gray-800);
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .order-history .oh-table .oh-col-item a:hover {
+            color: var(--color-primary);
+        }
+
+        .order-history .oh-table .oh-col-amount {
+            font-weight: 700;
+            white-space: nowrap;
+            color: var(--color-gray-900);
+        }
+
+        /* ---------- Item type badge ---------- */
+        .order-history .oh-item-type {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: var(--radius-sm);
+            font-size: var(--font-size-xs);
+            font-weight: 600;
+            margin-bottom: 2px;
+            background-color: #ede7f6;
+            color: var(--color-secondary);
+        }
+
+        /* ---------- Status badge ---------- */
+        .order-history .oh-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 12px;
+            border-radius: var(--radius-full);
+            font-size: var(--font-size-xs);
+            font-weight: 600;
+            white-space: nowrap;
+            /* Default: gray */
+            background-color: var(--color-gray-200);
+            color: var(--color-gray-700);
+        }
+
+        .order-history .oh-status[data-status="paid"] {
+            background-color: var(--color-success-light);
+            color: var(--color-success);
+        }
+
+        .order-history .oh-status[data-status="pending"],
+        .order-history .oh-status[data-status="payment_pending"],
+        .order-history .oh-status[data-status="processing"] {
+            background-color: var(--color-warning-light);
+            color: #E65100;
+        }
+
+        .order-history .oh-status[data-status="cancelled"],
+        .order-history .oh-status[data-status="refunded"],
+        .order-history .oh-status[data-status="refund_requested"] {
+            background-color: var(--color-error-light);
+            color: var(--color-error);
+        }
+
+        /* ---------- Mobile cards ---------- */
+        .order-history .oh-mobile-cards {
+            display: none;
+        }
+
+        .order-history .oh-mobile-card {
+            background: var(--color-white);
+            border: 1px solid var(--color-gray-200);
+            border-radius: var(--radius-lg);
+            padding: var(--spacing-md);
+            margin-bottom: var(--spacing-md);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .order-history .oh-mobile-card:last-child {
+            margin-bottom: 0;
+        }
+
+        .order-history .oh-mc-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: var(--spacing-sm);
+            padding-bottom: var(--spacing-sm);
+            border-bottom: 1px solid var(--color-gray-200);
+        }
+
+        .order-history .oh-mc-date {
+            font-size: var(--font-size-xs);
+            color: var(--color-gray-500);
+        }
+
+        .order-history .oh-mc-body {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-sm);
+        }
+
+        .order-history .oh-mc-item-title {
+            font-size: var(--font-size-sm);
+            font-weight: 600;
+            color: var(--color-gray-800);
+        }
+
+        .order-history .oh-mc-item-title a {
+            color: var(--color-gray-800);
+            text-decoration: none;
+        }
+
+        .order-history .oh-mc-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: var(--spacing-sm);
+            padding-top: var(--spacing-sm);
+            border-top: 1px solid var(--color-gray-100);
+        }
+
+        .order-history .oh-mc-amount {
+            font-size: var(--font-size-base);
+            font-weight: 700;
+            color: var(--color-gray-900);
+        }
+
+        .order-history .oh-mc-invoice {
+            font-size: var(--font-size-xs);
+            color: var(--color-gray-500);
+        }
+
+        .order-history .oh-mc-invoice a {
+            color: var(--color-primary);
+            font-weight: 600;
+            text-decoration: none;
+        }
+
+        .order-history .oh-mc-invoice a:hover {
+            text-decoration: underline;
+        }
+
+        /* ---------- Empty state ---------- */
+        .order-history .oh-empty {
+            text-align: center;
+            padding: var(--spacing-3xl) var(--spacing-md);
+        }
+
+        .order-history .oh-empty-icon {
+            width: 64px;
+            height: 64px;
+            margin: 0 auto var(--spacing-md);
+            background: var(--color-gray-100);
+            border-radius: var(--radius-full);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .order-history .oh-empty-icon svg {
+            width: 28px;
+            height: 28px;
+            color: var(--color-gray-400);
+        }
+
+        .order-history .oh-empty p {
+            color: var(--color-gray-500);
+            font-size: var(--font-size-base);
+            margin: 0;
+        }
+
+        /* ---------- RTL direction scoping ---------- */
+        .order-history[dir="rtl"] {
+            direction: rtl;
+            text-align: right;
+        }
+
+        .order-history[dir="ltr"] {
+            direction: ltr;
+            text-align: left;
+        }
+
+        /* ---------- Tablet breakpoint (768px) ---------- */
+        @media (max-width: 768px) {
+            .order-history .oh-hero {
+                padding: var(--spacing-xl) var(--spacing-md);
+            }
+
+            .order-history .oh-hero h1 {
+                font-size: var(--font-size-2xl);
+            }
+
+            .order-history .oh-hero p {
+                font-size: var(--font-size-sm);
+            }
+
+            .order-history .oh-card {
+                margin-inline: var(--spacing-md);
+                padding: var(--spacing-md);
+            }
+
+            .order-history .oh-desktop-table {
+                display: none !important;
+            }
+
+            .order-history .oh-mobile-cards {
+                display: block !important;
+            }
+        }
+
+        /* ---------- Small mobile (480px) ---------- */
+        @media (max-width: 480px) {
+            .order-history .oh-hero {
+                padding: var(--spacing-lg) var(--spacing-sm);
+            }
+
+            .order-history .oh-hero h1 {
+                font-size: var(--font-size-xl);
+            }
+
+            .order-history .oh-card {
+                margin-inline: var(--spacing-sm);
+                padding: var(--spacing-sm);
+                border-radius: var(--radius-lg);
+            }
+
+            .order-history .oh-mc-footer {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: var(--spacing-xs);
+            }
+
+            .order-history[dir="rtl"] .oh-mc-footer {
+                align-items: flex-end;
+            }
+        }
+
+        /* ---------- Print styles ---------- */
+        @media print {
+            .order-history .oh-hero {
+                display: none;
+            }
+
+            .order-history .oh-card {
+                box-shadow: none;
+                border: none;
+                margin: 0;
+                max-width: 100%;
+            }
+
+            .order-history .oh-mobile-cards {
+                display: none !important;
+            }
+
+            .order-history .oh-desktop-table {
+                display: block !important;
+            }
+
+            .order-history .oh-table tbody tr:hover {
+                background-color: transparent;
+            }
+
+            .order-history .oh-status {
+                border: 1px solid currentColor;
+            }
+        }
+    </style>
+
+<div class="order-history" dir="{% if LANGUAGE_BIDI %}rtl{% else %}ltr{% endif %}">
+
+    {# ── Hero Banner ── #}
+    <div class="oh-hero">
+        <h1>{% trans "Payment History" %}</h1>
+        <p>{% trans "Track and manage your academic investments" %}</p>
+    </div>
+
+    {# ── Content Card ── #}
+    <div class="oh-card">
+        <h2 class="oh-card-title">{% trans "Your Invoices" %}</h2>
+
+        {% if records %}
+
+            {# ── Desktop Table (hidden on mobile) ── #}
+            <div class="oh-desktop-table">
+                <table class="oh-table">
+                    <thead>
+                        <tr>
+                            <th>{% trans "Date" %}</th>
+                            <th>{% trans "Invoice" %}</th>
+                            <th>{% trans "Item" %}</th>
+                            <th>{% trans "Amount" %}</th>
+                            <th>{% trans "Status" %}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for cart in records %}
+                            {% for inv in cart.invoices.all %}
+                                <tr>
+                                    <td class="oh-col-date">
+                                        {% localize off %}{{ inv.created_at|date:"j M Y" }}{% endlocalize %}
+                                    </td>
+                                    <td class="oh-col-invoice">
+                                        <a href="{{ inv.invoice_number|invoice_url }}">{{ inv.invoice_number }}</a>
+                                    </td>
+                                    <td class="oh-col-item">
+                                        {% with item=cart.items.first %}
+                                            {% if item and item.catalogue_item.type == 'program_bundle' %}
+                                                <span class="oh-item-type">{% trans "Program" %}</span><br>
+                                                {{ item.catalogue_item.title }}
+                                            {% elif item and item.catalogue_item.type == 'paid_course' and item.catalogue_item.item_ref_id %}
+                                                <a href="{% url 'about_course' item.catalogue_item.item_ref_id %}">
+                                                    {{ item.catalogue_item.title }}
+                                                </a>
+                                            {% elif item %}
+                                                {{ item.catalogue_item.title }}
+                                            {% endif %}
+                                        {% endwith %}
+                                    </td>
+                                    <td class="oh-col-amount">
+                                        {{ inv.total }} {{ inv.currency|currency_symbol }}
+                                    </td>
+                                    <td>
+                                        <span class="oh-status" data-status="{{ inv.status }}">
+                                            {{ inv.status|payment_status_display }}
+                                        </span>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            {# ── Mobile Cards (hidden on desktop) ── #}
+            <div class="oh-mobile-cards">
+                {% for cart in records %}
+                    {% for inv in cart.invoices.all %}
+                        <div class="oh-mobile-card">
+                            <div class="oh-mc-header">
+                                <span class="oh-status" data-status="{{ inv.status }}">
+                                    {{ inv.status|payment_status_display }}
+                                </span>
+                                <span class="oh-mc-date">
+                                    {% localize off %}{{ inv.created_at|date:"j M Y" }}{% endlocalize %}
+                                </span>
+                            </div>
+                            <div class="oh-mc-body">
+                                <div class="oh-mc-item-title">
+                                    {% with item=cart.items.first %}
+                                        {% if item and item.catalogue_item.type == 'program_bundle' %}
+                                            <span class="oh-item-type">{% trans "Program" %}</span><br>
+                                            {{ item.catalogue_item.title }}
+                                        {% elif item and item.catalogue_item.type == 'paid_course' and item.catalogue_item.item_ref_id %}
+                                            <a href="{% url 'about_course' item.catalogue_item.item_ref_id %}">
+                                                {{ item.catalogue_item.title }}
+                                            </a>
+                                        {% elif item %}
+                                            {{ item.catalogue_item.title }}
+                                        {% endif %}
+                                    {% endwith %}
+                                </div>
+                            </div>
+                            <div class="oh-mc-footer">
+                                <span class="oh-mc-amount">
+                                    {{ inv.total }} {{ inv.currency|currency_symbol }}
+                                </span>
+                                <span class="oh-mc-invoice">
+                                    <a href="{{ inv.invoice_number|invoice_url }}">{{ inv.invoice_number }}</a>
+                                </span>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% endfor %}
+            </div>
+
+        {% else %}
+
+            {# ── Empty state ── #}
+            <div class="oh-empty">
+                <div class="oh-empty-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
+                        <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
+                    </svg>
+                </div>
+                <p>{% trans "You have not made any payments yet." %}</p>
+            </div>
+
+        {% endif %}
+    </div>
+</div>
+{% endblock body %}

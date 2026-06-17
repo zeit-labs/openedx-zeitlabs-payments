@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-30 00:26+0300\n"
+"POT-Creation-Date: 2026-04-01 21:32+0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -57,6 +57,8 @@ msgid "Checkout"
 msgstr ""
 
 #: templates/zeitlabs_payments/checkout.html:34
+#: templates/zeitlabs_payments/order_history.html:449
+#: templates/zeitlabs_payments/order_history.html:492
 msgid "Program"
 msgstr ""
 
@@ -126,6 +128,7 @@ msgid "Receipt for %(order_number)s"
 msgstr ""
 
 #: templates/zeitlabs_payments/invoice.html:25
+#: templates/zeitlabs_payments/order_history.html:430
 msgid "Invoice"
 msgstr ""
 
@@ -196,6 +199,39 @@ msgstr ""
 
 #: templates/zeitlabs_payments/manual_payment_confirm.html:119
 msgid "Confirm Payment"
+msgstr ""
+
+#: templates/zeitlabs_payments/order_history.html:8
+#: templates/zeitlabs_payments/order_history.html:414
+msgid "Payment History"
+msgstr ""
+
+#: templates/zeitlabs_payments/order_history.html:415
+msgid "Track and manage your academic investments"
+msgstr ""
+
+#: templates/zeitlabs_payments/order_history.html:420
+msgid "Your Invoices"
+msgstr ""
+
+#: templates/zeitlabs_payments/order_history.html:429
+msgid "Date"
+msgstr ""
+
+#: templates/zeitlabs_payments/order_history.html:431
+msgid "Item"
+msgstr ""
+
+#: templates/zeitlabs_payments/order_history.html:432
+msgid "Amount"
+msgstr ""
+
+#: templates/zeitlabs_payments/order_history.html:433
+msgid "Status"
+msgstr ""
+
+#: templates/zeitlabs_payments/order_history.html:528
+msgid "You have not made any payments yet."
 msgstr ""
 
 #: templates/zeitlabs_payments/payment_decline.html:18
