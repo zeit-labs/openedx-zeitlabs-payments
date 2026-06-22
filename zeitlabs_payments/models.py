@@ -4,7 +4,9 @@ import re
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
+from django.conf import settings as django_settings
 from django.contrib.auth import get_user_model
+from django.contrib.sites.models import Site
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils.translation import gettext_lazy as _
@@ -440,3 +442,111 @@ class TaxRule(TimeStampedModel):
         if self.tax_type == self.TaxType.PERCENT:
             return f'{self.name} - {self.tax_value}%'
         return f'{self.name} - {self.tax_value}'
+
+
+class PaymentsTheme(models.Model):
+    """
+    Stores theme configuration for zeitlabs-payments.
+
+    Per OEP-48: only essential brand tokens. Derived shades
+    (darker/lighter) use CSS opacity overlays at render time.
+    Editable via Django admin.
+    """
+
+    site = models.OneToOneField(
+        Site,
+        on_delete=models.CASCADE,
+        related_name='payments_theme',
+        help_text='Site this theme applies to.',
+        null=True,
+        blank=True,
+    )
+    label = models.CharField(max_length=100, default='Default', help_text='Human-readable name')
+
+    primary = models.CharField(max_length=9, default='#0B7A4A', help_text='Main brand color')
+    primary_rgb = models.CharField(
+        max_length=20,
+        default='11, 122, 74',
+        help_text='RGB values for rgba() — e.g. "27, 131, 84"',
+    )
+    secondary = models.CharField(max_length=9, default='#054D2E', help_text='Accent color for headers/tables')
+
+    success = models.CharField(max_length=9, default='#0B7A4A')
+    success_light = models.CharField(max_length=9, default='#E8F5E9')
+    error = models.CharField(max_length=9, default='#D32F2F')
+    error_light = models.CharField(max_length=9, default='#FFEBEE')
+    warning = models.CharField(max_length=9, default='#F57C00')
+    warning_light = models.CharField(max_length=9, default='#FFF3E0')
+    info = models.CharField(max_length=9, default='#1976D2')
+    info_light = models.CharField(max_length=9, default='#E3F2FD')
+
+    white = models.CharField(max_length=9, default='#FFFFFF')
+    gray_50 = models.CharField(max_length=9, default='#FAFAFA')
+    gray_100 = models.CharField(max_length=9, default='#F5F5F5')
+    gray_200 = models.CharField(max_length=9, default='#EEEEEE')
+    gray_300 = models.CharField(max_length=9, default='#E0E0E0')
+    gray_400 = models.CharField(max_length=9, default='#BDBDBD')
+    gray_500 = models.CharField(max_length=9, default='#9E9E9E')
+    gray_600 = models.CharField(max_length=9, default='#757575')
+    gray_700 = models.CharField(max_length=9, default='#616161')
+    gray_800 = models.CharField(max_length=9, default='#424242')
+    gray_900 = models.CharField(max_length=9, default='#212121')
+
+    font_family = models.CharField(
+        max_length=500,
+        default="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+    )
+
+    class Meta:
+        verbose_name = 'Payments Theme'
+        verbose_name_plural = 'Payments Themes'
+
+    def __str__(self) -> str:
+        """Return the human-readable label."""
+        return str(self.label)
+
+    def to_dict(self) -> dict:
+        """Export all design tokens as a dict for template context."""
+        return {
+            'primary': self.primary,
+            'primary_rgb': self.primary_rgb,
+            'secondary': self.secondary,
+            'success': self.success,
+            'success_light': self.success_light,
+            'error': self.error,
+            'error_light': self.error_light,
+            'warning': self.warning,
+            'warning_light': self.warning_light,
+            'info': self.info,
+            'info_light': self.info_light,
+            'white': self.white,
+            'gray_50': self.gray_50,
+            'gray_100': self.gray_100,
+            'gray_200': self.gray_200,
+            'gray_300': self.gray_300,
+            'gray_400': self.gray_400,
+            'gray_500': self.gray_500,
+            'gray_600': self.gray_600,
+            'gray_700': self.gray_700,
+            'gray_800': self.gray_800,
+            'gray_900': self.gray_900,
+            'font_family': self.font_family,
+        }
+
+    @classmethod
+    def get_active(cls) -> dict:
+        """Return the active theme dict — DB record first, Django setting fallback."""
+        try:
+            site = Site.objects.get_current()
+            theme = cls.objects.filter(site=site).first()
+            if theme:
+                return theme.to_dict()
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass
+        return getattr(django_settings, 'ZEITLABS_PAYMENTS_THEME', {})
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Ensure only one theme per site."""
+        if self.site_id:
+            PaymentsTheme.objects.filter(site_id=self.site_id).exclude(pk=self.pk).delete()
+        super().save(*args, **kwargs)

@@ -1,55 +1,47 @@
 {% load i18n %}
 {% get_current_language_bidi as LANGUAGE_BIDI %}
 
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@200;300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-
 <style>
 /* ============================================
-   EDUBA Payment System - Modern RTL-First Design
+   Payment System — Design Tokens
+   Configured via ZEITLABS_PAYMENTS_THEME Django setting.
+   Falls back to built-in defaults when context is unavailable
+   (e.g. wait_feedback rendered outside ContextMixing).
+   Community: override in Tutor config.yml for your brand.
    ============================================ */
 
-/* CSS Custom Properties (Design Tokens) */
+/* CSS Custom Properties — rendered from Django settings with defaults
+   Following OEP-48: expose only essential brand tokens (primary, secondary,
+   status colors, neutrals, font). Derived shades use CSS opacity overlays. */
 :root {
-  /* Primary Colors - Coral/Red */
-  --color-primary: #E85A4F;
-  --color-primary-dark: #D14B41;
-  --color-primary-light: #FF6B5E;
-  
-  /* Secondary Colors - Purple/Navy */
-  --color-secondary: #2D3561;
-  --color-secondary-dark: #1E2448;
-  --color-secondary-light: #3D4571;
-  
-  /* Accent Colors */
-  --color-accent-teal: #4ECDC4;
-  --color-accent-purple: #7C4DFF;
-  --color-accent-pink: #FF6B9D;
-  
-  /* Success/Error/Warning */
-  --color-success: #43B666;
-  --color-success-light: #E8F5E9;
-  --color-error: #E53935;
-  --color-error-light: #FFEBEE;
-  --color-warning: #FF9800;
-  --color-warning-light: #FFF3E0;
-  --color-info: #2196F3;
-  --color-info-light: #E3F2FD;
-  
-  /* Neutrals */
-  --color-white: #FFFFFF;
-  --color-gray-50: #FAFAFA;
-  --color-gray-100: #F5F5F5;
-  --color-gray-200: #EEEEEE;
-  --color-gray-300: #E0E0E0;
-  --color-gray-400: #BDBDBD;
-  --color-gray-500: #9E9E9E;
-  --color-gray-600: #757575;
-  --color-gray-700: #616161;
-  --color-gray-800: #424242;
-  --color-gray-900: #212121;
-  
-  /* Typography - Cairo font */
-  --font-family: 'Cairo', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --color-primary: {{ payment_theme.primary|default:'#0B7A4A' }};
+  --color-primary-rgb: {{ payment_theme.primary_rgb|default:'11, 122, 74' }};
+  --color-secondary: {{ payment_theme.secondary|default:'#054D2E' }};
+
+  --color-success: {{ payment_theme.success|default:'#0B7A4A' }};
+  --color-success-light: {{ payment_theme.success_light|default:'#E8F5E9' }};
+  --color-error: {{ payment_theme.error|default:'#D32F2F' }};
+  --color-error-light: {{ payment_theme.error_light|default:'#FFEBEE' }};
+  --color-warning: {{ payment_theme.warning|default:'#F57C00' }};
+  --color-warning-light: {{ payment_theme.warning_light|default:'#FFF3E0' }};
+  --color-info: {{ payment_theme.info|default:'#1976D2' }};
+  --color-info-light: {{ payment_theme.info_light|default:'#E3F2FD' }};
+
+  --color-white: {{ payment_theme.white|default:'#FFFFFF' }};
+  --color-gray-50: {{ payment_theme.gray_50|default:'#FAFAFA' }};
+  --color-gray-100: {{ payment_theme.gray_100|default:'#F5F5F5' }};
+  --color-gray-200: {{ payment_theme.gray_200|default:'#EEEEEE' }};
+  --color-gray-300: {{ payment_theme.gray_300|default:'#E0E0E0' }};
+  --color-gray-400: {{ payment_theme.gray_400|default:'#BDBDBD' }};
+  --color-gray-500: {{ payment_theme.gray_500|default:'#9E9E9E' }};
+  --color-gray-600: {{ payment_theme.gray_600|default:'#757575' }};
+  --color-gray-700: {{ payment_theme.gray_700|default:'#616161' }};
+  --color-gray-800: {{ payment_theme.gray_800|default:'#424242' }};
+  --color-gray-900: {{ payment_theme.gray_900|default:'#212121' }};
+
+  --font-family: {{ payment_theme.font_family|default:"system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" }};
+
+  /* Font sizes */
   --font-size-xs: 0.75rem;
   --font-size-sm: 0.875rem;
   --font-size-base: 1rem;
@@ -58,7 +50,7 @@
   --font-size-2xl: 1.5rem;
   --font-size-3xl: 1.875rem;
   --font-size-4xl: 2.25rem;
-  
+
   /* Spacing */
   --spacing-xs: 0.25rem;
   --spacing-sm: 0.5rem;
@@ -67,7 +59,7 @@
   --spacing-xl: 2rem;
   --spacing-2xl: 3rem;
   --spacing-3xl: 4rem;
-  
+
   /* Border Radius */
   --radius-sm: 0.375rem;
   --radius-md: 0.5rem;
@@ -75,14 +67,14 @@
   --radius-xl: 1rem;
   --radius-2xl: 1.5rem;
   --radius-full: 9999px;
-  
+
   /* Shadows */
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
   --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
   --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.08);
-  
+
   /* Transitions */
   --transition-fast: 150ms ease;
   --transition-base: 250ms ease;
@@ -92,7 +84,7 @@
 /* ============================================
    Base Styles & Reset
    ============================================ */
-/* CRITICAL: Ensure eduba-theme header and dropdowns work properly */
+/* CRITICAL: Ensure kkux-theme header and dropdowns work properly */
 /* Following Open edX best practices: protect header from any plugin interference */
 
 /* Ensure header is always on top and clickable */
@@ -167,7 +159,7 @@ header.global-header .mobile-menu.hidden {
   letter-spacing: normal !important;
 }
 
-/* REMOVED GLOBAL html, body SELECTORS - These were breaking eduba-theme header */
+/* REMOVED GLOBAL html, body SELECTORS - These were breaking kkux-theme header */
 /* All typography now scoped to payment containers below */
 
 /* RTL Support - Scoped to payment containers only */
@@ -219,7 +211,7 @@ header.global-header .mobile-menu.hidden {
 }
 
 .basket a:hover, .receipt a:hover, .status-page a:hover, .order-history a:hover {
-  color: var(--color-primary-dark);
+  filter: brightness(0.85);
 }
 
 /* ============================================
@@ -276,7 +268,7 @@ header.global-header .mobile-menu.hidden {
 .status-page .card-header {
   padding: var(--spacing-lg) var(--spacing-xl);
   border-bottom: 1px solid var(--color-gray-200);
-  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
+  background: var(--color-primary);
   color: var(--color-white);
 }
 
@@ -319,15 +311,14 @@ header.global-header .mobile-menu.hidden {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%) !important;
-  background-color: #E85A4F !important;
-  color: #FFFFFF !important;
+  background: var(--color-primary) !important;
+  color: var(--color-white) !important;
   border-color: var(--color-primary) !important;
   box-shadow: none !important;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--color-primary-dark) 0%, var(--color-primary) 100%) !important;
+  background-image: linear-gradient(rgba(0,0,0,0.1), rgba(0,0,0,0.1)) !important;
   transform: translateY(-2px);
   box-shadow: var(--shadow-md) !important;
 }
@@ -340,7 +331,7 @@ header.global-header .mobile-menu.hidden {
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background: var(--color-secondary-dark) !important;
+  background-image: linear-gradient(rgba(0,0,0,0.1), rgba(0,0,0,0.1)) !important;
   transform: translateY(-2px);
   box-shadow: var(--shadow-md) !important;
 }
@@ -353,22 +344,22 @@ header.global-header .mobile-menu.hidden {
 }
 
 .btn-outline:hover:not(:disabled) {
-  background: rgba(232, 90, 79, 0.1) !important;
-  color: var(--color-primary-dark) !important;
-  border-color: var(--color-primary-dark) !important;
+  background: rgba(var(--color-primary-rgb), 0.1) !important;
+  color: var(--color-primary) !important;
+  border-color: var(--color-primary) !important;
   transform: translateY(-2px);
   box-shadow: var(--shadow-md) !important;
 }
 
 .btn-success {
-  background: linear-gradient(135deg, var(--color-success) 0%, #389E50 100%) !important;
+  background: var(--color-success) !important;
   color: var(--color-white) !important;
   border-color: var(--color-success) !important;
   box-shadow: none !important;
 }
 
 .btn-success:hover:not(:disabled) {
-  background: linear-gradient(135deg, #389E50 0%, var(--color-success) 100%) !important;
+  background-image: linear-gradient(rgba(0,0,0,0.1), rgba(0,0,0,0.1)) !important;
   transform: translateY(-2px);
   box-shadow: var(--shadow-md) !important;
 }
@@ -417,7 +408,7 @@ header.global-header .mobile-menu.hidden {
 .form-control:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 4px rgba(232, 90, 79, 0.15);
+  box-shadow: 0 0 0 4px rgba(var(--color-primary-rgb), 0.15);
 }
 
 .form-control::placeholder {
@@ -431,7 +422,7 @@ header.global-header .mobile-menu.hidden {
   min-height: 100vh;
   padding: var(--spacing-lg) 0;
   padding-top: 80px;
-  background: linear-gradient(180deg, var(--color-gray-100) 0%, var(--color-white) 100%);
+  background: var(--color-gray-100);
   /* Header protection: Ensure basket doesn't block header dropdown */
   position: relative;
   z-index: 1;
@@ -459,7 +450,7 @@ header.global-header .mobile-menu.hidden {
 
 .basket-header {
   padding: var(--spacing-md) var(--spacing-lg);
-  background: linear-gradient(135deg, var(--color-secondary) 0%, var(--color-secondary-dark) 100%);
+  background: var(--color-secondary);
   color: var(--color-white);
 }
 
@@ -582,7 +573,7 @@ header.global-header .mobile-menu.hidden {
 }
 
 .basket-item--bundle-header:hover {
-  background: var(--color-secondary-light);
+  background-image: linear-gradient(rgba(255,255,255,0.1), rgba(255,255,255,0.1));
   box-shadow: none;
 }
 
@@ -637,7 +628,7 @@ header.global-header .mobile-menu.hidden {
 }
 
 .voucher-toggle:hover {
-  color: var(--color-primary-dark);
+  filter: brightness(0.85);
 }
 
 .voucher-form {
@@ -669,10 +660,10 @@ header.global-header .mobile-menu.hidden {
   font-size: var(--font-size-sm) !important;
   height: 40px !important;
   min-width: 80px;
-  background: #E85A4F !important;
-  background-color: #E85A4F !important;
+  background: var(--color-primary) !important;
+  background-color: var(--color-primary) !important;
   background-image: none !important;
-  color: #FFFFFF !important;
+  color: var(--color-white) !important;
   border: none !important;
   border-radius: var(--radius-lg) !important;
   box-sizing: border-box;
@@ -687,8 +678,7 @@ header.global-header .mobile-menu.hidden {
 .voucher-form button.btn:hover,
 .voucher-form button.btn-primary:hover,
 .voucher-form button[type="submit"]:hover {
-  background: #D14B41 !important;
-  background-color: #D14B41 !important;
+  background-image: linear-gradient(rgba(0,0,0,0.1), rgba(0,0,0,0.1)) !important;
 }
 
 /* Totals Section - Compact */
@@ -819,7 +809,7 @@ header.global-header .mobile-menu.hidden {
   justify-content: space-between;
   align-items: center;
   padding: var(--spacing-md) var(--spacing-lg);
-  background: linear-gradient(135deg, var(--color-secondary) 0%, var(--color-secondary-dark) 100%);
+  background: var(--color-secondary);
   color: var(--color-white);
 }
 
@@ -1080,11 +1070,11 @@ a.btn.go-to-course-button {
   font-family: var(--font-family) !important;
   font-size: var(--font-size-sm) !important;
   font-weight: 600 !important;
-  color: #FFFFFF !important;
-  background: #E85A4F !important;
-  background-color: #E85A4F !important;
+  color: var(--color-white) !important;
+  background: var(--color-primary) !important;
+  background-color: var(--color-primary) !important;
   background-image: none !important;
-  border: 2px solid #E85A4F !important;
+  border: 2px solid var(--color-primary) !important;
   border-radius: var(--radius-md) !important;
   cursor: pointer;
   transition: all var(--transition-fast);
@@ -1096,12 +1086,10 @@ a.btn.go-to-course-button {
 .go-to-course-button:hover,
 a.go-to-course-button:hover,
 a.btn.go-to-course-button:hover {
-  background: #D14B41 !important;
-  background-color: #D14B41 !important;
-  border-color: #D14B41 !important;
+  background-image: linear-gradient(rgba(0,0,0,0.1), rgba(0,0,0,0.1)) !important;
   transform: translateY(-2px);
   box-shadow: var(--shadow-md) !important;
-  color: #FFFFFF !important;
+  color: var(--color-white) !important;
 }
 
 .go-to-course-button svg {
@@ -1119,7 +1107,7 @@ a.btn.go-to-course-button:hover {
   justify-content: center;
   padding: var(--spacing-md);
   padding-top: 80px;
-  background: linear-gradient(180deg, var(--color-gray-100) 0%, var(--color-white) 100%);
+  background: var(--color-gray-100);
 }
 
 .status-card {
@@ -1219,8 +1207,7 @@ a.btn.go-to-course-button:hover {
 }
 
 .status-actions .btn-primary:hover {
-  background: var(--color-primary-dark);
-  border-color: var(--color-primary-dark);
+  background-image: linear-gradient(rgba(0,0,0,0.1), rgba(0,0,0,0.1));
 }
 
 .status-actions .btn-outline {

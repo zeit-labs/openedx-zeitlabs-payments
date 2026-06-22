@@ -15,6 +15,7 @@ from .models import (
     CatalogueItem,
     Invoice,
     InvoiceItem,
+    PaymentsTheme,
     TaxRule,
     Transaction,
     WebhookEvent,
@@ -228,6 +229,45 @@ class TaxRuleAdmin(admin.ModelAdmin):
     search_fields = ('name',)
     ordering = ('-is_active', '-id')
     readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(PaymentsTheme)
+class PaymentsThemeAdmin(admin.ModelAdmin):
+    """
+    Admin configuration for PaymentsTheme — live brand configuration.
+
+    Only essential brand tokens (OEP-48). Derived shades use CSS opacity overlays.
+    """
+
+    list_display = ('label', 'site', 'primary', 'font_family')
+    fieldsets = (
+        (None, {
+            'fields': ('site', 'label'),
+        }),
+        ('Brand Colors', {
+            'fields': ('primary', 'primary_rgb', 'secondary'),
+            'description': 'Derived shades (hover, focus) use CSS opacity overlays — no extra config needed.',
+        }),
+        ('Status Colors', {
+            'fields': (
+                ('success', 'success_light'),
+                ('error', 'error_light'),
+                ('warning', 'warning_light'),
+                ('info', 'info_light'),
+            ),
+        }),
+        ('Neutrals', {
+            'fields': (
+                'white',
+                ('gray_50', 'gray_100', 'gray_200'),
+                ('gray_300', 'gray_400', 'gray_500'),
+                ('gray_600', 'gray_700', 'gray_800', 'gray_900'),
+            ),
+        }),
+        ('Typography', {
+            'fields': ('font_family',),
+        }),
+    )
 
 
 class PaymentProcessorAdminPage:

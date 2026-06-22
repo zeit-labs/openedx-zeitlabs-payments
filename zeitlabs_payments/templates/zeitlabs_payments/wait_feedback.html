@@ -147,8 +147,7 @@
     transform: translate(-50%, -50%);
     width: 60px;
     height: 60px;
-    background: var(--color-primary-light);
-    background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
+    background: var(--color-primary);
     border-radius: var(--radius-full);
     display: flex;
     align-items: center;
@@ -160,11 +159,11 @@
 @keyframes pulse {
     0%, 100% {
         transform: translate(-50%, -50%) scale(1);
-        box-shadow: 0 0 0 0 rgba(232, 90, 79, 0.4);
+        box-shadow: 0 0 0 0 rgba({{ payment_theme.primary_rgb|default:'11, 122, 74' }}, 0.4);
     }
     50% {
         transform: translate(-50%, -50%) scale(1.05);
-        box-shadow: 0 0 0 15px rgba(232, 90, 79, 0);
+        box-shadow: 0 0 0 15px rgba({{ payment_theme.primary_rgb|default:'11, 122, 74' }}, 0);
     }
 }
 
@@ -203,7 +202,7 @@
 }
 
 .processing-step.processing .step-icon {
-    background: rgba(232, 90, 79, 0.1);
+    background: rgba({{ payment_theme.primary_rgb|default:'11, 122, 74' }}, 0.1);
     color: var(--color-primary);
     animation: step-pulse 1s ease-in-out infinite;
 }
@@ -379,6 +378,6 @@
         window.addEventListener('load', checkStatus);
     }
   </script>
-<!-- Load eduba-theme header JavaScript for dropdown functionality -->
+<!-- Load kkux-theme header JavaScript for dropdown functionality -->
 <script src="{% static 'js/header/header.js' %}"></script>
 {% endblock %}
