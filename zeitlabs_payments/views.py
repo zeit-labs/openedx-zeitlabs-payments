@@ -20,6 +20,7 @@ from zeitlabs_payments import models
 from zeitlabs_payments.cart_handler import CART_HANDLER
 from zeitlabs_payments.exceptions import InvalidCartError
 from zeitlabs_payments.helpers import get_currency, get_settings
+from zeitlabs_payments.models import PaymentsTheme
 from zeitlabs_payments.providers.registry import PROCESSORS, get_processor
 from zeitlabs_payments.querysets import get_orders_queryset
 from zeitlabs_payments.serializers import CartSerializer
@@ -43,6 +44,7 @@ class ContextMixing(TemplateView):
                 'support_url': get_settings().support_url,
                 'support_email': get_settings().support_email,
                 'logo_url': get_settings().logo_url,
+                'payment_theme': PaymentsTheme.get_active(),
             }
         )
         return context
