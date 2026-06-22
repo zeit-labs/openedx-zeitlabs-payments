@@ -15,7 +15,6 @@
    status colors, neutrals, font). Derived shades use CSS opacity overlays. */
 :root {
   --color-primary: {{ payment_theme.primary|default:'#0B7A4A' }};
-  --color-primary-rgb: {{ payment_theme.primary_rgb|default:'11, 122, 74' }};
   --color-secondary: {{ payment_theme.secondary|default:'#054D2E' }};
 
   --color-success: {{ payment_theme.success|default:'#0B7A4A' }};
@@ -344,7 +343,7 @@ header.global-header .mobile-menu.hidden {
 }
 
 .btn-outline:hover:not(:disabled) {
-  background: rgba(var(--color-primary-rgb), 0.1) !important;
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent) !important;
   color: var(--color-primary) !important;
   border-color: var(--color-primary) !important;
   transform: translateY(-2px);
@@ -408,7 +407,7 @@ header.global-header .mobile-menu.hidden {
 .form-control:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 4px rgba(var(--color-primary-rgb), 0.15);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 15%, transparent);
 }
 
 .form-control::placeholder {

@@ -245,8 +245,8 @@ class PaymentsThemeAdmin(admin.ModelAdmin):
             'fields': ('site', 'label'),
         }),
         ('Brand Colors', {
-            'fields': ('primary', 'primary_rgb', 'secondary'),
-            'description': 'Derived shades (hover, focus) use CSS opacity overlays — no extra config needed.',
+            'fields': ('primary', 'secondary'),
+            'description': 'Derived shades (hover, focus) use CSS color-mix() — no extra config needed.',
         }),
         ('Status Colors', {
             'fields': (

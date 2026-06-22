@@ -3,7 +3,6 @@ from typing import Any
 
 _PAYMENTS_THEME_DEFAULTS = {
     'primary': '#0B7A4A',
-    'primary_rgb': '11, 122, 74',
     'secondary': '#054D2E',
     'success': '#0B7A4A',
     'success_light': '#E8F5E9',

@@ -16,7 +16,6 @@ class PaymentsThemeModelTest(TestCase):
         theme = PaymentsTheme.objects.create(label='Test')
         data = theme.to_dict()
         assert data['primary'] == '#0B7A4A'
-        assert data['primary_rgb'] == '11, 122, 74'
         assert data['secondary'] == '#054D2E'
         assert data['font_family'] == "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
         assert data['white'] == '#FFFFFF'
@@ -28,7 +27,7 @@ class PaymentsThemeModelTest(TestCase):
         theme = PaymentsTheme.objects.create(label='Test')
         data = theme.to_dict()
         required_keys = {
-            'primary', 'primary_rgb', 'secondary',
+            'primary', 'secondary',
             'success', 'success_light', 'error', 'error_light',
             'warning', 'warning_light', 'info', 'info_light',
             'white',
@@ -43,13 +42,11 @@ class PaymentsThemeModelTest(TestCase):
         theme = PaymentsTheme.objects.create(
             label='Custom',
             primary='#FF0000',
-            primary_rgb='255, 0, 0',
             secondary='#0000FF',
             font_family='monospace',
         )
         data = theme.to_dict()
         assert data['primary'] == '#FF0000'
-        assert data['primary_rgb'] == '255, 0, 0'
         assert data['secondary'] == '#0000FF'
         assert data['font_family'] == 'monospace'
 

@@ -464,11 +464,6 @@ class PaymentsTheme(models.Model):
     label = models.CharField(max_length=100, default='Default', help_text='Human-readable name')
 
     primary = models.CharField(max_length=9, default='#0B7A4A', help_text='Main brand color')
-    primary_rgb = models.CharField(
-        max_length=20,
-        default='11, 122, 74',
-        help_text='RGB values for rgba() — e.g. "27, 131, 84"',
-    )
     secondary = models.CharField(max_length=9, default='#054D2E', help_text='Accent color for headers/tables')
 
     success = models.CharField(max_length=9, default='#0B7A4A')
@@ -509,7 +504,6 @@ class PaymentsTheme(models.Model):
         """Export all design tokens as a dict for template context."""
         return {
             'primary': self.primary,
-            'primary_rgb': self.primary_rgb,
             'secondary': self.secondary,
             'success': self.success,
             'success_light': self.success_light,
