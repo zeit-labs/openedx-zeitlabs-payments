@@ -1,11 +1,15 @@
 """Zeitlabs payments models."""
+
 import re
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
+from django.conf import settings as django_settings
 from django.contrib.auth import get_user_model
+from django.contrib.sites.models import Site
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils.translation import gettext_lazy as _
 
 User = get_user_model()
 
@@ -34,6 +38,20 @@ class Cart(TimeStampedModel):
         REFUND_REQUESTED = 'refund_requested'
         REFUNDED = 'refunded'
 
+    @staticmethod
+    def get_status_display(status_value: str) -> str:
+        """Get human readable status."""
+        statuses = {
+            Cart.Status.PENDING: _('Pending'),
+            Cart.Status.PROCESSING: _('Processing'),
+            Cart.Status.PAID: _('Paid'),
+            Cart.Status.CANCELLED: _('Cancelled'),
+            Cart.Status.PAYMENT_PENDING: _('Payment Pending'),
+            Cart.Status.REFUND_REQUESTED: _('Refund Requested'),
+            Cart.Status.REFUNDED: _('Refunded'),
+        }
+        return statuses.get(status_value, status_value)
+
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='carts')
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
 
@@ -56,6 +74,10 @@ class Cart(TimeStampedModel):
     def gross_total(self) -> Decimal:
         """Calculate raw total before applying any discount and tax."""
         return sum((item.original_price for item in self.items.all()), Decimal('0'))
+
+    def __str__(self) -> str:
+        """Represent object as string."""
+        return f'Cart #{self.pk} - {self.user.username} ({self.status})'
 
     @classmethod
     def valid_statuses(cls) -> list[str]:
@@ -82,9 +104,11 @@ class Transaction(TimeStampedModel):
     currency = models.CharField(max_length=3)
     response = models.JSONField(blank=True, null=True)
     reason = models.TextField(blank=True, null=True)
-    initiator_user = models.ForeignKey(
-        User, on_delete=models.SET_NULL, null=True, blank=True
-    )
+    initiator_user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+
+    def __str__(self) -> str:
+        """Represent object as string."""
+        return f'Txn #{self.pk} - {self.type} ({self.gateway})'
 
 
 class WebhookEvent(TimeStampedModel):
@@ -95,6 +119,10 @@ class WebhookEvent(TimeStampedModel):
     payload = models.JSONField()
     related_transaction = models.ForeignKey(Transaction, on_delete=models.SET_NULL, null=True, blank=True)
     handled = models.BooleanField(default=False)
+
+    def __str__(self) -> str:
+        """Represent object as string."""
+        return f'Webhook #{self.pk} - {self.gateway} ({self.event_type})'
 
 
 class AuditLog(TimeStampedModel):
@@ -136,27 +164,24 @@ class AuditLog(TimeStampedModel):
         AuditActions.BAD_RESPONSE_SIGNATURE: 'Bad response signature detected: {data}.',
         AuditActions.RECEIVED_RESPONSE: 'Received response from payment gateway: {data}.',
         AuditActions.RESPONSE_INVALID_CART: (
-            'Invalid cart state found. Cart '
-            'is in state: {cart_status} instead of {required_cart_state}.'
+            'Invalid cart state found. Cart is in state: {cart_status} instead of {required_cart_state}.'
         ),
         AuditActions.TRANSACTION_ROLLED_BACK: (
             'Transaction: {transaction_id} for cart: {cart_id} and site: {site_id} rolled back.'
         ),
-        AuditActions.INVALID_TRANSACTION: (
-            'Transaction: {transaction_id} is in invalid state: {status}.'
-        ),
-        AuditActions.CART_STATUS_UPDATED: (
-            'Status updated for cart from: {old_status} to: {new_status}.'
-        ),
-        AuditActions.CART_FULFILLED: (
-            'Cart fulfilled successfully.'
-        )
+        AuditActions.INVALID_TRANSACTION: ('Transaction: {transaction_id} is in invalid state: {status}.'),
+        AuditActions.CART_STATUS_UPDATED: ('Status updated for cart from: {old_status} to: {new_status}.'),
+        AuditActions.CART_FULFILLED: ('Cart fulfilled successfully.'),
     }
 
     action = models.CharField(max_length=32)
     cart = models.ForeignKey(Cart, on_delete=models.CASCADE, related_name='audits', null=True)
     gateway = models.CharField(max_length=50, blank=True, null=True)
     details = models.TextField(blank=True, null=True)
+
+    def __str__(self) -> str:
+        """Represent object as string."""
+        return f'Audit #{self.pk} - {self.action}'
 
     @classmethod
     def log(cls, action: str, context: dict = None, cart: Cart = None, gateway: str = None) -> None:
@@ -183,9 +208,7 @@ class AuditLog(TimeStampedModel):
             required_keys = set(re.findall(r'{(\w+)}', template))
             missing_keys = required_keys - context.keys()
             if missing_keys:
-                raise ValidationError(
-                    f"Missing template parameters for action '{action}': {', '.join(missing_keys)}"
-                )
+                raise ValidationError(f"Missing template parameters for action '{action}': {', '.join(missing_keys)}")
 
         details = template.format(**context) if template else str(context)
         return cls.objects.create(
@@ -211,6 +234,10 @@ class Coupon(TimeStampedModel):
     max_usage = models.PositiveIntegerField()
     expires_at = models.DateTimeField(blank=True, null=True)
 
+    def __str__(self) -> str:
+        """Represent object as string."""
+        return f'{self.code} ({self.discount_type}: {self.discount_value})'
+
     @property
     def usage_count(self) -> int:
         """Get the total number of times this coupon has been used."""
@@ -224,6 +251,10 @@ class CouponUsage(TimeStampedModel):
     count = models.PositiveIntegerField(default=1)
     user = models.ForeignKey(User, on_delete=models.CASCADE)
 
+    def __str__(self) -> str:
+        """Represent object as string."""
+        return f'{self.coupon.code} - {self.user.username} (x{self.count})'
+
 
 class CatalogueItem(TimeStampedModel):
     """CatalogueItem model."""
@@ -232,6 +263,7 @@ class CatalogueItem(TimeStampedModel):
         """Catalogue Item Types."""
 
         PAID_COURSE = 'paid_course'
+        PROGRAM_BUNDLE = 'program_bundle'
         # TODO add other types here like 'section_of_course', 'fremium_course', etc.
 
     sku = models.CharField(max_length=255, unique=True)
@@ -242,10 +274,40 @@ class CatalogueItem(TimeStampedModel):
     price = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     currency = models.CharField(max_length=3, blank=True, null=True)
 
+    def __str__(self) -> str:
+        """Represent object as string."""
+        return f'{self.title} ({self.sku})'
+
     @classmethod
     def valid_item_types(cls) -> list[str]:
         """Return all valid status values."""
         return [choice[0] for choice in cls.ItemType.choices]
+
+
+class BundleCourseItem(TimeStampedModel):
+    """Maps a program_bundle CatalogueItem to its constituent course CatalogueItems."""
+
+    bundle = models.ForeignKey(
+        CatalogueItem,
+        on_delete=models.CASCADE,
+        related_name='bundle_courses',
+        limit_choices_to={'type': CatalogueItem.ItemType.PROGRAM_BUNDLE},
+        help_text='The program bundle CatalogueItem.',
+    )
+    course_item = models.ForeignKey(
+        CatalogueItem,
+        on_delete=models.CASCADE,
+        related_name='in_bundles',
+        limit_choices_to={'type': CatalogueItem.ItemType.PAID_COURSE},
+        help_text='A paid_course CatalogueItem included in this bundle.',
+    )
+
+    class Meta:
+        unique_together = ('bundle', 'course_item')
+
+    def __str__(self) -> str:
+        """Represent object as string."""
+        return f'{self.bundle.sku} -> {self.course_item.sku}'
 
 
 class CartItem(TimeStampedModel):
@@ -258,6 +320,10 @@ class CartItem(TimeStampedModel):
     tax_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     coupon = models.ForeignKey(Coupon, on_delete=models.SET_NULL, null=True, blank=True)
     final_price = models.DecimalField(max_digits=10, decimal_places=2)
+
+    def __str__(self) -> str:
+        """Represent object as string."""
+        return f'CartItem #{self.pk} - {self.catalogue_item.title}'
 
 
 class Invoice(TimeStampedModel):
@@ -281,6 +347,10 @@ class Invoice(TimeStampedModel):
     paid_at = models.DateTimeField(blank=True, null=True)
     related_transaction = models.ForeignKey(Transaction, on_delete=models.SET_NULL, null=True, blank=True)
 
+    def __str__(self) -> str:
+        """Represent object as string."""
+        return f'{self.invoice_number} ({self.status})'
+
 
 class InvoiceItem(TimeStampedModel):
     """InvoiceItem model."""
@@ -293,6 +363,10 @@ class InvoiceItem(TimeStampedModel):
     price = models.DecimalField(max_digits=10, decimal_places=2)  # includes tax
     quantity = models.PositiveIntegerField(default=1)
 
+    def __str__(self) -> str:
+        """Represent object as string."""
+        return f'InvoiceItem #{self.pk} - {self.invoice.invoice_number}'
+
 
 class CreditMemo(TimeStampedModel):
     """CreditMemo model."""
@@ -302,6 +376,10 @@ class CreditMemo(TimeStampedModel):
     reason = models.TextField()
     gateway_refund_transaction_id = models.CharField(max_length=255)
     transaction = models.ForeignKey(Transaction, on_delete=models.SET_NULL, null=True, blank=True)
+
+    def __str__(self) -> str:
+        """Represent object as string."""
+        return f'CreditMemo #{self.pk} - {self.invoice.invoice_number}'
 
 
 class TaxRule(TimeStampedModel):
@@ -318,12 +396,12 @@ class TaxRule(TimeStampedModel):
         max_length=20,
         choices=TaxType.choices,
         default=TaxType.PERCENT,
-        help_text='Whether the tax is percentage-based or fixed amount.'
+        help_text='Whether the tax is percentage-based or fixed amount.',
     )
     tax_value = models.DecimalField(
         max_digits=10,
         decimal_places=2,
-        help_text='If percentage: store rate (e.g., 15 for 15%). If fixed: store amount (e.g., 2.50).'
+        help_text='If percentage: store rate (e.g., 15 for 15%). If fixed: store amount (e.g., 2.50).',
     )
     is_active = models.BooleanField(default=True)
 
@@ -364,3 +442,109 @@ class TaxRule(TimeStampedModel):
         if self.tax_type == self.TaxType.PERCENT:
             return f'{self.name} - {self.tax_value}%'
         return f'{self.name} - {self.tax_value}'
+
+
+class PaymentsTheme(models.Model):
+    """Stores theme configuration for zeitlabs-payments.
+
+    Per OEP-48: only essential brand tokens. Derived shades
+    (darker/lighter) use CSS opacity overlays at render time.
+    Editable via Django admin.
+    """
+
+    site = models.OneToOneField(
+        Site,
+        on_delete=models.CASCADE,
+        related_name='payments_theme',
+        help_text='Site this theme applies to.',
+        null=True,
+        blank=True,
+    )
+    label = models.CharField(max_length=100, default='Default', help_text='Human-readable name')
+
+    primary = models.CharField(max_length=9, default='#0B7A4A', help_text='Main brand color')
+    primary_rgb = models.CharField(
+        max_length=20,
+        default='11, 122, 74',
+        help_text='RGB values for rgba() — e.g. "27, 131, 84"',
+    )
+    secondary = models.CharField(max_length=9, default='#054D2E', help_text='Accent color for headers/tables')
+
+    success = models.CharField(max_length=9, default='#0B7A4A')
+    success_light = models.CharField(max_length=9, default='#E8F5E9')
+    error = models.CharField(max_length=9, default='#D32F2F')
+    error_light = models.CharField(max_length=9, default='#FFEBEE')
+    warning = models.CharField(max_length=9, default='#F57C00')
+    warning_light = models.CharField(max_length=9, default='#FFF3E0')
+    info = models.CharField(max_length=9, default='#1976D2')
+    info_light = models.CharField(max_length=9, default='#E3F2FD')
+
+    white = models.CharField(max_length=9, default='#FFFFFF')
+    gray_50 = models.CharField(max_length=9, default='#FAFAFA')
+    gray_100 = models.CharField(max_length=9, default='#F5F5F5')
+    gray_200 = models.CharField(max_length=9, default='#EEEEEE')
+    gray_300 = models.CharField(max_length=9, default='#E0E0E0')
+    gray_400 = models.CharField(max_length=9, default='#BDBDBD')
+    gray_500 = models.CharField(max_length=9, default='#9E9E9E')
+    gray_600 = models.CharField(max_length=9, default='#757575')
+    gray_700 = models.CharField(max_length=9, default='#616161')
+    gray_800 = models.CharField(max_length=9, default='#424242')
+    gray_900 = models.CharField(max_length=9, default='#212121')
+
+    font_family = models.CharField(
+        max_length=500,
+        default="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+    )
+
+    class Meta:
+        verbose_name = 'Payments Theme'
+        verbose_name_plural = 'Payments Themes'
+
+    def __str__(self):
+        return self.label
+
+    def to_dict(self) -> dict:
+        """Export all design tokens as a dict for template context."""
+        return {
+            'primary': self.primary,
+            'primary_rgb': self.primary_rgb,
+            'secondary': self.secondary,
+            'success': self.success,
+            'success_light': self.success_light,
+            'error': self.error,
+            'error_light': self.error_light,
+            'warning': self.warning,
+            'warning_light': self.warning_light,
+            'info': self.info,
+            'info_light': self.info_light,
+            'white': self.white,
+            'gray_50': self.gray_50,
+            'gray_100': self.gray_100,
+            'gray_200': self.gray_200,
+            'gray_300': self.gray_300,
+            'gray_400': self.gray_400,
+            'gray_500': self.gray_500,
+            'gray_600': self.gray_600,
+            'gray_700': self.gray_700,
+            'gray_800': self.gray_800,
+            'gray_900': self.gray_900,
+            'font_family': self.font_family,
+        }
+
+    @classmethod
+    def get_active(cls) -> dict:
+        """Return the active theme dict — DB record first, Django setting fallback."""
+        try:
+            site = Site.objects.get_current()
+            theme = cls.objects.filter(site=site).first()
+            if theme:
+                return theme.to_dict()
+        except Exception:
+            pass
+        return getattr(django_settings, 'ZEITLABS_PAYMENTS_THEME', {})
+
+    def save(self, *args, **kwargs):
+        """Ensure only one theme per site."""
+        if self.site_id:
+            PaymentsTheme.objects.filter(site_id=self.site_id).exclude(pk=self.pk).delete()
+        super().save(*args, **kwargs)

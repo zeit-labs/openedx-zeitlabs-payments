@@ -1,73 +1,383 @@
 {% extends "main_django.html" %}
 {% load i18n %}
+{% load static %}
+{% get_current_language_bidi as LANGUAGE_BIDI %}
 
 {% block body %}
-  <style>
-    .centered-content {
-      text-align: center;
-      margin-top: 2em;
-    }
-  </style>
-  <div class="centered-content">
-    <h1 id="status-message">{% trans "Processing enrollment... please wait..." %}</h1>
-    <p>
-      {% trans "For your reference, the ID is:" %}
-      <strong>{{ ecommerce_transaction_id }}</strong>
-    </p>
-  </div>
+{% include "zeitlabs_payments/styles.html" %}
 
-  <script type="text/javascript">
-    const errorUrl = "{{ ecommerce_error_url|safe }}";
-    const successUrl = "{{ ecommerce_success_url|safe }}";
-    const statusUrl = "{{ ecommerce_status_url|safe }}";
+<div class="status-page" dir="{% if LANGUAGE_BIDI %}rtl{% else %}ltr{% endif %}">
+    <div class="status-card processing-card">
+        <!-- Animated Processing Icon -->
+        <div class="processing-icon">
+            <div class="processing-circle-wrapper">
+                <svg class="processing-circle" viewBox="0 0 100 100">
+                    <circle class="circle-bg" cx="50" cy="50" r="45" />
+                    <circle class="circle-progress" cx="50" cy="50" r="45" />
+                </svg>
+            </div>
+            <div class="processing-icon-inner">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/>
+                    <line x1="1" y1="10" x2="23" y2="10"/>
+                </svg>
+            </div>
+        </div>
+
+        <h2 class="status-title" id="status-message">{% trans "Processing Your Payment..." %}</h2>
+        
+        <p class="status-message">
+            {% trans "Please wait while we confirm your payment. This may take a few moments." %}
+        </p>
+
+        <!-- Progress Steps -->
+        <div class="processing-steps">
+            <div class="processing-step active" id="step-1">
+                <div class="step-icon">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                        <polyline points="22 4 12 14.01 9 11.01"/>
+                    </svg>
+                </div>
+                <span>{% trans "Payment Submitted" %}</span>
+            </div>
+            <div class="processing-step" id="step-2">
+                <div class="step-icon">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <polyline points="12 6 12 12 16 14"/>
+                    </svg>
+                </div>
+                <span>{% trans "Verifying Payment" %}</span>
+            </div>
+            <div class="processing-step" id="step-3">
+                <div class="step-icon">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                        <polyline points="22 4 12 14.01 9 11.01"/>
+                    </svg>
+                </div>
+                <span>{% trans "Completing Order" %}</span>
+            </div>
+        </div>
+
+        <div class="status-reference">
+            <span class="reference-label">{% trans "Transaction ID:" %}</span>
+            <span class="reference-value">{{ ecommerce_transaction_id }}</span>
+        </div>
+
+        <p class="status-warning">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            {% trans "Please do not close this page or press the back button." %}
+        </p>
+    </div>
+</div>
+
+<style>
+/* Processing Card Specific Styles */
+.processing-card {
+    max-width: 480px;
+}
+
+/* Animated Processing Icon */
+.processing-icon {
+    position: relative;
+    width: 100px;
+    height: 100px;
+    margin: 0 auto var(--spacing-xl);
+}
+
+.processing-circle-wrapper {
+    width: 100%;
+    height: 100%;
+    animation: rotate-circle 2s linear infinite;
+}
+
+.processing-circle {
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg);
+}
+
+.circle-bg {
+    fill: none;
+    stroke: var(--color-gray-200);
+    stroke-width: 6;
+}
+
+.circle-progress {
+    fill: none;
+    stroke: var(--color-primary);
+    stroke-width: 6;
+    stroke-linecap: round;
+    stroke-dasharray: 283;
+    stroke-dashoffset: 75;
+    animation: progress-dash 1.5s ease-in-out infinite;
+}
+
+@keyframes rotate-circle {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes progress-dash {
+    0% {
+        stroke-dashoffset: 75;
+    }
+    50% {
+        stroke-dashoffset: 200;
+    }
+    100% {
+        stroke-dashoffset: 75;
+    }
+}
+
+.processing-icon-inner {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 60px;
+    height: 60px;
+    background: var(--color-primary);
+    border-radius: var(--radius-full);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-white);
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        transform: translate(-50%, -50%) scale(1);
+        box-shadow: 0 0 0 0 rgba({{ payment_theme.primary_rgb|default:'11, 122, 74' }}, 0.4);
+    }
+    50% {
+        transform: translate(-50%, -50%) scale(1.05);
+        box-shadow: 0 0 0 15px rgba({{ payment_theme.primary_rgb|default:'11, 122, 74' }}, 0);
+    }
+}
+
+/* Processing Steps */
+.processing-steps {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+    margin: var(--spacing-lg) 0;
+    padding: var(--spacing-md);
+    background: var(--color-gray-50);
+    border-radius: var(--radius-lg);
+}
+
+.processing-step {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm);
+    color: var(--color-gray-400);
+    font-size: var(--font-size-sm);
+    transition: all 0.3s ease;
+}
+
+.processing-step.active {
+    color: var(--color-success);
+}
+
+.processing-step.active .step-icon {
+    background: var(--color-success-light);
+    color: var(--color-success);
+}
+
+.processing-step.processing {
+    color: var(--color-primary);
+}
+
+.processing-step.processing .step-icon {
+    background: rgba({{ payment_theme.primary_rgb|default:'11, 122, 74' }}, 0.1);
+    color: var(--color-primary);
+    animation: step-pulse 1s ease-in-out infinite;
+}
+
+@keyframes step-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.step-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-full);
+    background: var(--color-gray-100);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.3s ease;
+}
+
+/* Status Reference Enhanced */
+.processing-card .status-reference {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-md);
+    background: var(--color-gray-100);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--spacing-md);
+}
+
+.reference-label {
+    font-size: var(--font-size-xs);
+    color: var(--color-gray-500);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.reference-value {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--color-gray-800);
+    font-family: monospace;
+    word-break: break-all;
+}
+
+/* Warning Message */
+.status-warning {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--color-warning-light);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-xs);
+    color: var(--color-warning);
+    margin: 0;
+}
+
+.status-warning svg {
+    flex-shrink: 0;
+}
+
+/* Mobile Responsive */
+@media (max-width: 480px) {
+    .processing-card {
+        padding: var(--spacing-lg);
+    }
+    
+    .processing-icon {
+        width: 80px;
+        height: 80px;
+    }
+    
+    .processing-icon-inner {
+        width: 50px;
+        height: 50px;
+    }
+    
+    .processing-icon-inner svg {
+        width: 24px;
+        height: 24px;
+    }
+}
+</style>
+
+<script type="text/javascript">
+    const errorUrl = "{{ ecommerce_error_url|escapejs }}";
+    const successUrl = "{{ ecommerce_success_url|escapejs }}";
+    const statusUrl = "{{ ecommerce_status_url|escapejs }}";
     const statusMessage = document.getElementById("status-message");
+    const step1 = document.getElementById("step-1");
+    const step2 = document.getElementById("step-2");
+    const step3 = document.getElementById("step-3");
     let attempts = 0;
 
-    function checkStatus() {
-      attempts++;
-      const params = new URLSearchParams({
-        transaction_id: "{{ ecommerce_transaction_id }}",
-        merchant_reference: "{{ merchant_reference }}"
-      });
-      fetch(`${statusUrl}?${params.toString()}`, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded"
-        },
-        redirect: "follow"
-      })
-      .then(response => {
-        return response.json().then(data => ({
-          status: response.status,
-          data: data
-        }));
-      })
-      .then(({ status, data }) => {
-        if (status === 200) {
-          window.location.href = data.invoice_url;
-        } else if (status === 202) {
-          if (attempts < {{ ecommerce_max_attempts }}) {
-            setTimeout(checkStatus, {{ ecommerce_wait_time }});
-          } else {
-            window.location.href = errorUrl;
-          }
-        } else if (status === 400) {
-          if (data.error) {
-            statusMessage.textContent = data.error;
-          }
-          else {
-            window.location.href = errorUrl;
-          }
-        } else {
-          window.location.href = errorUrl;
+    function updateSteps(currentStep) {
+        if (currentStep >= 1) {
+            step1.classList.add('active');
+            step1.classList.remove('processing');
         }
-      })
-      .catch(error => {
-        console.error("Payment Check Status Error: ", error);
-        window.location.href = errorUrl;
-      });
+        if (currentStep >= 2) {
+            step2.classList.add('processing');
+        }
+        if (currentStep >= 3) {
+            step2.classList.remove('processing');
+            step2.classList.add('active');
+            step3.classList.add('processing');
+        }
+        if (currentStep >= 4) {
+            step3.classList.remove('processing');
+            step3.classList.add('active');
+        }
     }
 
-    window.onload = checkStatus;
+    function checkStatus() {
+        attempts++;
+        
+        // Update visual feedback based on attempts
+        if (attempts === 1) {
+            updateSteps(2);
+        } else if (attempts > 2) {
+            updateSteps(3);
+        }
+
+        const params = new URLSearchParams({
+            transaction_id: "{{ ecommerce_transaction_id }}",
+            merchant_reference: "{{ merchant_reference }}"
+        });
+        fetch(`${statusUrl}?${params.toString()}`, {
+            method: "GET",
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded"
+            },
+            redirect: "follow"
+        })
+        .then(response => {
+            return response.json().then(data => ({
+                status: response.status,
+                data: data
+            }));
+        })
+        .then(({ status, data }) => {
+            if (status === 200) {
+                updateSteps(4);
+                statusMessage.textContent = "{% trans 'Payment Confirmed! Redirecting...' %}";
+                setTimeout(() => {
+                    window.location.href = data.invoice_url;
+                }, 1000);
+            } else if (status === 202) {
+                if (attempts < {{ ecommerce_max_attempts }}) {
+                    setTimeout(checkStatus, {{ ecommerce_wait_time }});
+                } else {
+                    window.location.href = errorUrl;
+                }
+            } else if (status === 400) {
+                window.location.href = "{% if ecommerce_decline_url %}{{ ecommerce_decline_url|escapejs }}{% else %}{{ ecommerce_error_url|escapejs }}{% endif %}";
+            } else {
+                window.location.href = errorUrl;
+            }
+        })
+        .catch(error => {
+            console.error("Payment Check Status Error: ", error);
+            window.location.href = errorUrl;
+        });
+    }
+
+    if (document.readyState === 'complete') {
+        checkStatus();
+    } else {
+        window.addEventListener('load', checkStatus);
+    }
   </script>
+<!-- Load kkux-theme header JavaScript for dropdown functionality -->
+<script src="{% static 'js/header/header.js' %}"></script>
 {% endblock %}

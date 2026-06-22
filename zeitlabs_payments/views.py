@@ -1,4 +1,5 @@
 """Zeilabs payments views."""
+
 import logging
 from typing import Any
 
@@ -19,14 +20,37 @@ from zeitlabs_payments import models
 from zeitlabs_payments.cart_handler import CART_HANDLER
 from zeitlabs_payments.exceptions import InvalidCartError
 from zeitlabs_payments.helpers import get_currency, get_settings
+from zeitlabs_payments.models import PaymentsTheme
 from zeitlabs_payments.providers.registry import PROCESSORS, get_processor
+from zeitlabs_payments.querysets import get_orders_queryset
 from zeitlabs_payments.serializers import CartSerializer
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
 
 
-class CheckoutView(LoginRequiredMixin, TemplateView):
+class ContextMixing(TemplateView):
+    """
+    Mixin to add common context data to views.
+    """
+
+    def get_context_data(self, **kwargs: Any) -> dict:
+        """
+        Return Context dictionary including common settings.
+        """
+        context = super().get_context_data(**kwargs)
+        context.update(
+            {
+                'support_url': get_settings().support_url,
+                'support_email': get_settings().support_email,
+                'logo_url': get_settings().logo_url,
+                'payment_theme': PaymentsTheme.get_active(),
+            }
+        )
+        return context
+
+
+class CheckoutView(LoginRequiredMixin, ContextMixing):
     """
     View responsible for rendering the checkout page.
 
@@ -44,10 +68,7 @@ class CheckoutView(LoginRequiredMixin, TemplateView):
         methods = []
         cart = kwargs.get('cart')
         if cart:
-            methods = [
-                processor.get_payment_method_metadata(cart)
-                for processor in PROCESSORS.values()
-            ]
+            methods = [processor.get_payment_method_metadata(cart) for processor in PROCESSORS.values()]
             cart = CartSerializer(cart, context={'request': self.request}).data
 
         context.update(
@@ -71,7 +92,7 @@ class CheckoutView(LoginRequiredMixin, TemplateView):
                     request,
                     'zeitlabs_payments/invalid_cart.html',
                     {'error_message': f'Item with sku: {sku_code} does not exist.'},
-                    status=404
+                    status=404,
                 )
 
             handler = CART_HANDLER.get(catalog_item.type)
@@ -80,7 +101,7 @@ class CheckoutView(LoginRequiredMixin, TemplateView):
                     request,
                     'zeitlabs_payments/invalid_cart.html',
                     {'error_message': f'Item has unsupported type: {catalog_item.type}.'},
-                    status=400
+                    status=400,
                 )
             try:
                 cart = handler.validate_item_and_create_cart(request.user, catalog_item)
@@ -89,7 +110,7 @@ class CheckoutView(LoginRequiredMixin, TemplateView):
                     request,
                     'zeitlabs_payments/invalid_cart.html',
                     {'error_message': str(exc)},
-                    status=400
+                    status=400,
                 )
         else:
             cart = (
@@ -152,7 +173,7 @@ class InitiatePaymentView(LoginRequiredMixin, View):
             context={
                 'old_status': models.Cart.Status.PENDING,
                 'new_status': models.Cart.Status.PROCESSING,
-            }
+            },
         )
         logger.info(f'Cart {cart.id} status updated to {models.Cart.Status.PROCESSING}')
 
@@ -160,7 +181,7 @@ class InitiatePaymentView(LoginRequiredMixin, View):
             action=models.AuditLog.AuditActions.REDIRECT_TO_PAYMENT,
             cart=cart,
             gateway=processor.SLUG,
-            context={}
+            context={},
         )
         return payment_view
 
@@ -182,9 +203,11 @@ class CartView(APIView):
         :param request: HTTP request
         :return: Serialized cart data with HTTP 200 status
         """
-        last_pending_cart = models.Cart.objects.filter(
-            user=request.user, status=models.Cart.Status.PENDING
-        ).order_by('-created_at').first()
+        last_pending_cart = (
+            models.Cart.objects.filter(user=request.user, status=models.Cart.Status.PENDING)
+            .order_by('-created_at')
+            .first()
+        )
         if last_pending_cart:
             serializer = CartSerializer(last_pending_cart, context={'request': request})
             data = serializer.data
@@ -236,7 +259,7 @@ class CartView(APIView):
             return Response(
                 {
                     'error': 'Given SKU item does not match add to cart requirements',
-                    'details': f'{str(exc)}'
+                    'details': f'{str(exc)}',
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -245,47 +268,51 @@ class CartView(APIView):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
-class PaymentErrorView(TemplateView):
+class PaymentErrorView(ContextMixing):
     """Render the template that shows the error message to the user when the payment handling is failed."""
 
     template_name = 'zeitlabs_payments/payment_error.html'
 
     def get(self, request: Any, *args: Any, **kwargs: Any) -> Any:
         """Handle the GET request."""
-        context = {
-            'merchant_reference': args[0],
-        }
+        context = self.get_context_data()
+        context.update(
+            {
+                'merchant_reference': args[0],
+            }
+        )
         return render(request, self.template_name, context)
 
 
-class PaymentDeclineView(TemplateView):
+class PaymentDeclineView(ContextMixing):
     """Render the template that shows the error message to the user when the payment handling is failed."""
 
     template_name = 'zeitlabs_payments/payment_decline.html'
 
     def get(self, request: Any, *args: Any, **kwargs: Any) -> Any:
         """Handle the GET request."""
-        context = {
-            'merchant_reference': args[0],
-            'test': 'abcd hello'
-        }
+        context = self.get_context_data()
+        context.update({'merchant_reference': args[0], 'test': 'abcd hello'})
         return render(request, self.template_name, context)
 
 
-class PaymentSuccessView(TemplateView):
+class PaymentSuccessView(ContextMixing):
     """Render the template that shows the error message to the user when the payment handling is failed."""
 
     template_name = 'zeitlabs_payments/payment_successful.html'
 
     def get(self, request: Any, *args: Any, **kwargs: Any) -> Any:
         """Handle the GET request."""
-        context = {
-            'merchant_reference': args[0],
-        }
+        context = self.get_context_data()
+        context.update(
+            {
+                'merchant_reference': args[0],
+            }
+        )
         return render(request, self.template_name, context)
 
 
-class InvoiceView(LoginRequiredMixin, TemplateView):
+class InvoiceView(LoginRequiredMixin, ContextMixing):
     """Render Invoice with given invoice number."""
 
     template_name = 'zeitlabs_payments/invoice.html'
@@ -302,11 +329,36 @@ class InvoiceView(LoginRequiredMixin, TemplateView):
         if getattr(invoice, 'related_transaction', None):
             payment_method = invoice.related_transaction.gateway
 
-        context = {
-            'invoice': invoice,
-            'payment_method': payment_method,
-            'organization': get_settings().organization,
-            'tax_number': get_settings().customer_number,
-            'currency': get_currency(invoice.cart)
-        }
+        context = self.get_context_data()
+        context.update(
+            {
+                'invoice': invoice,
+                'payment_method': payment_method,
+                'organization': get_settings().organization,
+                'tax_number': get_settings().customer_number,
+                'currency': get_currency(invoice.cart),
+            }
+        )
         return render(request, self.template_name, context)
+
+
+class OrderHistoryView(LoginRequiredMixin, ContextMixing):
+    """
+    Display the authenticated user's order (payment) history.
+
+    Lists all carts that contain at least one catalogue item,
+    together with their related invoices. The queryset is built by
+    :func:`zeitlabs_payments.querysets.get_orders_queryset` which
+    handles prefetching of items and invoices for performance.
+    """
+
+    template_name = 'zeitlabs_payments/order_history.html'
+
+    def get_context_data(self, **kwargs: Any) -> dict:
+        """Return context with the current user's order records."""
+        context = super().get_context_data(**kwargs)
+        context['records'] = get_orders_queryset(
+            filtered_users_qs=User.objects.filter(pk=self.request.user.pk),
+            include_invoice=True,
+        )
+        return context
