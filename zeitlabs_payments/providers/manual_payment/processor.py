@@ -37,7 +37,7 @@ class ManualPaymentProcessor(BaseProcessor):
         """
         raise NotImplementedError
 
-    def process_payment(  # pylint: disable= too-many-positional-arguments
+    def process_payment(
         self,
         request: Any,
         cart: Cart,
