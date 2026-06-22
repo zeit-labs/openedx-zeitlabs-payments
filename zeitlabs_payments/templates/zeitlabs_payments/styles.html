@@ -1019,8 +1019,10 @@ header.global-header .mobile-menu.hidden {
 .qr-code img,
 .qr-code svg {
   display: block;
-  width: 80px;
-  height: 80px;
+  max-width: 120px;
+  height: auto;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
 }
 
 /* Print Button - Compact */
@@ -1483,6 +1485,7 @@ a.btn.go-to-course-button:hover {
 
   /* Ensure QR code SVG renders in print */
   .qr-code svg {
+    max-width: none;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
