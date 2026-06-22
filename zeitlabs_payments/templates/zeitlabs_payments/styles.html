@@ -1415,17 +1415,10 @@ a.btn.go-to-course-button:hover {
    Print Styles
    ============================================ */
 @media print {
-  /* Hide everything by default */
-  body * {
-    visibility: hidden;
+  /* Hide everything except the receipt */
+  body > *:not(.receipt) {
+    display: none !important;
   }
-  
-  /* Only show the receipt and its children */
-  .receipt, .receipt * {
-    visibility: visible;
-  }
-  
-  /* Position the receipt at the top */
   .receipt {
     position: absolute;
     left: 0;
@@ -1436,7 +1429,6 @@ a.btn.go-to-course-button:hover {
     background: white !important;
     min-height: auto;
   }
-  
   .receipt-card {
     box-shadow: none !important;
     border-radius: 0 !important;
@@ -1444,42 +1436,49 @@ a.btn.go-to-course-button:hover {
     margin: 0 !important;
     border: none !important;
   }
-  
   .receipt-header {
-    background: white !important;
-    color: black !important;
-    border-bottom: 2px solid black !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
     padding: 20px 0 !important;
+    background: #f0f0f0 !important;
+    color: black !important;
+    border-bottom: 2px solid black !important;
   }
-  
   .receipt-header h2 {
     color: black !important;
   }
-  
-  /* Hide buttons and actions explicitly inside receipt */
+  .receipt-header .logo {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
   .print-receipt-button,
   .go-to-course-button,
   .invoice-actions,
   .navbar,
   .hidden-print,
-  button, 
+  button,
   .btn,
   a.btn {
     display: none !important;
-    visibility: hidden !important;
   }
-  
   .order-table thead {
     background: #f0f0f0 !important;
     color: black !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-  
   .order-table th, .order-table td {
     border-bottom: 1px solid #ddd;
+  }
+  /* Ensure QR code SVG is visible */
+  .qr-code svg,
+  .qr-code img,
+  .qr-section svg,
+  .qr-section img {
+    display: block !important;
+    visibility: visible !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 }
 
