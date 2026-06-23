@@ -54,7 +54,8 @@ class BaseProcessor:
             'slug': cls.SLUG,
             'title': cls.NAME,
             'checkout_text': cls.CHECKOUT_TEXT,
-            'url': reverse('zeitlabs_payments:initiate-payment', kwargs={'provider': cls.SLUG, 'cart_id': cart.id})
+            'url': reverse('zeitlabs_payments:initiate-payment', kwargs={'provider': cls.SLUG, 'cart_id': cart.id}),
+            'disabled': None,
         }
 
     def get_transaction_parameters(
