@@ -1,39 +1,39 @@
 {% load i18n %}
 {% get_current_language_bidi as LANGUAGE_BIDI %}
 
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@200;300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
 
 <style>
 /* ============================================
-   EDUBA Payment System - Modern RTL-First Design
+   KKUx Payment System - Brand Design Tokens
    ============================================ */
 
 /* CSS Custom Properties (Design Tokens) */
 :root {
-  /* Primary Colors - Coral/Red */
-  --color-primary: #E85A4F;
-  --color-primary-dark: #D14B41;
-  --color-primary-light: #FF6B5E;
+  /* Primary Colors - KKUx Green */
+  --color-primary: #007359;
+  --color-primary-dark: #092a1e;
+  --color-primary-light: #1B8354;
   
-  /* Secondary Colors - Purple/Navy */
-  --color-secondary: #2D3561;
-  --color-secondary-dark: #1E2448;
-  --color-secondary-light: #3D4571;
+  /* Secondary Colors - KKUx Dark / Pulse */
+  --color-secondary: #092a1e;
+  --color-secondary-dark: #0f4638;
+  --color-secondary-light: #1B8354;
   
   /* Accent Colors */
-  --color-accent-teal: #4ECDC4;
-  --color-accent-purple: #7C4DFF;
-  --color-accent-pink: #FF6B9D;
+  --color-accent-teal: #5cd2d5;
+  --color-accent-purple: #8f93ff;
+  --color-accent-pink: #03fe96;
   
   /* Success/Error/Warning */
-  --color-success: #43B666;
+  --color-success: #007359;
   --color-success-light: #E8F5E9;
-  --color-error: #E53935;
+  --color-error: #B20610;
   --color-error-light: #FFEBEE;
-  --color-warning: #FF9800;
+  --color-warning: #f0ad4e;
   --color-warning-light: #FFF3E0;
-  --color-info: #2196F3;
-  --color-info-light: #E3F2FD;
+  --color-info: #5cd2d5;
+  --color-info-light: #E0F7F9;
   
   /* Neutrals */
   --color-white: #FFFFFF;
@@ -48,8 +48,8 @@
   --color-gray-800: #424242;
   --color-gray-900: #212121;
   
-  /* Typography - Cairo font */
-  --font-family: 'Cairo', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /* Typography - IBM Plex Sans */
+  --font-family: 'IBM Plex Sans', 'IBM Plex Sans Arabic', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-size-xs: 0.75rem;
   --font-size-sm: 0.875rem;
   --font-size-base: 1rem;
@@ -70,9 +70,9 @@
   
   /* Border Radius */
   --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
+  --radius-md: 0.625rem;
   --radius-lg: 0.75rem;
-  --radius-xl: 1rem;
+  --radius-xl: 0.875rem;
   --radius-2xl: 1.5rem;
   --radius-full: 9999px;
   
@@ -92,7 +92,7 @@
 /* ============================================
    Base Styles & Reset
    ============================================ */
-/* CRITICAL: Ensure eduba-theme header and dropdowns work properly */
+/* CRITICAL: Ensure platform header and dropdowns work properly */
 /* Following Open edX best practices: protect header from any plugin interference */
 
 /* Ensure header is always on top and clickable */
@@ -167,7 +167,7 @@ header.global-header .mobile-menu.hidden {
   letter-spacing: normal !important;
 }
 
-/* REMOVED GLOBAL html, body SELECTORS - These were breaking eduba-theme header */
+/* REMOVED GLOBAL html, body SELECTORS - These were breaking platform header */
 /* All typography now scoped to payment containers below */
 
 /* RTL Support - Scoped to payment containers only */
@@ -319,15 +319,15 @@ header.global-header .mobile-menu.hidden {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%) !important;
-  background-color: #E85A4F !important;
+  background: var(--color-primary) !important;
   color: #FFFFFF !important;
   border-color: var(--color-primary) !important;
   box-shadow: none !important;
+  border-radius: var(--radius-md) !important;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--color-primary-dark) 0%, var(--color-primary) 100%) !important;
+  background: var(--color-primary-dark) !important;
   transform: translateY(-2px);
   box-shadow: var(--shadow-md) !important;
 }
@@ -669,8 +669,8 @@ header.global-header .mobile-menu.hidden {
   font-size: var(--font-size-sm) !important;
   height: 40px !important;
   min-width: 80px;
-  background: #E85A4F !important;
-  background-color: #E85A4F !important;
+  background: var(--color-primary) !important;
+  background-color: var(--color-primary) !important;
   background-image: none !important;
   color: #FFFFFF !important;
   border: none !important;
@@ -687,8 +687,8 @@ header.global-header .mobile-menu.hidden {
 .voucher-form button.btn:hover,
 .voucher-form button.btn-primary:hover,
 .voucher-form button[type="submit"]:hover {
-  background: #D14B41 !important;
-  background-color: #D14B41 !important;
+  background: var(--color-primary-dark) !important;
+  background-color: var(--color-primary-dark) !important;
 }
 
 /* Totals Section - Compact */
@@ -1081,10 +1081,10 @@ a.btn.go-to-course-button {
   font-size: var(--font-size-sm) !important;
   font-weight: 600 !important;
   color: #FFFFFF !important;
-  background: #E85A4F !important;
-  background-color: #E85A4F !important;
+  background: var(--color-primary) !important;
+  background-color: var(--color-primary) !important;
   background-image: none !important;
-  border: 2px solid #E85A4F !important;
+  border: 2px solid var(--color-primary) !important;
   border-radius: var(--radius-md) !important;
   cursor: pointer;
   transition: all var(--transition-fast);
@@ -1096,9 +1096,9 @@ a.btn.go-to-course-button {
 .go-to-course-button:hover,
 a.go-to-course-button:hover,
 a.btn.go-to-course-button:hover {
-  background: #D14B41 !important;
-  background-color: #D14B41 !important;
-  border-color: #D14B41 !important;
+  background: var(--color-primary-dark) !important;
+  background-color: var(--color-primary-dark) !important;
+  border-color: var(--color-primary-dark) !important;
   transform: translateY(-2px);
   box-shadow: var(--shadow-md) !important;
   color: #FFFFFF !important;
