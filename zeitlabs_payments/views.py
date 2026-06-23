@@ -72,7 +72,7 @@ class CheckoutView(LoginRequiredMixin, ContextMixing):
         context.update(
             {
                 'cart': cart,
-                'methods': methods,
+                'methods': [method for method in methods if not method.get('disabled')],
             }
         )
         return context
