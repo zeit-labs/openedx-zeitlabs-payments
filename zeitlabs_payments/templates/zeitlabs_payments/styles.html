@@ -1009,21 +1009,10 @@ a.btn.go-to-course-button:hover {
 
 /* ============================================
    Print Styles
-   ============================================ */
-@media print {
-  body * { visibility: hidden; }
-  .receipt, .receipt * { visibility: visible; }
-  .receipt {
-    position: absolute; left: 0; top: 0; width: 100%;
-    margin: 0; padding: 0; background: white !important; min-height: auto;
-  }
-  .receipt-card { box-shadow: none !important; border-radius: 0 !important; max-width: 100% !important; margin: 0 !important; border: none !important; }
-  .receipt-header { background: white !important; color: black !important; border-bottom: 2px solid black !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; padding: 20px 0 !important; }
-  .receipt-header h2 { color: black !important; }
-  .print-receipt-button, .go-to-course-button, .invoice-actions, .navbar, .hidden-print, button, .btn, a.btn { display: none !important; visibility: hidden !important; }
-  .order-table thead { background: #f0f0f0 !important; color: black !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .order-table th, .order-table td { border-bottom: 1px solid #ddd; }
-}
+   ============================================
+   Print rules moved to each template's headextra block
+   — Chrome requires @media print in <head> to work reliably.
+   */
 
 /* ============================================
    Legacy Support
