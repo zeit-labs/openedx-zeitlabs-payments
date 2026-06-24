@@ -233,6 +233,7 @@ class InitiatePaymentViewTest(TestCase):
         self.assertEqual(self.cart.status, Cart.Status.PROCESSING)
 
 
+@pytest.mark.usefixtures('base_data')
 class CheckoutViewTests(TestCase):
     """Checkout View Test."""
 
@@ -309,6 +310,38 @@ class CheckoutViewTests(TestCase):
             'conditions. User is already enrolled in the course.',
         )
         self.assertEqual(response.status_code, 400)
+
+    def test_get_context_data_will_not_include_disabled_processors(self):
+        cart = Cart.objects.create(user=self.user, status=Cart.Status.PENDING)
+        self.client.force_login(self.user)
+
+        class EnabledProcessor:
+            """fake processor"""
+            SLUG = 'enabled'
+
+            @classmethod
+            def get_payment_method_metadata(cls, cart):  # pylint: disable=unused-argument
+                """not disabled"""
+                return {'slug': cls.SLUG, 'disabled': None}
+
+        class DisabledProcessor:
+            """fake processor"""
+            SLUG = 'disabled'
+
+            @classmethod
+            def get_payment_method_metadata(cls, cart):  # pylint: disable=unused-argument
+                """disabled"""
+                return {'slug': cls.SLUG, 'disabled': True}
+
+        mock_processors = {'enabled': EnabledProcessor, 'disabled': DisabledProcessor}
+        with patch('zeitlabs_payments.views.PROCESSORS', mock_processors):
+            response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['cart']['id'], cart.id)
+        method_slugs = [m['slug'] for m in response.context['methods']]
+        self.assertIn('enabled', method_slugs)
+        self.assertNotIn('disabled', method_slugs)
 
 
 @pytest.mark.django_db
