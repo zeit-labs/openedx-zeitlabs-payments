@@ -7,6 +7,8 @@
 {% load zeitlab_payment_tags %}
 {% get_current_language_bidi as LANGUAGE_BIDI %}
 
+{% block bodyclass %}zeitlabs-payment kkux-payment-body{% endblock %}
+
 {% block title %}
   {% filter force_escape %}
   {% blocktrans trimmed with order_number=invoice.invoice_number %}
@@ -15,9 +17,55 @@
   {% endfilter %}
 {% endblock title %}
 
+{% block headextra %}
+<style>
+@media print {
+  @page { margin: 0; }
+  html, body { width: 100%; height: 100%; margin: 0; padding: 0; }
+
+  /* Cover everything with the receipt */
+  .receipt-wrapper {
+    position: fixed; inset: 0; z-index: 99999;
+    background: white; overflow: auto;
+    font-family: 'IBM Plex Sans', 'IBM Plex Sans Arabic', sans-serif;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+
+  .receipt { padding: 40px; color: #000; }
+
+  .receipt-card { box-shadow: none !important; border-radius: 0 !important; max-width: 100% !important; margin: 0 !important; border: none !important; }
+  .receipt-header { border-bottom: 2px solid #000 !important; padding-bottom: 16px !important; margin-bottom: 24px !important; display: flex; justify-content: space-between; align-items: center; }
+  .receipt-header, .receipt-header * { background: white !important; color: black !important; }
+  .receipt-company-info { margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid #ddd; color: #333 !important; }
+  .receipt-company-info p { margin: 0; font-size: 13px; color: #333 !important; }
+  .receipt-body, .receipt-body * { color: #000 !important; }
+  .order-summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 16px; background: #f5f5f5 !important; border-radius: 8px; margin-bottom: 24px; }
+  .summary-item dt { font-size: 10px; text-transform: uppercase; color: #999 !important; font-weight: 500; }
+  .summary-item dd { font-size: 14px; font-weight: 600; margin: 0; color: #000 !important; }
+  .order-table { width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 13px; }
+  .order-table thead { background: #e8e8e8 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .order-table th { padding: 10px; text-align: left; border-bottom: 2px solid #000; font-weight: 600; font-size: 11px; text-transform: uppercase; }
+  .order-table td { padding: 10px; border-bottom: 1px solid #ddd; vertical-align: top; color: #000 !important; }
+  .order-totals { padding: 16px; background: #f5f5f5 !important; border: 1px solid #ddd; border-radius: 8px; }
+  .order-totals .totals-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; border-bottom: 1px solid #ddd; }
+  .order-totals .totals-row:last-child { border-bottom: none; border-top: 2px solid #000; margin-top: 6px; padding-top: 10px; font-weight: 700; font-size: 16px; }
+  .qr-section { display: flex; gap: 20px; margin-top: 24px; }
+  .qr-code { padding: 8px; background: white; border: 1px solid #ddd; }
+  .qr-code svg, .qr-code img { display: block; max-width: 120px; }
+  .product-name { font-weight: 600; }
+  .product-description { font-size: 12px; color: #666 !important; margin-top: 2px; }
+  .totals-label { color: #666 !important; }
+  .totals-value { color: #000 !important; }
+  .print-receipt-button, .go-to-course-button, .invoice-actions { display: none !important; }
+  .mb-3 { margin-bottom: 1rem; }
+}
+</style>
+{% endblock %}
+
 {% block body %}
 {% include "zeitlabs_payments/styles.html" %}
 
+<div class="receipt-wrapper">
 <div class="receipt" dir="{% if LANGUAGE_BIDI %}rtl{% else %}ltr{% endif %}">
     <div class="receipt-card">
         <!-- Header -->
@@ -127,11 +175,11 @@
             </div>
 
             <!-- Print Button -->
-            <div class="text-center mt-4 invoice-actions">
+            <div class="text-center mt-4 invoice-actions no-print">
                 {% for invoice_item in invoice.items.all %}
                     {% if invoice_item.cart_item.catalogue_item.type == 'paid_course' %}
-                    <a href="/courses/{{ invoice_item.cart_item.catalogue_item.item_ref_id }}/course/" class="btn btn-primary go-to-course-button">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <a href="/courses/{{ invoice_item.cart_item.catalogue_item.item_ref_id }}/course/" class="go-to-course-button">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
                             <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
                         </svg>
@@ -139,8 +187,8 @@
                     </a>
                     {% endif %}
                 {% endfor %}
-                <button class="print-receipt-button" onclick="window.print()">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <button class="print-receipt-button" onclick="window.print()" type="button">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <polyline points="6 9 6 2 18 2 18 9"/>
                         <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
                         <rect x="6" y="14" width="12" height="8"/>
@@ -151,6 +199,6 @@
         </div>
     </div>
 </div>
-<!-- Load eduba-theme header JavaScript for dropdown functionality -->
+
 <script src="{% static 'js/header/header.js' %}"></script>
 {% endblock %}
