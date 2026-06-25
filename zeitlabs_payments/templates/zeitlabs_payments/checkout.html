@@ -5,6 +5,8 @@
 {% load zeitlab_payment_tags %}
 {% get_current_language_bidi as LANGUAGE_BIDI %}
 
+{% block bodyclass %}zeitlabs-payment kkux-payment-body{% endblock %}
+
 {% block body %}
 {% include "zeitlabs_payments/styles.html" %}
 
@@ -160,6 +162,6 @@ function toggleVoucher() {
 }
 </script>
 
-<!-- Load eduba-theme header JavaScript for dropdown functionality -->
+<!-- Load platform header JavaScript for dropdown functionality -->
 <script src="{% static 'js/header/header.js' %}"></script>
 {% endblock %}

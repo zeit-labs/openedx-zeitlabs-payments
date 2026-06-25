@@ -156,6 +156,8 @@ class InitiatePaymentView(LoginRequiredMixin, View):
                 f'Error: User {request.user} attempted to access cart belonging to {cart.user}.'
             )
 
+        request.is_payment_page = True
+
         payment_view = processor.payment_view(
             cart=cart,
             request=request,
