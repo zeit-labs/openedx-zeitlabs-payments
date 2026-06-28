@@ -69,6 +69,7 @@ class BlockUnpaidCourseEnrollment:
     """
 
     def __init__(self, filter_type: str, running_pipeline: list, **extra_config: Any) -> None:
+        """Store filter metadata passed by the framework."""
         self.filter_type = filter_type
         self.running_pipeline = running_pipeline
         self.extra_config = extra_config
