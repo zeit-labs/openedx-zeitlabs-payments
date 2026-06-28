@@ -278,4 +278,4 @@ class TestPaymentsEnabled(TestCase):
 
     def test_current_environment_value(self):
         """Returns whatever IS_ZEITLABS_PAYMENTS_ENABLED is in test settings."""
-        assert _payments_enabled() is False  # test_settings.py sets it to False
+        assert _payments_enabled() is False

@@ -23,7 +23,6 @@ def plugin_settings(settings: Any) -> None:
         'zeitlabs_payments.pluggable_overrides.override_ecommerce_checkout_page'
     )
 
-    # Register enrollment filter pipeline step to block unpaid enrollments.
     filters_config = getattr(settings, 'OPEN_EDX_FILTERS_CONFIG', {})
     enrollment_config = filters_config.setdefault(ENROLLMENT_FILTER_TYPE, {
         'fail_silently': False,
