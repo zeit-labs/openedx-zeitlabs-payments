@@ -8,7 +8,6 @@ from django.db.models import Q
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    # These imports are only available at runtime inside edx-platform (production/CI).
     from opaque_keys.edx.keys import CourseKey
 
 
@@ -49,7 +48,7 @@ def _course_has_paid_mode(course_key: str) -> bool:
     ).exists()
 
 
-def block_unpaid_course_enrollment(user: Any, course_key: 'CourseKey', mode: str) -> None:
+class BlockUnpaidCourseEnrollment:
     """
     Open edX pipeline step for ``CourseEnrollmentStarted``.
 
@@ -63,36 +62,50 @@ def block_unpaid_course_enrollment(user: Any, course_key: 'CourseKey', mode: str
     *Free* courses (no paid CourseMode) are never blocked.
     *Staff/superusers* are never blocked (admins may enroll users
     directly).
+
+    The Open edX filter framework instantiates this class with filter
+    metadata (``filter_type``, ``running_pipeline``) and then calls
+    ``run_filter()`` with the enrollment arguments.
     """
-    from openedx_filters.learning.filters import CourseEnrollmentStarted  # pylint: disable=import-outside-toplevel
 
-    # Short-circuit if payments are disabled for this instance — the
-    # database tables may not even exist.
-    if not _payments_enabled():
-        return
+    def __init__(self, filter_type: str, running_pipeline: list, **extra_config: Any) -> None:
+        self.filter_type = filter_type
+        self.running_pipeline = running_pipeline
+        self.extra_config = extra_config
 
-    # Never block staff/superuser enrollments (admin panel, etc.).
-    if getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False):
-        return
+    def run_filter(
+        self, user: Any, course_key: 'CourseKey', mode: str  # pylint: disable=unused-argument
+    ) -> dict[str, Any]:
+        """Check payment and allow or block enrollment."""
+        from openedx_filters.learning.filters import CourseEnrollmentStarted  # pylint: disable=import-outside-toplevel
 
-    course_key_str = str(course_key)
+        # Short-circuit if payments are disabled for this instance — the
+        # database tables may not even exist.
+        if not _payments_enabled():
+            return {}
 
-    if not _course_has_paid_mode(course_key_str):
-        # Free course — nothing to gate.
-        return
+        # Never block staff/superuser enrollments (admin panel, etc.).
+        if getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False):
+            return {}
 
-    if _has_paid_cart_for_course(user, course_key_str):
-        # Legitimate post-payment fulfillment enrollment.
-        return
+        course_key_str = str(course_key)
 
-    logger.warning(
-        'Blocked unpaid enrollment for user %s in paid course %s (mode=%s)',
-        user.id,
-        course_key_str,
-        mode,
-    )
+        if not _course_has_paid_mode(course_key_str):
+            # Free course — nothing to gate.
+            return {}
 
-    raise CourseEnrollmentStarted.PreventEnrollment(
-        f'Payment required for course {course_key_str}. '
-        f'User {user.id} has no paid cart.'
-    )
+        if _has_paid_cart_for_course(user, course_key_str):
+            # Legitimate post-payment fulfillment enrollment.
+            return {}
+
+        logger.warning(
+            'Blocked unpaid enrollment for user %s in paid course %s (mode=%s)',
+            user.id,
+            course_key_str,
+            mode,
+        )
+
+        raise CourseEnrollmentStarted.PreventEnrollment(
+            f'Payment required for course {course_key_str}. '
+            f'User {user.id} has no paid cart.'
+        )
