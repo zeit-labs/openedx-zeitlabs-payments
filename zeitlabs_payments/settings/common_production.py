@@ -2,7 +2,7 @@
 from typing import Any
 
 ENROLLMENT_FILTER_TYPE = 'org.openedx.learning.course.enrollment.started.v1'
-ENROLLMENT_FILTER_STEP = 'zeitlabs_payments.filters.block_unpaid_course_enrollment'
+ENROLLMENT_FILTER_STEP = 'zeitlabs_payments.filters.BlockUnpaidCourseEnrollment'
 
 
 def plugin_settings(settings: Any) -> None:

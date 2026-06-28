@@ -7,10 +7,10 @@ from django.test import TestCase
 from openedx_filters.learning.filters import CourseEnrollmentStarted
 
 from zeitlabs_payments.filters import (
+    BlockUnpaidCourseEnrollment,
     _course_has_paid_mode,
     _has_paid_cart_for_course,
     _payments_enabled,
-    block_unpaid_course_enrollment,
 )
 from zeitlabs_payments.models import Cart, CartItem, CatalogueItem
 
@@ -115,12 +115,20 @@ class TestCourseHasPaidMode(TestCase):
 
 @pytest.mark.usefixtures('base_data')
 class TestBlockUnpaidCourseEnrollment(TestCase):
-    """Tests for block_unpaid_course_enrollment()."""
+    """Tests for BlockUnpaidCourseEnrollment."""
+
+    def _make_step(self):
+        """Create a pipeline step instance with default filter metadata."""
+        return BlockUnpaidCourseEnrollment(
+            filter_type='org.openedx.learning.course.enrollment.started.v1',
+            running_pipeline=['zeitlabs_payments.filters.BlockUnpaidCourseEnrollment'],
+        )
 
     def test_free_course_allows_enrollment(self):
         """Free courses (no paid mode) should never be blocked — no exception raised."""
+        step = self._make_step()
         try:
-            block_unpaid_course_enrollment(
+            step.run_filter(
                 MagicMock(id=1),
                 MagicMock(__str__=lambda s: 'course-v1:org1+3+3'),
                 'audit',
@@ -130,6 +138,7 @@ class TestBlockUnpaidCourseEnrollment(TestCase):
 
     def test_paid_course_without_cart_blocks(self):
         """Paid course without a paid cart raises PreventEnrollment."""
+        step = self._make_step()
         with pytest.raises(CourseEnrollmentStarted.PreventEnrollment):
             with patch(
                 'zeitlabs_payments.filters._payments_enabled',
@@ -138,7 +147,7 @@ class TestBlockUnpaidCourseEnrollment(TestCase):
                 'zeitlabs_payments.filters._has_paid_cart_for_course',
                 return_value=False,
             ):
-                block_unpaid_course_enrollment(
+                step.run_filter(
                     MagicMock(id=1, is_staff=False, is_superuser=False),
                     MagicMock(__str__=lambda s: 'course-v1:org1+1+1'),
                     'verified',
@@ -146,6 +155,7 @@ class TestBlockUnpaidCourseEnrollment(TestCase):
 
     def test_paid_course_with_paid_cart_allows(self):
         """Paid course with a paid cart should not block enrollment."""
+        step = self._make_step()
         try:
             with patch(
                 'zeitlabs_payments.filters._payments_enabled',
@@ -157,7 +167,7 @@ class TestBlockUnpaidCourseEnrollment(TestCase):
                 'zeitlabs_payments.filters._course_has_paid_mode',
                 return_value=True,
             ):
-                block_unpaid_course_enrollment(
+                step.run_filter(
                     MagicMock(id=1),
                     MagicMock(__str__=lambda s: 'course-v1:org1+1+1'),
                     'verified',
@@ -167,6 +177,7 @@ class TestBlockUnpaidCourseEnrollment(TestCase):
 
     def test_logs_warning_on_blocked_enrollment(self):
         """Verifies a warning is logged when enrollment is blocked."""
+        step = self._make_step()
         mock_logger = MagicMock()
         with patch(
             'zeitlabs_payments.filters.logger',
@@ -179,7 +190,7 @@ class TestBlockUnpaidCourseEnrollment(TestCase):
             return_value=False,
         ):
             try:
-                block_unpaid_course_enrollment(
+                step.run_filter(
                     MagicMock(id=42, is_staff=False, is_superuser=False),
                     MagicMock(__str__=lambda s: 'course-v1:org1+1+1'),
                     'verified',
@@ -193,6 +204,7 @@ class TestBlockUnpaidCourseEnrollment(TestCase):
 
     def test_staff_user_always_allowed(self):
         """Staff users are never blocked, even without a paid cart."""
+        step = self._make_step()
         try:
             with patch(
                 'zeitlabs_payments.filters._payments_enabled',
@@ -201,7 +213,7 @@ class TestBlockUnpaidCourseEnrollment(TestCase):
                 'zeitlabs_payments.filters._has_paid_cart_for_course',
                 return_value=False,
             ):
-                block_unpaid_course_enrollment(
+                step.run_filter(
                     MagicMock(id=1, is_staff=True, is_superuser=False),
                     MagicMock(__str__=lambda s: 'course-v1:org1+1+1'),
                     'verified',
@@ -211,6 +223,7 @@ class TestBlockUnpaidCourseEnrollment(TestCase):
 
     def test_superuser_always_allowed(self):
         """Superusers are never blocked, even without a paid cart."""
+        step = self._make_step()
         try:
             with patch(
                 'zeitlabs_payments.filters._payments_enabled',
@@ -219,7 +232,7 @@ class TestBlockUnpaidCourseEnrollment(TestCase):
                 'zeitlabs_payments.filters._has_paid_cart_for_course',
                 return_value=False,
             ):
-                block_unpaid_course_enrollment(
+                step.run_filter(
                     MagicMock(id=1, is_staff=False, is_superuser=True),
                     MagicMock(__str__=lambda s: 'course-v1:org1+1+1'),
                     'verified',
@@ -229,12 +242,13 @@ class TestBlockUnpaidCourseEnrollment(TestCase):
 
     def test_payments_disabled_bypasses_filter(self):
         """When IS_ZEITLABS_PAYMENTS_ENABLED is False, enrollment is never blocked."""
+        step = self._make_step()
         try:
             with patch(
                 'zeitlabs_payments.filters._payments_enabled',
                 return_value=False,
             ):
-                block_unpaid_course_enrollment(
+                step.run_filter(
                     MagicMock(id=1),
                     MagicMock(__str__=lambda s: 'course-v1:org1+1+1'),
                     'verified',
