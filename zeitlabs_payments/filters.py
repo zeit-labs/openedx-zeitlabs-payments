@@ -80,23 +80,18 @@ class BlockUnpaidCourseEnrollment:
         """Check payment and allow or block enrollment."""
         from openedx_filters.learning.filters import CourseEnrollmentStarted  # pylint: disable=import-outside-toplevel
 
-        # Short-circuit if payments are disabled for this instance — the
-        # database tables may not even exist.
         if not _payments_enabled():
             return {}
 
-        # Never block staff/superuser enrollments (admin panel, etc.).
         if getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False):
             return {}
 
         course_key_str = str(course_key)
 
         if not _course_has_paid_mode(course_key_str):
-            # Free course — nothing to gate.
             return {}
 
         if _has_paid_cart_for_course(user, course_key_str):
-            # Legitimate post-payment fulfillment enrollment.
             return {}
 
         logger.warning(
