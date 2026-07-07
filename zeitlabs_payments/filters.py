@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, Any
 
 from django.db.models import Q
 
+from zeitlabs_payments.helpers import get_settings
+
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
@@ -13,8 +15,7 @@ if TYPE_CHECKING:
 
 def _payments_enabled() -> bool:
     """Return True if zeitlabs-payments is active on this instance."""
-    from django.conf import settings  # pylint: disable=import-outside-toplevel
-    return bool(getattr(settings, 'IS_ZEITLABS_PAYMENTS_ENABLED', False))
+    return get_settings().is_payments_enabled
 
 
 def _has_paid_cart_for_course(user: Any, course_key: str) -> bool:
