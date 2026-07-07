@@ -127,14 +127,17 @@ class TestBlockUnpaidCourseEnrollment(TestCase):
     def test_free_course_allows_enrollment(self):
         """Free courses (no paid mode) should never be blocked — no exception raised."""
         step = self._make_step()
-        try:
-            step.run_filter(
-                MagicMock(id=1),
+        with patch(
+            'zeitlabs_payments.filters._payments_enabled',
+            return_value=True,
+        ):
+            result = step.run_filter(
+                MagicMock(id=1, is_staff=False, is_superuser=False),
                 MagicMock(__str__=lambda s: 'course-v1:org1+3+3'),
                 'audit',
             )
-        except CourseEnrollmentStarted.PreventEnrollment as exc:
-            pytest.fail(f'Free course enrollment should not be blocked, got: {exc}')
+        assert isinstance(result, dict)
+        assert not result
 
     def test_paid_course_without_cart_blocks(self):
         """Paid course without a paid cart raises PreventEnrollment."""
@@ -156,24 +159,23 @@ class TestBlockUnpaidCourseEnrollment(TestCase):
     def test_paid_course_with_paid_cart_allows(self):
         """Paid course with a paid cart should not block enrollment."""
         step = self._make_step()
-        try:
-            with patch(
-                'zeitlabs_payments.filters._payments_enabled',
-                return_value=True,
-            ), patch(
-                'zeitlabs_payments.filters._has_paid_cart_for_course',
-                return_value=True,
-            ), patch(
-                'zeitlabs_payments.filters._course_has_paid_mode',
-                return_value=True,
-            ):
-                step.run_filter(
-                    MagicMock(id=1),
-                    MagicMock(__str__=lambda s: 'course-v1:org1+1+1'),
-                    'verified',
-                )
-        except CourseEnrollmentStarted.PreventEnrollment as exc:
-            pytest.fail(f'Paid course with paid cart should not block enrollment, got: {exc}')
+        with patch(
+            'zeitlabs_payments.filters._payments_enabled',
+            return_value=True,
+        ), patch(
+            'zeitlabs_payments.filters._has_paid_cart_for_course',
+            return_value=True,
+        ), patch(
+            'zeitlabs_payments.filters._course_has_paid_mode',
+            return_value=True,
+        ):
+            result = step.run_filter(
+                MagicMock(id=1, is_staff=False, is_superuser=False),
+                MagicMock(__str__=lambda s: 'course-v1:org1+1+1'),
+                'verified',
+            )
+        assert isinstance(result, dict)
+        assert not result
 
     def test_logs_warning_on_blocked_enrollment(self):
         """Verifies a warning is logged when enrollment is blocked."""
@@ -188,15 +190,12 @@ class TestBlockUnpaidCourseEnrollment(TestCase):
         ), patch(
             'zeitlabs_payments.filters._has_paid_cart_for_course',
             return_value=False,
-        ):
-            try:
-                step.run_filter(
-                    MagicMock(id=42, is_staff=False, is_superuser=False),
-                    MagicMock(__str__=lambda s: 'course-v1:org1+1+1'),
-                    'verified',
-                )
-            except CourseEnrollmentStarted.PreventEnrollment:
-                pass
+        ), pytest.raises(CourseEnrollmentStarted.PreventEnrollment):
+            step.run_filter(
+                MagicMock(id=42, is_staff=False, is_superuser=False),
+                MagicMock(__str__=lambda s: 'course-v1:org1+1+1'),
+                'verified',
+            )
         mock_logger.warning.assert_called_once()
         args_str = str(mock_logger.warning.call_args[0])
         assert '42' in args_str
@@ -205,56 +204,53 @@ class TestBlockUnpaidCourseEnrollment(TestCase):
     def test_staff_user_always_allowed(self):
         """Staff users are never blocked, even without a paid cart."""
         step = self._make_step()
-        try:
-            with patch(
-                'zeitlabs_payments.filters._payments_enabled',
-                return_value=True,
-            ), patch(
-                'zeitlabs_payments.filters._has_paid_cart_for_course',
-                return_value=False,
-            ):
-                step.run_filter(
-                    MagicMock(id=1, is_staff=True, is_superuser=False),
-                    MagicMock(__str__=lambda s: 'course-v1:org1+1+1'),
-                    'verified',
-                )
-        except CourseEnrollmentStarted.PreventEnrollment as exc:
-            pytest.fail(f'Staff user should not be blocked, got: {exc}')
+        with patch(
+            'zeitlabs_payments.filters._payments_enabled',
+            return_value=True,
+        ), patch(
+            'zeitlabs_payments.filters._has_paid_cart_for_course',
+            return_value=False,
+        ):
+            result = step.run_filter(
+                MagicMock(id=1, is_staff=True, is_superuser=False),
+                MagicMock(__str__=lambda s: 'course-v1:org1+1+1'),
+                'verified',
+            )
+        assert isinstance(result, dict)
+        assert not result
 
     def test_superuser_always_allowed(self):
         """Superusers are never blocked, even without a paid cart."""
         step = self._make_step()
-        try:
-            with patch(
-                'zeitlabs_payments.filters._payments_enabled',
-                return_value=True,
-            ), patch(
-                'zeitlabs_payments.filters._has_paid_cart_for_course',
-                return_value=False,
-            ):
-                step.run_filter(
-                    MagicMock(id=1, is_staff=False, is_superuser=True),
-                    MagicMock(__str__=lambda s: 'course-v1:org1+1+1'),
-                    'verified',
-                )
-        except CourseEnrollmentStarted.PreventEnrollment as exc:
-            pytest.fail(f'Superuser should not be blocked, got: {exc}')
+        with patch(
+            'zeitlabs_payments.filters._payments_enabled',
+            return_value=True,
+        ), patch(
+            'zeitlabs_payments.filters._has_paid_cart_for_course',
+            return_value=False,
+        ):
+            result = step.run_filter(
+                MagicMock(id=1, is_staff=False, is_superuser=True),
+                MagicMock(__str__=lambda s: 'course-v1:org1+1+1'),
+                'verified',
+            )
+        assert isinstance(result, dict)
+        assert not result
 
     def test_payments_disabled_bypasses_filter(self):
         """When IS_ZEITLABS_PAYMENTS_ENABLED is False, enrollment is never blocked."""
         step = self._make_step()
-        try:
-            with patch(
-                'zeitlabs_payments.filters._payments_enabled',
-                return_value=False,
-            ):
-                step.run_filter(
-                    MagicMock(id=1),
-                    MagicMock(__str__=lambda s: 'course-v1:org1+1+1'),
-                    'verified',
-                )
-        except CourseEnrollmentStarted.PreventEnrollment as exc:
-            pytest.fail(f'Should bypass when payments disabled, got: {exc}')
+        with patch(
+            'zeitlabs_payments.filters._payments_enabled',
+            return_value=False,
+        ):
+            result = step.run_filter(
+                MagicMock(id=1),
+                MagicMock(__str__=lambda s: 'course-v1:org1+1+1'),
+                'verified',
+            )
+        assert isinstance(result, dict)
+        assert not result
 
 
 class TestPaymentsEnabled(TestCase):

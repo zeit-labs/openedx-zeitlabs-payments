@@ -3,9 +3,11 @@
 import logging
 from typing import TYPE_CHECKING, Any
 
-from django.db.models import Q
+from common.djangoapps.course_modes.models import CourseMode
+from openedx_filters.learning.filters import CourseEnrollmentStarted
 
 from zeitlabs_payments.helpers import get_settings
+from zeitlabs_payments.models import Cart, CartItem
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +28,6 @@ def _has_paid_cart_for_course(user: Any, course_key: str) -> bool:
     user went through the checkout→payment→fulfillment flow and is eligible
     for enrollment.
     """
-    from zeitlabs_payments.models import Cart, CartItem  # pylint: disable=import-outside-toplevel
-
     return CartItem.objects.filter(
         cart__user=user,
         cart__status=Cart.Status.PAID,
@@ -41,12 +41,7 @@ def _course_has_paid_mode(course_key: str) -> bool:
 
     Paid modes are those that are not ``audit``.
     """
-    from common.djangoapps.course_modes.models import CourseMode  # pylint: disable=import-outside-toplevel
-
-    return CourseMode.objects.filter(
-        Q(course_id=course_key),
-        ~Q(mode_slug=CourseMode.AUDIT),
-    ).exists()
+    return CourseMode.objects.filter(course_id=course_key).exists()
 
 
 class BlockUnpaidCourseEnrollment:
@@ -76,11 +71,9 @@ class BlockUnpaidCourseEnrollment:
         self.extra_config = extra_config
 
     def run_filter(
-        self, user: Any, course_key: 'CourseKey', mode: str  # pylint: disable=unused-argument
+        self, user: Any, course_key: 'CourseKey', mode: str
     ) -> dict[str, Any]:
         """Check payment and allow or block enrollment."""
-        from openedx_filters.learning.filters import CourseEnrollmentStarted  # pylint: disable=import-outside-toplevel
-
         if not _payments_enabled():
             return {}
 
