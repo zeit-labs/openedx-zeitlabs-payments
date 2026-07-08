@@ -6,8 +6,10 @@ from django.http import HttpResponse
 from django.shortcuts import render
 from django.urls import path, reverse
 
-from .models import AuditLog, Cart, CartItem, CatalogueItem, Invoice, InvoiceItem, TaxRule, Transaction, WebhookEvent
+from .helpers import get_course_id
+from .models import AuditLog, Cart, CartItem, CatalogueItem, Invoice, InvoiceItem, TaxRule, Transaction, WebhookEvent, ManualManagement
 from .providers.registry import PROCESSORS
+from .providers.manual_payment.processor import ManualPaymentProcessor
 
 
 @admin.register(Cart)
@@ -165,6 +167,75 @@ class TaxRuleAdmin(admin.ModelAdmin):
     search_fields = ('name',)
     ordering = ('-is_active', '-id')
     readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(ManualManagement)
+class ManualManagementAdmin(admin.ModelAdmin):
+    """
+    Admin configuration for the ManualManagement model.
+    """
+
+    list_display = ('id', 'user', 'status', 'approver', 'course_id', 'invoice', 'created_at')
+    list_filter = ('status', 'created_at')
+    search_fields = ('user__email', 'cart__id', 'id', 'cart__items__catalogue_item__item_ref_id')
+    autocomplete_fields = ('cart', 'user', 'approver')
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly = ['cart', 'user', 'approver', 'invoice']
+        if obj and obj.status == ManualManagement.ManualManagementType.PAID:
+            readonly.append('status')
+        return readonly
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.prefetch_related('cart__items__catalogue_item')
+
+    @admin.display(description='Course ID')
+    def course_id(self, obj):
+        items = list(obj.cart.items.all())
+        if not items:
+            return '-'
+
+        try:
+            return get_course_id(items[0])
+        except GatewayError:
+            return '-'
+
+    def has_add_permission(self, request):
+        return False
+
+    def save_model(self, request, obj, form, change):
+        # Detect whether status is being changed to PAYMENT in this save.
+        is_becoming_payment = (
+            obj.status == ManualManagement.ManualManagementType.PAID
+            and (not change or 'status' in form.changed_data)
+        )
+
+        if is_becoming_payment:
+            obj.approver = request.user
+            result = self._handle_payment(request, obj)
+            obj.invoice = result['created_invoice']
+
+        super().save_model(request, obj, form, change)
+
+    def _handle_payment(self, request, obj):
+        """
+        Runs whenever this ManualManagement record is set to PAID.
+        Directly invokes ManualPaymentProcessor.process_payment on the existing cart.
+
+        :return: dict with 'created_cart' and 'created_invoice' keys.
+        """
+        processor = ManualPaymentProcessor()
+        try:
+             return processor.process_payment(
+                request=request,
+                cart=obj.cart,
+                transaction_id=str(obj.id),
+                transaction_status='success',
+                reason=f'Manual payment created via admin by {request.user}',
+            )
+        except Exception as exc:
+            raise ValidationError(f'Manual payment failed: {exc}') from exc
 
 
 class PaymentProcessorAdminPage:

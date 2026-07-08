@@ -16,6 +16,11 @@ def plugin_settings(settings: Any) -> None:
         'IS_ZEITLABS_PAYMENTS_ENABLED',
         False,
     )
+    settings.ZEITLABS_MANUAL_PAYMENT_ENABLED = getattr(
+        settings,
+        'ZEITLABS_MANUAL_PAYMENT_ENABLED',
+        False,
+    )
     settings.OVERRIDE_ECOMMERCE_SERVICE_CHECKOUT_PAGE = (
         'zeitlabs_payments.pluggable_overrides.override_ecommerce_checkout_page'
     )

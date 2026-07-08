@@ -364,3 +364,22 @@ class TaxRule(TimeStampedModel):
         if self.tax_type == self.TaxType.PERCENT:
             return f'{self.name} - {self.tax_value}%'
         return f'{self.name} - {self.tax_value}'
+
+
+class ManualManagement(TimeStampedModel):
+    """Manual management model."""
+
+    class ManualManagementType(models.TextChoices):
+        """Transaction types."""
+
+        WAITING = 'waiting'
+        PAID = 'paid'
+
+    cart = models.ForeignKey(Cart, on_delete=models.CASCADE, related_name='manual')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='manual')
+    status = models.CharField(max_length=20, choices=ManualManagementType.choices)
+    approver = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True
+    )
+    invoice = models.CharField(max_length=255, null=True, blank=True)
+

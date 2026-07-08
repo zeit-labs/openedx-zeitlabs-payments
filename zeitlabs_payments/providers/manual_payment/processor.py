@@ -1,12 +1,14 @@
 """Base processor."""
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from django.db import transaction
+from django.http import HttpRequest, HttpResponse
 from django.utils.translation import gettext_lazy as _
+from django.shortcuts import render
 
 from zeitlabs_payments.helpers import get_currency
-from zeitlabs_payments.models import AuditLog, Cart
+from zeitlabs_payments.models import AuditLog, Cart, ManualManagement
 from zeitlabs_payments.providers.base import BaseProcessor
 
 logger = logging.getLogger(__name__)
@@ -16,9 +18,9 @@ class ManualPaymentProcessor(BaseProcessor):
     """Manual payment processor."""
 
     SLUG = 'manual'
-    CHECKOUT_TEXT = ''
+    CHECKOUT_TEXT = 'Manual Payment'
     NAME = 'Manual Payment'
-
+    TEMPLATE_NAME = 'zeitlabs_payments/manual_payment.html'
     def get_transaction_parameters(
         self,
         cart: Cart,
@@ -35,7 +37,13 @@ class ManualPaymentProcessor(BaseProcessor):
         :param kwargs: Additional parameters
         :return: A dictionary of transaction parameters
         """
-        raise NotImplementedError
+        transaction_parameters = self.get_transaction_parameters_base(cart, request)
+        transaction_parameters.update({
+            'payment_page_url': '/api/payment/v1/manual/',
+            'user_id': cart.user.id
+        })
+
+        return transaction_parameters
 
     def process_payment(  # pylint: disable= too-many-positional-arguments
         self,
@@ -80,3 +88,33 @@ class ManualPaymentProcessor(BaseProcessor):
                 'created_cart': cart.id,
                 'created_invoice': invoice.invoice_number
             }
+
+    def payment_view(
+        self,
+        cart: Cart,
+        request: Optional[HttpRequest] = None,
+        use_client_side_checkout: bool = False,
+        **kwargs: Any,
+    ) -> HttpResponse:
+        """
+        Render the payment redirection view.
+        """
+        try:
+            transaction_parameters = self.get_transaction_parameters(
+                cart=cart,
+                request=request,
+                use_client_side_checkout=use_client_side_checkout,
+                **kwargs,
+            )
+            ManualManagement.objects.create(
+                    cart=cart,
+                    user=cart.user,
+                    status=ManualManagement.ManualManagementType.WAITING,
+                    )
+        except Exception:  # pylint: disable=broad-exception-caught
+            return render(request, 'zeitlabs_payments/payment_error.html')
+        return render(
+            request,
+            self.TEMPLATE_NAME,
+            {'transaction_parameters': transaction_parameters},
+        )
