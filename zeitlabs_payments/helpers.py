@@ -80,6 +80,9 @@ class ZeitLabsPluginSettings:
     logo_url: str = field(
         default_factory=lambda: ZeitLabsPluginSettings.get_by_zeitlabs_key('logo_url', '')
     )
+    invoice_logo_url: str = field(
+        default_factory=lambda: ZeitLabsPluginSettings.get_by_zeitlabs_key('invoice_logo_url', '')
+    )
     root_url: str = field(
         default_factory=lambda: ZeitLabsPluginSettings.get_by_root_key(
             'LMS_ROOT_URL',

@@ -19,6 +19,7 @@
 
 {% block headextra %}
 <style>
+.logo-print { display: none; }
 @media print {
   @page { margin: 0; }
   html, body { width: 100%; height: 100%; margin: 0; padding: 0; }
@@ -58,6 +59,8 @@
   .totals-value { color: #000 !important; }
   .print-receipt-button, .go-to-course-button, .invoice-actions { display: none !important; }
   .mb-3 { margin-bottom: 1rem; }
+  .logo-screen { display: none !important; }
+  .logo-print { display: inline-block !important; }
 }
 </style>
 {% endblock %}
@@ -72,7 +75,10 @@
         <div class="receipt-header">
             <h2>{% trans "Invoice" %}</h2>
             {% if logo_url %}
-            <img class="logo" alt="{% trans 'Logo' %}" src="{{ logo_url }}">
+            <img class="logo logo-screen" alt="{% trans 'Logo' %}" src="{{ logo_url }}">
+            {% endif %}
+            {% if invoice_logo_url %}
+            <img class="logo logo-print" alt="{% trans 'Logo' %}" src="{{ invoice_logo_url }}">
             {% endif %}
         </div>
 
