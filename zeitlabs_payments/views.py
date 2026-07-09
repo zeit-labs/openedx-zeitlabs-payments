@@ -43,6 +43,7 @@ class ContextMixing(TemplateView):
                 'support_url': get_settings().support_url,
                 'support_email': get_settings().support_email,
                 'logo_url': get_settings().logo_url,
+                'invoice_logo_url': get_settings().invoice_logo_url or get_settings().logo_url,
             }
         )
         return context
