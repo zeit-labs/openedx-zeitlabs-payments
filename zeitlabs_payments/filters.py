@@ -7,7 +7,7 @@ from common.djangoapps.course_modes.models import CourseMode
 from openedx_filters.learning.filters import CourseEnrollmentStarted
 
 from zeitlabs_payments.helpers import get_settings
-from zeitlabs_payments.models import Cart, CartItem
+from zeitlabs_payments.models import Cart, CartItem, CatalogueItem
 
 logger = logging.getLogger(__name__)
 
@@ -22,16 +22,39 @@ def _payments_enabled() -> bool:
 
 def _has_paid_cart_for_course(user: Any, course_key: str) -> bool:
     """
-    Check whether the user has a paid cart containing a CartItem for the given course.
+    Check whether the user has a paid cart containing a CartItem.
 
-    A paid cart has status ``Cart.Status.PAID``.  Having such a cart means the
-    user went through the checkout→payment→fulfillment flow and is eligible
-    for enrollment.
+    Returns True if the user's cart has status ``Cart.Status.PAID`` and
+    its catalogue item directly references the given course via its
+    ``item_ref_id``. Having such a cart means the user went through the
+    checkout→payment→fulfillment flow and is eligible for enrollment
+    into that exact course.
     """
     return CartItem.objects.filter(
         cart__user=user,
         cart__status=Cart.Status.PAID,
         catalogue_item__item_ref_id=str(course_key),
+    ).exists()
+
+
+def _has_paid_cart_via_bundle(user: Any, course_key: str) -> bool:
+    """
+    Check whether the user has a paid cart that grants access via a bundle.
+
+    Returns True if the user has a paid cart containing a
+    ``PROGRAM_BUNDLE`` CartItem whose bundle links to the given course
+    via ``BundleCourseItem``. When a learner purchases a program/diploma,
+    the cart's catalogue item is the bundle (its ``item_ref_id`` is the
+    program UUID, not any individual course key). Access to each
+    constituent course is granted by the ``BundleCourseItem`` rows
+    linking the bundle to those courses, so we must follow that join to
+    recognize "the user paid for this course as part of a bundle".
+    """
+    return CartItem.objects.filter(
+        cart__user=user,
+        cart__status=Cart.Status.PAID,
+        catalogue_item__type=CatalogueItem.ItemType.PROGRAM_BUNDLE,
+        catalogue_item__bundle_courses__course_item__item_ref_id=str(course_key),
     ).exists()
 
 
@@ -49,7 +72,9 @@ class BlockUnpaidCourseEnrollment:
     Open edX pipeline step for ``CourseEnrollmentStarted``.
 
     Prevents enrollment in a paid course unless the user has a completed
-    payment (Cart with status PAID) for that course.
+    payment (Cart with status PAID) for that course — either by purchasing
+    the course directly or by purchasing a program bundle that includes
+    the course.
 
     This closes the security gap where the Learning MFE's "Enroll"
     button calls ``CourseEnrollment.enroll()`` directly — bypassing the
@@ -86,6 +111,9 @@ class BlockUnpaidCourseEnrollment:
             return {}
 
         if _has_paid_cart_for_course(user, course_key_str):
+            return {}
+
+        if _has_paid_cart_via_bundle(user, course_key_str):
             return {}
 
         logger.warning(
