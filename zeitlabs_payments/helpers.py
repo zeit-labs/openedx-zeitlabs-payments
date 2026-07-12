@@ -26,7 +26,7 @@ from openedx.core.djangoapps.content.course_overviews.models import CourseOvervi
 from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
 
 from zeitlabs_payments.exceptions import DuplicateCartError, GatewayError
-from zeitlabs_payments.models import AuditLog, Cart, CartItem, CatalogueItem, Invoice
+from zeitlabs_payments.models import AuditLog, BundleCourseItem, Cart, CartItem, CatalogueItem, Invoice
 
 logger = logging.getLogger(__name__)
 
@@ -273,6 +273,81 @@ def get_merchant_reference(site_id: int, cart: Cart) -> str:
     verify_param(cart, 'cart', Cart)
 
     return f'{site_id}-{cart.id}'
+
+
+def get_first_course_for_cart(cart: Cart) -> Optional[dict]:
+    """
+    Return the first course that a learner should open after a successful payment.
+
+    Used by the post-payment confirmation page so that learners who buy a
+    program (diploma) — which contains multiple courses — are not stranded on
+    the success screen. The function resolves to the same first course regardless
+    of whether the cart contains a single paid course or a program bundle.
+
+    Resolution rules:
+    - For a cart with a single ``program_bundle`` item: return the first
+      course linked to that bundle, ordered by ``BundleCourseItem.id`` (i.e.
+      the order the admin linked them in).
+    - For a cart with a single ``paid_course`` item: return that course.
+    - For a cart with no items, multiple items, or any other catalogue type:
+      return ``None`` (the caller should fall back to a generic CTA).
+
+    :param cart: The cart whose contents should be inspected.
+    :return: A dict with ``course_id``, ``course_name`` and ``is_program``
+        keys, or ``None`` if no first course can be determined.
+    """
+    verify_param(cart, 'cart', Cart)
+
+    items = list(cart.items.all())
+    if len(items) != 1:
+        return None
+
+    item = items[0]
+    catalogue_item = item.catalogue_item
+
+    if catalogue_item.type == CatalogueItem.ItemType.PAID_COURSE:
+        return {
+            'course_id': catalogue_item.item_ref_id,
+            'course_name': catalogue_item.title,
+            'is_program': False,
+        }
+
+    if catalogue_item.type == CatalogueItem.ItemType.PROGRAM_BUNDLE:
+        first_link = (
+            BundleCourseItem.objects
+            .filter(bundle=catalogue_item)
+            .select_related('course_item')
+            .order_by('id')
+            .first()
+        )
+        if not first_link:
+            logger.warning(
+                f'Program bundle "{catalogue_item.sku}" has no linked courses; '
+                'cannot determine first course for post-payment navigation.'
+            )
+            return None
+        return {
+            'course_id': first_link.course_item.item_ref_id,
+            'course_name': first_link.course_item.title,
+            'is_program': True,
+        }
+
+    return None
+
+
+def get_first_course_url(course_id: str) -> str:
+    """
+    Return the LMS URL the learner should be sent to.
+
+    Used after a successful payment to open the first course in a single
+    paid course or program bundle. Uses the same URL pattern as the invoice's
+    "Go to Course" action so the post-payment flow is consistent across both
+    pages.
+
+    :param course_id: The Open edX course run key.
+    :return: Absolute path to the course page.
+    """
+    return f'/courses/{course_id}/course/'
 
 
 def check_user_enroll_conditions(user: get_user_model, course_mode: CourseMode) -> None:

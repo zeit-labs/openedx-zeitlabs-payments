@@ -19,7 +19,7 @@ from rest_framework.views import APIView
 from zeitlabs_payments import models
 from zeitlabs_payments.cart_handler import CART_HANDLER
 from zeitlabs_payments.exceptions import InvalidCartError
-from zeitlabs_payments.helpers import get_currency, get_settings
+from zeitlabs_payments.helpers import get_currency, get_first_course_for_cart, get_first_course_url, get_settings
 from zeitlabs_payments.providers.registry import PROCESSORS, get_processor
 from zeitlabs_payments.querysets import get_orders_queryset
 from zeitlabs_payments.serializers import CartSerializer
@@ -298,19 +298,70 @@ class PaymentDeclineView(ContextMixing):
 
 
 class PaymentSuccessView(ContextMixing):
-    """Render the template that shows the error message to the user when the payment handling is failed."""
+    """
+    Render the confirmation page shown to the user after a successful payment.
+
+    When the merchant_reference resolves to a cart that contains either a
+    single paid course or a program bundle, the page exposes a primary
+    "Start your first course" CTA that takes the learner straight to the
+    first course they should open. This avoids stranding learners who bought
+    a diploma (multi-course program) on the success screen with no obvious
+    next step.
+    """
 
     template_name = 'zeitlabs_payments/payment_successful.html'
 
     def get(self, request: Any, *args: Any, **kwargs: Any) -> Any:
         """Handle the GET request."""
+        merchant_reference = args[0]
         context = self.get_context_data()
+
+        first_course_url = None
+        first_course_name = None
+        is_program = False
+
+        cart = self._get_cart_for_user(merchant_reference, request.user)
+        if cart is not None:
+            first_course = get_first_course_for_cart(cart)
+            if first_course is not None:
+                first_course_url = get_first_course_url(first_course['course_id'])
+                first_course_name = first_course['course_name']
+                is_program = first_course['is_program']
+
         context.update(
             {
-                'merchant_reference': args[0],
+                'merchant_reference': merchant_reference,
+                'first_course_url': first_course_url,
+                'first_course_name': first_course_name,
+                'is_program': is_program,
             }
         )
         return render(request, self.template_name, context)
+
+    @staticmethod
+    def _get_cart_for_user(merchant_reference: str, user: Any) -> Any:
+        """
+        Resolve a merchant_reference of the form ``<site_id>-<cart_id>`` to a Cart.
+
+        Returns ``None`` for malformed references, missing carts, or carts that
+        do not belong to ``user`` (unless the user is a superuser, mirroring
+        the scoping in :class:`InvoiceView`). This keeps the success page
+        safe to render for anonymous visitors without leaking which cart
+        someone else paid for.
+        """
+        try:
+            _, cart_id_str = merchant_reference.split('-', 1)
+            cart_id = int(cart_id_str)
+        except (ValueError, AttributeError):
+            return None
+
+        cart_qs = models.Cart.objects.filter(id=cart_id)
+        if not getattr(user, 'is_authenticated', False):
+            # Anonymous visitors must not see any CTA pointing at a cart.
+            return None
+        if not user.is_superuser:
+            cart_qs = cart_qs.filter(user_id=user.pk)
+        return cart_qs.first()
 
 
 class InvoiceView(LoginRequiredMixin, ContextMixing):

@@ -19,6 +19,8 @@ from zeitlabs_payments.helpers import (
     get_course_id,
     get_currency,
     get_customer_name,
+    get_first_course_for_cart,
+    get_first_course_url,
     get_language,
     get_merchant_reference,
     get_order_description,
@@ -653,3 +655,151 @@ def test_get_order_description_mixed_items(base_data: Any) -> None:  # pylint: d
     assert 'program-uuid-pro-cert' in result
     assert ' // ' in result
     assert len(result) <= MAX_ORDER_DESCRIPTION_LENGTH_DEFAULT
+
+
+@pytest.mark.django_db
+def test_get_first_course_for_cart_paid_course(base_data: Any) -> None:  # pylint: disable=unused-argument
+    """
+    A cart with a single paid_course catalogue item resolves to that course.
+
+    :param base_data: Fixture data for test setup.
+    :return: None
+    """
+    course_item = CatalogueItem.objects.get(sku='custom-sku-1')
+    cart = Cart.objects.create(user_id=3, status=Cart.Status.PAID)
+    cart.items.create(
+        catalogue_item=course_item,
+        original_price=course_item.price,
+        final_price=course_item.price,
+    )
+
+    result = get_first_course_for_cart(cart)
+
+    assert result is not None
+    assert result['course_id'] == course_item.item_ref_id
+    assert result['is_program'] is False
+
+
+@pytest.mark.django_db
+def test_get_first_course_for_cart_program_bundle_returns_first_course(  # pylint: disable=unused-argument
+    base_data: Any,
+) -> None:
+    """
+    A cart with a single program_bundle resolves to the first course linked
+    to that bundle, in link order.
+
+    :param base_data: Fixture data for test setup.
+    :return: None
+    """
+    bundle_item = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
+    cart = Cart.objects.create(user_id=3, status=Cart.Status.PAID)
+    cart.items.create(
+        catalogue_item=bundle_item,
+        original_price=bundle_item.price,
+        final_price=bundle_item.price,
+    )
+
+    result = get_first_course_for_cart(cart)
+
+    assert result is not None
+    assert result['is_program'] is True
+    # _create_program_bundles links custom-sku-1 first, then course1-org2-no-id-professional
+    assert result['course_id'] == 'course-v1:org1+1+1'
+
+
+@pytest.mark.django_db
+def test_get_first_course_for_cart_empty_bundle_returns_none(base_data: Any) -> None:  # pylint: disable=unused-argument
+    """
+    A program bundle with no linked courses yields no first course so the
+    template falls back to the generic CTA.
+
+    :param base_data: Fixture data for test setup.
+    :return: None
+    """
+    bundle_item = CatalogueItem.objects.get(sku='BUNDLE-EMPTY')
+    cart = Cart.objects.create(user_id=3, status=Cart.Status.PAID)
+    cart.items.create(
+        catalogue_item=bundle_item,
+        original_price=bundle_item.price,
+        final_price=bundle_item.price,
+    )
+
+    assert get_first_course_for_cart(cart) is None
+
+
+@pytest.mark.django_db
+def test_get_first_course_for_cart_empty_cart_returns_none(base_data: Any) -> None:  # pylint: disable=unused-argument
+    """
+    A cart with no items has no first course.
+
+    :param base_data: Fixture data for test setup.
+    :return: None
+    """
+    cart = Cart.objects.create(user_id=3, status=Cart.Status.PAID)
+    assert get_first_course_for_cart(cart) is None
+
+
+@pytest.mark.django_db
+def test_get_first_course_for_cart_multi_item_returns_none(base_data: Any) -> None:  # pylint: disable=unused-argument
+    """
+    A cart with more than one item is intentionally not auto-routed to a
+    course; we only render the primary CTA when the purchase maps to a
+    single course/program.
+
+    :param base_data: Fixture data for test setup.
+    :return: None
+    """
+    course_item = CatalogueItem.objects.get(sku='custom-sku-1')
+    bundle_item = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
+    cart = Cart.objects.create(user_id=3, status=Cart.Status.PAID)
+    cart.items.create(
+        catalogue_item=course_item,
+        original_price=course_item.price,
+        final_price=course_item.price,
+    )
+    cart.items.create(
+        catalogue_item=bundle_item,
+        original_price=bundle_item.price,
+        final_price=bundle_item.price,
+    )
+    assert get_first_course_for_cart(cart) is None
+
+
+def test_get_first_course_url_uses_legacy_course_route() -> None:
+    """
+    The post-payment course URL should match the same path the invoice's
+    "Go to Course" button uses, so learners experience a consistent flow.
+
+    :return: None
+    """
+    assert get_first_course_url('course-v1:OrgX+Y+Run') == '/courses/course-v1:OrgX+Y+Run/course/'
+
+
+@pytest.mark.django_db
+def test_get_first_course_for_cart_unsupported_type_returns_none(  # pylint: disable=unused-argument
+    base_data: Any,
+) -> None:
+    """
+    A cart whose single item is not a paid_course or program_bundle has no
+    first course to navigate to.
+
+    :param base_data: Fixture data for test setup.
+    :return: None
+    """
+    # Build a catalogue item of an unsupported type directly in the DB.
+    other_item = CatalogueItem.objects.create(
+        sku='UNSUPPORTED-ITEM',
+        type='mystery_type',
+        title='Mystery',
+        item_ref_id='x',
+        price=10,
+        currency='SAR',
+    )
+    cart = Cart.objects.create(user_id=3, status=Cart.Status.PAID)
+    cart.items.create(
+        catalogue_item=other_item,
+        original_price=other_item.price,
+        final_price=other_item.price,
+    )
+
+    assert get_first_course_for_cart(cart) is None

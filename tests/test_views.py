@@ -479,6 +479,171 @@ class PaymentSuccessViewTest(BaseTestViewMixin):
         assert 'merchant_reference' in response.context
         assert response.context['merchant_reference'] == merchant_reference
 
+    def test_first_course_url_for_paid_course_cart(self):
+        """
+        When the merchant_reference resolves to a cart containing a single
+        paid_course, the context exposes a primary CTA pointing at that course.
+        """
+        user = User.objects.get(id=self.learner1_id)
+        self.login_user(user)
+
+        course_item = CatalogueItem.objects.get(sku='custom-sku-1')
+        cart = Cart.objects.create(user=user, status=Cart.Status.PAID)
+        cart.items.create(
+            catalogue_item=course_item,
+            original_price=course_item.price,
+            final_price=course_item.price,
+        )
+
+        site = Site.objects.get_current()
+        self.url_args = [f'{site.id}-{cart.id}']
+        response = self.client.get(self.url)
+
+        assert response.status_code == 200
+        assert response.context['first_course_url'] == f'/courses/{course_item.item_ref_id}/course/'
+        assert response.context['is_program'] is False
+        assert response.context['first_course_name'] == course_item.title
+
+    def test_first_course_url_for_program_bundle_cart(self):
+        """
+        When the merchant_reference resolves to a cart containing a program
+        bundle, the context exposes a primary CTA pointing at the first
+        course linked to that bundle.
+        """
+        user = User.objects.get(id=self.learner1_id)
+        self.login_user(user)
+
+        bundle_item = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
+        cart = Cart.objects.create(user=user, status=Cart.Status.PAID)
+        cart.items.create(
+            catalogue_item=bundle_item,
+            original_price=bundle_item.price,
+            final_price=bundle_item.price,
+        )
+
+        site = Site.objects.get_current()
+        self.url_args = [f'{site.id}-{cart.id}']
+        response = self.client.get(self.url)
+
+        assert response.status_code == 200
+        # _create_program_bundles links custom-sku-1 (course-v1:org1+1+1) first
+        assert response.context['first_course_url'] == '/courses/course-v1:org1+1+1/course/'
+        assert response.context['is_program'] is True
+        assert response.context['first_course_name'] is not None
+
+    def test_no_first_course_url_for_other_users_cart(self):
+        """
+        A learner must not be shown a CTA pointing into another user's cart.
+        """
+        user = User.objects.get(id=self.learner1_id)
+        other_user = User.objects.get(id=self.learner2_id)
+        self.login_user(user)
+
+        course_item = CatalogueItem.objects.get(sku='custom-sku-1')
+        other_cart = Cart.objects.create(user=other_user, status=Cart.Status.PAID)
+        other_cart.items.create(
+            catalogue_item=course_item,
+            original_price=course_item.price,
+            final_price=course_item.price,
+        )
+
+        site = Site.objects.get_current()
+        self.url_args = [f'{site.id}-{other_cart.id}']
+        response = self.client.get(self.url)
+
+        assert response.status_code == 200
+        assert response.context['first_course_url'] is None
+
+    def test_no_first_course_url_for_empty_bundle(self):
+        """
+        A program bundle without linked courses yields no CTA so the user
+        still sees the dashboard fallback.
+        """
+        user = User.objects.get(id=self.learner1_id)
+        self.login_user(user)
+
+        empty_bundle = CatalogueItem.objects.get(sku='BUNDLE-EMPTY')
+        cart = Cart.objects.create(user=user, status=Cart.Status.PAID)
+        cart.items.create(
+            catalogue_item=empty_bundle,
+            original_price=empty_bundle.price,
+            final_price=empty_bundle.price,
+        )
+
+        site = Site.objects.get_current()
+        self.url_args = [f'{site.id}-{cart.id}']
+        response = self.client.get(self.url)
+
+        assert response.status_code == 200
+        assert response.context['first_course_url'] is None
+
+    def test_no_first_course_url_for_anonymous_user(self):
+        """
+        An anonymous visitor must not see a CTA pointing into any cart.
+        """
+        course_item = CatalogueItem.objects.get(sku='custom-sku-1')
+        user = User.objects.get(id=self.learner1_id)
+        cart = Cart.objects.create(user=user, status=Cart.Status.PAID)
+        cart.items.create(
+            catalogue_item=course_item,
+            original_price=course_item.price,
+            final_price=course_item.price,
+        )
+
+        site = Site.objects.get_current()
+        self.url_args = [f'{site.id}-{cart.id}']
+        response = self.client.get(self.url)
+
+        assert response.status_code == 200
+        assert response.context['first_course_url'] is None
+
+    def test_malformed_merchant_reference_does_not_break_page(self):
+        """
+        A non-{site_id}-{cart_id} reference (e.g. test-only 'ORDER-98765')
+        must still render the page with no first-course CTA.
+        """
+        self.url_args = ['ORDER-98765']
+        response = self.client.get(self.url)
+
+        assert response.status_code == 200
+        assert response.context['merchant_reference'] == 'ORDER-98765'
+        assert response.context['first_course_url'] is None
+
+    def test_reference_without_dash_does_not_break_page(self):
+        """
+        A reference with no '-' separator must be treated as malformed: the
+        page renders and no CTA is exposed.
+        """
+        self.url_args = ['no-dash-here']
+        response = self.client.get(self.url)
+
+        assert response.status_code == 200
+        assert response.context['first_course_url'] is None
+
+    def test_superuser_can_view_first_course_for_any_cart(self):
+        """
+        Superusers (e.g. support staff inspecting a learner's order) must
+        still see the first-course CTA even for carts that aren't theirs.
+        """
+        superuser = User.objects.get(id=1)  # id=1 is in conftest super_users
+        self.login_user(superuser)
+
+        other_user = User.objects.get(id=self.learner2_id)
+        course_item = CatalogueItem.objects.get(sku='custom-sku-1')
+        cart = Cart.objects.create(user=other_user, status=Cart.Status.PAID)
+        cart.items.create(
+            catalogue_item=course_item,
+            original_price=course_item.price,
+            final_price=course_item.price,
+        )
+
+        site = Site.objects.get_current()
+        self.url_args = [f'{site.id}-{cart.id}']
+        response = self.client.get(self.url)
+
+        assert response.status_code == 200
+        assert response.context['first_course_url'] == f'/courses/{course_item.item_ref_id}/course/'
+
 
 @pytest.mark.usefixtures('base_data')
 class PaymentErrorViewTest(BaseTestViewMixin):

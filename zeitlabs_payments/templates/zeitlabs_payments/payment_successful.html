@@ -24,7 +24,19 @@
             {% trans "Thank you for your purchase!" %}
         </p>
         <div class="status-actions">
-            <a href="/dashboard" class="btn btn-primary btn-lg">
+            {% if first_course_url %}
+            <a href="{{ first_course_url }}" class="btn btn-primary btn-lg go-to-course-button">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+                {% if is_program %}
+                    {% trans "Start Your First Course" %}
+                {% else %}
+                    {% trans "Go to Your Course" %}
+                {% endif %}
+            </a>
+            {% endif %}
+            <a href="/dashboard" class="btn {% if first_course_url %}btn-outline{% else %}btn-primary btn-lg{% endif %}">
                 {% trans "View Your Courses" %}
             </a>
             <a href="/" class="btn btn-outline">
