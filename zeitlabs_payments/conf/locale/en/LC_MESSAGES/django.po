@@ -181,6 +181,11 @@ msgstr ""
 msgid "Go to Course"
 msgstr ""
 
+#: templates/zeitlabs_payments/payment_successful.html
+#: templates/zeitlabs_payments/invoice.html
+msgid "Start First Course"
+msgstr ""
+
 #: templates/zeitlabs_payments/invoice.html:148
 msgid "Print Receipt"
 msgstr ""

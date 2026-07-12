@@ -461,7 +461,7 @@ class InvoiceViewTest(BaseTestViewMixin):
         assert response.context['currency'] == get_currency(cart)
 
     def test_invoice_exposes_navigation_targets_for_paid_course(self):
-        """navigation_targets contains a 'Go to Your Course' entry for a paid_course item."""
+        """navigation_targets contains a paid_course entry for a paid_course item."""
         user = User.objects.get(id=3)
         self.login_user(user)
         course_item = CatalogueItem.objects.get(sku='custom-sku-1')
@@ -489,12 +489,11 @@ class InvoiceViewTest(BaseTestViewMixin):
         assert response.status_code == 200
         targets = response.context['navigation_targets']
         assert len(targets) == 1
-        assert targets[0]['label'] == 'Go to Your Course'
         assert targets[0]['url'] == f'/courses/{course_item.item_ref_id}/course/'
         assert targets[0]['is_program'] is False
 
     def test_invoice_exposes_navigation_targets_for_bundle(self):
-        """navigation_targets contains a 'Start Your First Course' entry for a bundle."""
+        """navigation_targets contains a bundle entry for a bundle item."""
         user = User.objects.get(id=3)
         self.login_user(user)
         bundle_item = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
@@ -522,7 +521,6 @@ class InvoiceViewTest(BaseTestViewMixin):
         assert response.status_code == 200
         targets = response.context['navigation_targets']
         assert len(targets) == 1
-        assert targets[0]['label'] == 'Start Your First Course'
         # _create_program_bundles links custom-sku-1 first (course-v1:org1+1+1).
         assert targets[0]['url'] == '/courses/course-v1:org1+1+1/course/'
         assert targets[0]['is_program'] is True

@@ -768,12 +768,41 @@ def test_get_first_course_for_cart_multi_item_returns_none(base_data: Any) -> No
 
 def test_get_first_course_url_uses_legacy_course_route() -> None:
     """
-    The post-payment course URL should match the same path the invoice's
-    "Go to Course" button uses, so learners experience a consistent flow.
+    When ``LEARNING_MICROFRONTEND_URL`` is not configured, fall back to
+    the legacy LMS course URL so the CTA still works in that environment.
 
     :return: None
     """
     assert get_first_course_url('course-v1:OrgX+Y+Run') == '/courses/course-v1:OrgX+Y+Run/course/'
+
+
+@pytest.mark.django_db
+def test_get_first_course_url_uses_mfe_when_configured(settings) -> None:
+    """
+    When ``LEARNING_MICROFRONTEND_URL`` is configured, the helper returns
+    the MFE course-home URL so learners land on the modern course
+    experience instead of the legacy LMS view.
+
+    :return: None
+    """
+    settings.LEARNING_MICROFRONTEND_URL = 'http://apps.www.myopenedx.com:2000/learning'
+    assert get_first_course_url('course-v1:OrgX+Y+Run') == (
+        'http://apps.www.myopenedx.com:2000/learning/course/course-v1:OrgX+Y+Run/home'
+    )
+
+
+@pytest.mark.django_db
+def test_get_first_course_url_strips_trailing_slash_from_mfe(settings) -> None:
+    """
+    Trailing slashes in ``LEARNING_MICROFRONTEND_URL`` don't produce
+    double-slashes in the final URL.
+
+    :return: None
+    """
+    settings.LEARNING_MICROFRONTEND_URL = 'http://apps.www.myopenedx.com:2000/learning/'
+    assert get_first_course_url('course-v1:OrgX+Y+Run') == (
+        'http://apps.www.myopenedx.com:2000/learning/course/course-v1:OrgX+Y+Run/home'
+    )
 
 
 @pytest.mark.django_db
@@ -808,7 +837,7 @@ def test_get_first_course_for_cart_unsupported_type_returns_none(  # pylint: dis
 
 @pytest.mark.django_db
 def test_get_invoice_item_navigation_paid_course() -> None:
-    """An invoice line for a paid_course yields a 'Go to Your Course' target."""
+    """An invoice line for a paid_course yields a paid_course navigation target."""
     user_id = 3
     paid_course = CatalogueItem.objects.create(
         sku='INV-NAV-1',
@@ -836,14 +865,13 @@ def test_get_invoice_item_navigation_paid_course() -> None:
     result = get_invoice_item_navigation(invoice_item)
 
     assert result is not None
-    assert result['label'] == 'Go to Your Course'
     assert result['url'] == '/courses/course-v1:navorg+nav1+nav1/course/'
     assert result['is_program'] is False
 
 
 @pytest.mark.django_db
 def test_get_invoice_item_navigation_program_bundle_returns_first_course() -> None:
-    """An invoice line for a program_bundle yields a 'Start Your First Course' target
+    """An invoice line for a program_bundle yields a bundle navigation target
     pointing at the first linked course.
     """
     user_id = 3
@@ -882,7 +910,6 @@ def test_get_invoice_item_navigation_program_bundle_returns_first_course() -> No
     result = get_invoice_item_navigation(invoice_item)
 
     assert result is not None
-    assert result['label'] == 'Start Your First Course'
     assert result['url'] == '/courses/course-v1:bundlenav+A+A/course/'
     assert result['is_program'] is True
 
