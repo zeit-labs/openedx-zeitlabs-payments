@@ -180,18 +180,24 @@
                 </div>
             </div>
 
-            <!-- Print Button -->
+<!-- Print Button -->
             <div class="text-center mt-4 invoice-actions no-print">
-                {% for invoice_item in invoice.items.all %}
-                    {% if invoice_item.cart_item.catalogue_item.type == 'paid_course' %}
-                    <a href="/courses/{{ invoice_item.cart_item.catalogue_item.item_ref_id }}/course/" class="go-to-course-button">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-                            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
-                        </svg>
+                {% for nav in navigation_targets %}
+                <a href="{{ nav.url }}" class="go-to-course-button">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        {% if nav.is_program %}
+                        <polygon points="5 3 19 12 5 21 5 3"/>
+                        {% else %}
+                        <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                        <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                        {% endif %}
+                    </svg>
+                    {% if nav.is_program %}
+                        {% trans "Start First Course" %}
+                    {% else %}
                         {% trans "Go to Course" %}
-                    </a>
                     {% endif %}
+                </a>
                 {% endfor %}
                 <button class="print-receipt-button" onclick="window.print()" type="button">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

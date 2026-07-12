@@ -181,6 +181,11 @@ msgstr "ضريبة القيمة المضافة"
 msgid "Go to Course"
 msgstr "الذهاب إلى الدورة"
 
+#: templates/zeitlabs_payments/payment_successful.html
+#: templates/zeitlabs_payments/invoice.html
+msgid "Start First Course"
+msgstr "ابدأ الدورة الأولى"
+
 #: templates/zeitlabs_payments/invoice.html:148
 msgid "Print Receipt"
 msgstr "طباعة الإيصال"

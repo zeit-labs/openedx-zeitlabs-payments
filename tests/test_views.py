@@ -460,6 +460,71 @@ class InvoiceViewTest(BaseTestViewMixin):
         assert response.context['tax_number'] == get_settings().customer_number
         assert response.context['currency'] == get_currency(cart)
 
+    def test_invoice_exposes_navigation_targets_for_paid_course(self):
+        """navigation_targets contains a paid_course entry for a paid_course item."""
+        user = User.objects.get(id=3)
+        self.login_user(user)
+        course_item = CatalogueItem.objects.get(sku='custom-sku-1')
+        cart = Cart.objects.create(user=user, status=Cart.Status.PAID)
+        cart_item = cart.items.create(
+            catalogue_item=course_item,
+            original_price=course_item.price,
+            final_price=course_item.price,
+        )
+        invoice = Invoice.objects.create(
+            cart=cart,
+            invoice_number='INV-NAV-PAID',
+            total=course_item.price,
+            gross_total=course_item.price,
+        )
+        invoice.items.create(
+            cart_item=cart_item,
+            original_price=course_item.price,
+            price=course_item.price,
+        )
+
+        self.url_args = [invoice.invoice_number]
+        response = self.client.get(self.url)
+
+        assert response.status_code == 200
+        targets = response.context['navigation_targets']
+        assert len(targets) == 1
+        assert targets[0]['url'] == f'/courses/{course_item.item_ref_id}/course/'
+        assert targets[0]['is_program'] is False
+
+    def test_invoice_exposes_navigation_targets_for_bundle(self):
+        """navigation_targets contains a bundle entry for a bundle item."""
+        user = User.objects.get(id=3)
+        self.login_user(user)
+        bundle_item = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
+        cart = Cart.objects.create(user=user, status=Cart.Status.PAID)
+        cart_item = cart.items.create(
+            catalogue_item=bundle_item,
+            original_price=bundle_item.price,
+            final_price=bundle_item.price,
+        )
+        invoice = Invoice.objects.create(
+            cart=cart,
+            invoice_number='INV-NAV-BUNDLE',
+            total=bundle_item.price,
+            gross_total=bundle_item.price,
+        )
+        invoice.items.create(
+            cart_item=cart_item,
+            original_price=bundle_item.price,
+            price=bundle_item.price,
+        )
+
+        self.url_args = [invoice.invoice_number]
+        response = self.client.get(self.url)
+
+        assert response.status_code == 200
+        targets = response.context['navigation_targets']
+        assert len(targets) == 1
+        # _create_program_bundles links custom-sku-1 first (course-v1:org1+1+1).
+        assert targets[0]['url'] == '/courses/course-v1:org1+1+1/course/'
+        assert targets[0]['is_program'] is True
+
 
 @pytest.mark.usefixtures('base_data')
 class PaymentSuccessViewTest(BaseTestViewMixin):

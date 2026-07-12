@@ -337,17 +337,65 @@ def get_first_course_for_cart(cart: Cart) -> Optional[dict]:
 
 def get_first_course_url(course_id: str) -> str:
     """
-    Return the LMS URL the learner should be sent to.
+    Return the URL the learner should be sent to open the course after payment.
 
-    Used after a successful payment to open the first course in a single
-    paid course or program bundle. Uses the same URL pattern as the invoice's
-    "Go to Course" action so the post-payment flow is consistent across both
-    pages.
+    Prefers the Open edX Learning Microfrontend (MFE) course-home page so
+    the learner lands on the modern course experience. The URL is built
+    from the platform's ``LEARNING_MICROFRONTEND_URL`` setting and points
+    at the course-home tab:
+
+        ``{LEARNING_MICROFRONTEND_URL}/course/{course_key}/home``
+
+    When ``LEARNING_MICROFRONTEND_URL`` is not configured (e.g. in some
+    test setups) the function falls back to the legacy LMS course page
+    at ``/courses/{course_key}/course/`` so the CTA still works.
 
     :param course_id: The Open edX course run key.
-    :return: Absolute path to the course page.
+    :return: Absolute URL the learner should be redirected to.
     """
+    mfe_base = getattr(settings, 'LEARNING_MICROFRONTEND_URL', None)
+    if mfe_base:
+        base = mfe_base.rstrip('/')
+        return f'{base}/course/{course_id}/home'
     return f'/courses/{course_id}/course/'
+
+
+def get_invoice_item_navigation(invoice_item: Any) -> Optional[dict]:
+    """
+    Return the post-payment navigation target for an invoice line item.
+
+    Mirrors :func:`get_first_course_for_cart` but operates on an
+    :class:`InvoiceItem`. Used by the invoice template to render a
+    CTA next to each line.
+
+    Returns a dict with ``url`` and ``is_program`` keys when a meaningful
+    navigation target exists, otherwise ``None``. The template is
+    responsible for picking the right button copy from the
+    ``is_program`` flag, which keeps the strings translatable via
+    Django's ``{% trans %}`` block.
+
+    - ``paid_course``     → the course's page
+    - ``program_bundle``  → first linked course
+    - any other type     → ``None`` (no CTA)
+    """
+    catalogue_item = invoice_item.cart_item.catalogue_item
+
+    if catalogue_item.type == CatalogueItem.ItemType.PAID_COURSE:
+        return {
+            'url': get_first_course_url(catalogue_item.item_ref_id),
+            'is_program': False,
+        }
+
+    if catalogue_item.type == CatalogueItem.ItemType.PROGRAM_BUNDLE:
+        first_course = get_first_course_for_cart(invoice_item.cart_item.cart)
+        if first_course is None:
+            return None
+        return {
+            'url': get_first_course_url(first_course['course_id']),
+            'is_program': True,
+        }
+
+    return None
 
 
 def check_user_enroll_conditions(user: get_user_model, course_mode: CourseMode) -> None:

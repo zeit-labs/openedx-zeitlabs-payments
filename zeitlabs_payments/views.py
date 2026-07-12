@@ -19,7 +19,13 @@ from rest_framework.views import APIView
 from zeitlabs_payments import models
 from zeitlabs_payments.cart_handler import CART_HANDLER
 from zeitlabs_payments.exceptions import InvalidCartError
-from zeitlabs_payments.helpers import get_currency, get_first_course_for_cart, get_first_course_url, get_settings
+from zeitlabs_payments.helpers import (
+    get_currency,
+    get_first_course_for_cart,
+    get_first_course_url,
+    get_invoice_item_navigation,
+    get_settings,
+)
 from zeitlabs_payments.providers.registry import PROCESSORS, get_processor
 from zeitlabs_payments.querysets import get_orders_queryset
 from zeitlabs_payments.serializers import CartSerializer
@@ -389,6 +395,13 @@ class InvoiceView(LoginRequiredMixin, ContextMixing):
                 'organization': get_settings().organization,
                 'tax_number': get_settings().customer_number,
                 'currency': get_currency(invoice.cart),
+                'navigation_targets': [
+                    nav for nav in (
+                        get_invoice_item_navigation(item)
+                        for item in invoice.items.all()
+                    )
+                    if nav is not None
+                ],
             }
         )
         return render(request, self.template_name, context)

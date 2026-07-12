@@ -10,9 +10,10 @@ from zeitlabs_payments.filters import (
     BlockUnpaidCourseEnrollment,
     _course_has_paid_mode,
     _has_paid_cart_for_course,
+    _has_paid_cart_via_bundle,
     _payments_enabled,
 )
-from zeitlabs_payments.models import Cart, CartItem, CatalogueItem
+from zeitlabs_payments.models import BundleCourseItem, Cart, CartItem, CatalogueItem
 
 User = get_user_model()
 
@@ -96,6 +97,116 @@ class TestHasPaidCartForCourse(TestCase):
         assert result is False
 
 
+class TestHasPaidCartViaBundle(TestCase):
+    """Tests for _has_paid_cart_via_bundle()."""
+
+    def setUp(self):
+        self.user = User.objects.create(username='bundleuser', email='bundle@example.com')
+        self.target_course = 'course-v1:bundletarget+1+1'
+        self.other_course = 'course-v1:bundleother+2+2'
+
+        # Build a paid_course catalogue item that targets `self.target_course`.
+        self.paid_course_item = _make_catalogue_item(
+            sku='BUNDLE-COURSE',
+            item_ref_id=self.target_course,
+        )
+        # Build a program_bundle catalogue item that links to the paid_course.
+        self.bundle_item = _make_catalogue_item(
+            sku='BUNDLE-DIPLOMA',
+            type=CatalogueItem.ItemType.PROGRAM_BUNDLE,
+            item_ref_id='program-uuid-bundle-diag',
+            title='Bundle Diploma',
+        )
+        BundleCourseItem.objects.create(
+            bundle=self.bundle_item,
+            course_item=self.paid_course_item,
+        )
+
+    def test_no_cart_returns_false(self):
+        """Returns False when the user has no cart at all."""
+        assert _has_paid_cart_via_bundle(self.user, self.target_course) is False
+
+    def test_paid_cart_with_bundle_linking_target_returns_true(self):
+        """Returns True when a paid cart contains a bundle whose links include the target."""
+        cart = Cart.objects.create(user=self.user, status=Cart.Status.PAID)
+        CartItem.objects.create(
+            cart=cart,
+            catalogue_item=self.bundle_item,
+            original_price=100,
+            final_price=100,
+        )
+        assert _has_paid_cart_via_bundle(self.user, self.target_course) is True
+
+    def test_paid_bundle_for_different_course_returns_false(self):
+        """Returns False when a paid bundle only links to a different course."""
+        cart = Cart.objects.create(user=self.user, status=Cart.Status.PAID)
+        CartItem.objects.create(
+            cart=cart,
+            catalogue_item=self.bundle_item,
+            original_price=100,
+            final_price=100,
+        )
+        assert _has_paid_cart_via_bundle(self.user, self.other_course) is False
+
+    def test_pending_bundle_returns_false(self):
+        """A cart with a bundle in PENDING (not yet paid) does not grant access."""
+        cart = Cart.objects.create(user=self.user, status=Cart.Status.PENDING)
+        CartItem.objects.create(
+            cart=cart,
+            catalogue_item=self.bundle_item,
+            original_price=100,
+            final_price=100,
+        )
+        assert _has_paid_cart_via_bundle(self.user, self.target_course) is False
+
+    def test_cancelled_bundle_returns_false(self):
+        """A cart with a bundle in CANCELLED does not grant access."""
+        cart = Cart.objects.create(user=self.user, status=Cart.Status.CANCELLED)
+        CartItem.objects.create(
+            cart=cart,
+            catalogue_item=self.bundle_item,
+            original_price=100,
+            final_price=100,
+        )
+        assert _has_paid_cart_via_bundle(self.user, self.target_course) is False
+
+    def test_payment_pending_bundle_returns_false(self):
+        """A bundle cart still in PAYMENT_PENDING does not grant access."""
+        cart = Cart.objects.create(user=self.user, status=Cart.Status.PAYMENT_PENDING)
+        CartItem.objects.create(
+            cart=cart,
+            catalogue_item=self.bundle_item,
+            original_price=100,
+            final_price=100,
+        )
+        assert _has_paid_cart_via_bundle(self.user, self.target_course) is False
+
+    def test_paid_single_course_cart_does_not_satisfy_bundle_check(self):
+        """The bundle check ignores paid_course CartItems; only program_bundle items count."""
+        # Direct paid-course cart for the same target course.
+        direct_cart = Cart.objects.create(user=self.user, status=Cart.Status.PAID)
+        CartItem.objects.create(
+            cart=direct_cart,
+            catalogue_item=self.paid_course_item,
+            original_price=100,
+            final_price=100,
+        )
+        # Bundle check should still return False (it only walks bundles).
+        assert _has_paid_cart_via_bundle(self.user, self.target_course) is False
+
+    def test_other_users_paid_bundle_is_not_visible(self):
+        """A paid bundle belonging to another user does not grant access."""
+        other_user = User.objects.create(username='otheruser', email='other@example.com')
+        cart = Cart.objects.create(user=other_user, status=Cart.Status.PAID)
+        CartItem.objects.create(
+            cart=cart,
+            catalogue_item=self.bundle_item,
+            original_price=100,
+            final_price=100,
+        )
+        assert _has_paid_cart_via_bundle(self.user, self.target_course) is False
+
+
 @pytest.mark.usefixtures('base_data')
 class TestCourseHasPaidMode(TestCase):
     """Tests for _course_has_paid_mode()."""
@@ -149,6 +260,9 @@ class TestBlockUnpaidCourseEnrollment(TestCase):
             ), patch(
                 'zeitlabs_payments.filters._has_paid_cart_for_course',
                 return_value=False,
+            ), patch(
+                'zeitlabs_payments.filters._has_paid_cart_via_bundle',
+                return_value=False,
             ):
                 step.run_filter(
                     MagicMock(id=1, is_staff=False, is_superuser=False),
@@ -177,6 +291,30 @@ class TestBlockUnpaidCourseEnrollment(TestCase):
         assert isinstance(result, dict)
         assert not result
 
+    def test_paid_course_with_paid_bundle_allows(self):
+        """Paid course covered by a paid program_bundle cart should not block enrollment."""
+        step = self._make_step()
+        with patch(
+            'zeitlabs_payments.filters._payments_enabled',
+            return_value=True,
+        ), patch(
+            'zeitlabs_payments.filters._has_paid_cart_for_course',
+            return_value=False,
+        ), patch(
+            'zeitlabs_payments.filters._has_paid_cart_via_bundle',
+            return_value=True,
+        ), patch(
+            'zeitlabs_payments.filters._course_has_paid_mode',
+            return_value=True,
+        ):
+            result = step.run_filter(
+                MagicMock(id=1, is_staff=False, is_superuser=False),
+                MagicMock(__str__=lambda s: 'course-v1:org1+1+1'),
+                'verified',
+            )
+        assert isinstance(result, dict)
+        assert not result
+
     def test_logs_warning_on_blocked_enrollment(self):
         """Verifies a warning is logged when enrollment is blocked."""
         step = self._make_step()
@@ -189,6 +327,9 @@ class TestBlockUnpaidCourseEnrollment(TestCase):
             return_value=True,
         ), patch(
             'zeitlabs_payments.filters._has_paid_cart_for_course',
+            return_value=False,
+        ), patch(
+            'zeitlabs_payments.filters._has_paid_cart_via_bundle',
             return_value=False,
         ), pytest.raises(CourseEnrollmentStarted.PreventEnrollment):
             step.run_filter(
@@ -210,6 +351,9 @@ class TestBlockUnpaidCourseEnrollment(TestCase):
         ), patch(
             'zeitlabs_payments.filters._has_paid_cart_for_course',
             return_value=False,
+        ), patch(
+            'zeitlabs_payments.filters._has_paid_cart_via_bundle',
+            return_value=False,
         ):
             result = step.run_filter(
                 MagicMock(id=1, is_staff=True, is_superuser=False),
@@ -227,6 +371,9 @@ class TestBlockUnpaidCourseEnrollment(TestCase):
             return_value=True,
         ), patch(
             'zeitlabs_payments.filters._has_paid_cart_for_course',
+            return_value=False,
+        ), patch(
+            'zeitlabs_payments.filters._has_paid_cart_via_bundle',
             return_value=False,
         ):
             result = step.run_filter(
