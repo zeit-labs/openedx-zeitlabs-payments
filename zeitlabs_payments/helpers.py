@@ -317,7 +317,7 @@ def get_first_course_for_cart(cart: Cart) -> Optional[dict]:
             BundleCourseItem.objects
             .filter(bundle=catalogue_item)
             .select_related('course_item')
-            .order_by('id')
+            .order_by('sort_order', 'id')
             .first()
         )
         if not first_link:

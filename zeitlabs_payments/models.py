@@ -299,9 +299,20 @@ class BundleCourseItem(TimeStampedModel):
         limit_choices_to={'type': CatalogueItem.ItemType.PAID_COURSE},
         help_text='A paid_course CatalogueItem included in this bundle.',
     )
+    sort_order = models.PositiveIntegerField(
+        default=0,
+        help_text=(
+            'Order in which this course appears inside the bundle. '
+            'Lower numbers come first; ties are broken by id. '
+            'Used by the post-payment "Start First Course" CTA to decide '
+            'which course the learner is sent to after a successful '
+            'bundle purchase.'
+        ),
+    )
 
     class Meta:
         unique_together = ('bundle', 'course_item')
+        ordering = ('sort_order', 'id')
 
     def __str__(self) -> str:
         """Represent object as string."""
