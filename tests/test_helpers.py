@@ -709,6 +709,40 @@ def test_get_first_course_for_cart_program_bundle_returns_first_course(  # pylin
 
 
 @pytest.mark.django_db
+def test_get_first_course_for_cart_program_bundle_uses_sort_order(  # pylint: disable=unused-argument
+    base_data: Any,
+) -> None:
+    """
+    When admin sets ``sort_order`` on the bundle's courses, the
+    lowest-sort-order course wins, not the one with the lowest id.
+
+    :param base_data: Fixture data for test setup.
+    :return: None
+    """
+    bundle_item = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
+    links = list(BundleCourseItem.objects.filter(bundle=bundle_item).order_by('id'))
+
+    # Swap the order: the second-linked course should now be "first".
+    for index, link in enumerate(links):
+        link.sort_order = (len(links) - index) * 10
+        link.save(update_fields=['sort_order'])
+
+    cart = Cart.objects.create(user_id=3, status=Cart.Status.PAID)
+    cart.items.create(
+        catalogue_item=bundle_item,
+        original_price=bundle_item.price,
+        final_price=bundle_item.price,
+    )
+
+    result = get_first_course_for_cart(cart)
+
+    assert result is not None
+    assert result['is_program'] is True
+    # After the swap, course1-org2-no-id-professional is the first course.
+    assert result['course_id'] == 'course-v1:org2+1+1'
+
+
+@pytest.mark.django_db
 def test_get_first_course_for_cart_empty_bundle_returns_none(base_data: Any) -> None:  # pylint: disable=unused-argument
     """
     A program bundle with no linked courses yields no first course so the
