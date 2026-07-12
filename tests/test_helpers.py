@@ -21,6 +21,7 @@ from zeitlabs_payments.helpers import (
     get_customer_name,
     get_first_course_for_cart,
     get_first_course_url,
+    get_invoice_item_navigation,
     get_language,
     get_merchant_reference,
     get_order_description,
@@ -28,7 +29,7 @@ from zeitlabs_payments.helpers import (
     sanitize_text,
     verify_param,
 )
-from zeitlabs_payments.models import AuditLog, Cart, CartItem, CatalogueItem, Invoice
+from zeitlabs_payments.models import AuditLog, BundleCourseItem, Cart, CartItem, CatalogueItem, Invoice
 
 User = get_user_model()
 
@@ -803,3 +804,144 @@ def test_get_first_course_for_cart_unsupported_type_returns_none(  # pylint: dis
     )
 
     assert get_first_course_for_cart(cart) is None
+
+
+@pytest.mark.django_db
+def test_get_invoice_item_navigation_paid_course() -> None:
+    """An invoice line for a paid_course yields a 'Go to Your Course' target."""
+    user_id = 3
+    paid_course = CatalogueItem.objects.create(
+        sku='INV-NAV-1',
+        type=CatalogueItem.ItemType.PAID_COURSE,
+        title='Nav Test Course',
+        item_ref_id='course-v1:navorg+nav1+nav1',
+        price=50,
+        currency='SAR',
+    )
+    cart = Cart.objects.create(user_id=user_id, status=Cart.Status.PAID)
+    cart_item = cart.items.create(
+        catalogue_item=paid_course,
+        original_price=paid_course.price,
+        final_price=paid_course.price,
+    )
+    invoice = Invoice.objects.create(
+        cart=cart, invoice_number='NAV-INV-1', total=50, gross_total=50,
+    )
+    invoice_item = invoice.items.create(
+        cart_item=cart_item,
+        original_price=50,
+        price=50,
+    )
+
+    result = get_invoice_item_navigation(invoice_item)
+
+    assert result is not None
+    assert result['label'] == 'Go to Your Course'
+    assert result['url'] == '/courses/course-v1:navorg+nav1+nav1/course/'
+    assert result['is_program'] is False
+
+
+@pytest.mark.django_db
+def test_get_invoice_item_navigation_program_bundle_returns_first_course() -> None:
+    """An invoice line for a program_bundle yields a 'Start Your First Course' target
+    pointing at the first linked course.
+    """
+    user_id = 3
+    paid_course = CatalogueItem.objects.create(
+        sku='INV-NAV-2A',
+        type=CatalogueItem.ItemType.PAID_COURSE,
+        title='Bundle course A',
+        item_ref_id='course-v1:bundlenav+A+A',
+        price=50,
+        currency='SAR',
+    )
+    bundle = CatalogueItem.objects.create(
+        sku='INV-NAV-2-BUNDLE',
+        type=CatalogueItem.ItemType.PROGRAM_BUNDLE,
+        title='Nav Test Bundle',
+        item_ref_id='nav-bundle-uuid',
+        price=100,
+        currency='SAR',
+    )
+    BundleCourseItem.objects.create(bundle=bundle, course_item=paid_course)
+    cart = Cart.objects.create(user_id=user_id, status=Cart.Status.PAID)
+    cart_item = cart.items.create(
+        catalogue_item=bundle,
+        original_price=bundle.price,
+        final_price=bundle.price,
+    )
+    invoice = Invoice.objects.create(
+        cart=cart, invoice_number='NAV-INV-2', total=100, gross_total=100,
+    )
+    invoice_item = invoice.items.create(
+        cart_item=cart_item,
+        original_price=100,
+        price=100,
+    )
+
+    result = get_invoice_item_navigation(invoice_item)
+
+    assert result is not None
+    assert result['label'] == 'Start Your First Course'
+    assert result['url'] == '/courses/course-v1:bundlenav+A+A/course/'
+    assert result['is_program'] is True
+
+
+@pytest.mark.django_db
+def test_get_invoice_item_navigation_empty_bundle_returns_none() -> None:
+    """A program_bundle with no linked courses yields no navigation target."""
+    user_id = 3
+    empty_bundle = CatalogueItem.objects.create(
+        sku='INV-NAV-3-EMPTY-BUNDLE',
+        type=CatalogueItem.ItemType.PROGRAM_BUNDLE,
+        title='Empty Nav Bundle',
+        item_ref_id='nav-empty-uuid',
+        price=50,
+        currency='SAR',
+    )
+    cart = Cart.objects.create(user_id=user_id, status=Cart.Status.PAID)
+    cart_item = cart.items.create(
+        catalogue_item=empty_bundle,
+        original_price=empty_bundle.price,
+        final_price=empty_bundle.price,
+    )
+    invoice = Invoice.objects.create(
+        cart=cart, invoice_number='NAV-INV-3', total=50, gross_total=50,
+    )
+    invoice_item = invoice.items.create(
+        cart_item=cart_item,
+        original_price=50,
+        price=50,
+    )
+
+    assert get_invoice_item_navigation(invoice_item) is None
+
+
+@pytest.mark.django_db
+def test_get_invoice_item_navigation_unsupported_type_returns_none() -> None:
+    """A line whose catalogue item is an unsupported type yields no navigation target."""
+    user_id = 3
+    other_item = CatalogueItem.objects.create(
+        sku='INV-NAV-4-MYSTERY',
+        type='mystery',
+        title='Mystery',
+        item_ref_id='x',
+        price=10,
+        currency='SAR',
+    )
+    cart = Cart.objects.create(user_id=user_id, status=Cart.Status.PAID)
+    cart_item = cart.items.create(
+        catalogue_item=other_item,
+        original_price=other_item.price,
+        final_price=other_item.price,
+    )
+    invoice = Invoice.objects.create(
+        cart=cart, invoice_number='NAV-INV-4', total=10, gross_total=10,
+    )
+    invoice_item = invoice.items.create(
+        cart_item=cart_item,
+        original_price=10,
+        price=10,
+    )
+
+    assert get_invoice_item_navigation(invoice_item) is None

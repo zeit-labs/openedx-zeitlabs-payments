@@ -350,6 +350,43 @@ def get_first_course_url(course_id: str) -> str:
     return f'/courses/{course_id}/course/'
 
 
+def get_invoice_item_navigation(invoice_item: Any) -> Optional[dict]:
+    """
+    Return the post-payment navigation target for an invoice line item.
+
+    Mirrors :func:`get_first_course_for_cart` but operates on an
+    :class:`InvoiceItem`. Used by the invoice template to render a
+    "Go to Course" / "Start Your First Course" CTA next to each line.
+
+    Returns a dict with ``label``, ``url`` and ``is_program`` keys when a
+    meaningful navigation target exists, otherwise ``None``.
+
+    - ``paid_course``     → ``Go to Your Course`` → the course's page
+    - ``program_bundle``  → ``Start Your First Course`` → first linked course
+    - any other type     → ``None`` (no CTA)
+    """
+    catalogue_item = invoice_item.cart_item.catalogue_item
+
+    if catalogue_item.type == CatalogueItem.ItemType.PAID_COURSE:
+        return {
+            'label': 'Go to Your Course',
+            'url': get_first_course_url(catalogue_item.item_ref_id),
+            'is_program': False,
+        }
+
+    if catalogue_item.type == CatalogueItem.ItemType.PROGRAM_BUNDLE:
+        first_course = get_first_course_for_cart(invoice_item.cart_item.cart)
+        if first_course is None:
+            return None
+        return {
+            'label': 'Start Your First Course',
+            'url': get_first_course_url(first_course['course_id']),
+            'is_program': True,
+        }
+
+    return None
+
+
 def check_user_enroll_conditions(user: get_user_model, course_mode: CourseMode) -> None:
     """
     Check whether a user can enroll in the given course mode.
