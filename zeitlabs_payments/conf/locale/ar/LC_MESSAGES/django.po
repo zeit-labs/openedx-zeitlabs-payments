@@ -314,24 +314,3 @@ msgstr "يرجى عدم إغلاق هذه الصفحة أو الضغط على ز
 #: templates/zeitlabs_payments/wait_feedback.html:356
 msgid "Payment Confirmed! Redirecting..."
 msgstr "تم تأكيد الدفع! جارٍ التحويل..."
-
-#~ msgid "Have a coupon code?"
-#~ msgstr "هل لديك رمز قسيمة؟"
-
-#~ msgid "Enter coupon code"
-#~ msgstr "أدخل رمز القسيمة"
-
-#~ msgid "Apply"
-#~ msgstr "تطبيق"
-
-#~ msgid "Confirm Your Payment"
-#~ msgstr "تأكيد الدفع"
-
-#~ msgid "Please review your order details below and confirm your payment."
-#~ msgstr "يرجى مراجعة تفاصيل طلبك أدناه وتأكيد الدفع."
-
-#~ msgid "Cancel"
-#~ msgstr "إلغاء"
-
-#~ msgid "Confirm Payment"
-#~ msgstr "تأكيد الدفع"
