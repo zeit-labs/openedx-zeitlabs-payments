@@ -460,6 +460,27 @@ class InvoiceViewTest(BaseTestViewMixin):
         assert response.context['tax_number'] == get_settings().customer_number
         assert response.context['currency'] == get_currency(cart)
 
+    def test_invoice_page_renders_go_to_dashboard_cta(self):
+        """
+        The invoice template source must include a primary 'Go to
+        Dashboard' CTA on every invoice, regardless of cart type or
+        paid_course lines. It links to the LMS learner dashboard at
+        ``/dashboard``.
+
+        The view-level ``test_settings`` override uses a dummy
+        ``main_django.html`` parent template that drops {% block %}
+        overrides, so we read the template source directly to verify the
+        markup. Final rendered output is checked manually on the LMS.
+
+        :return: None
+        """
+        from test_utils.template_source import template_source  # noqa: E501, pylint: disable=import-outside-toplevel
+        source = template_source('invoice.html')
+
+        assert 'go-to-dashboard-button' in source
+        assert 'Go to Dashboard' in source
+        assert 'href="/dashboard"' in source
+
 
 @pytest.mark.usefixtures('base_data')
 class PaymentSuccessViewTest(BaseTestViewMixin):
@@ -478,6 +499,26 @@ class PaymentSuccessViewTest(BaseTestViewMixin):
         assert response.status_code == 200
         assert 'merchant_reference' in response.context
         assert response.context['merchant_reference'] == merchant_reference
+
+    def test_success_page_renders_go_to_dashboard_cta(self):
+        """
+        The payment-successful template source must include a primary
+        'Go to Dashboard' CTA that links to the LMS learner dashboard at
+        ``/dashboard``.
+
+        The view-level ``test_settings`` override uses a dummy
+        ``main_django.html`` parent template that drops {% block %}
+        overrides, so we read the template source directly to verify the
+        markup. Final rendered output is checked manually on the LMS.
+
+        :return: None
+        """
+        from test_utils.template_source import template_source  # noqa: E501, pylint: disable=import-outside-toplevel
+        source = template_source('payment_successful.html')
+
+        assert 'go-to-dashboard-button' in source
+        assert 'Go to Dashboard' in source
+        assert 'href="/dashboard"' in source
 
 
 @pytest.mark.usefixtures('base_data')
