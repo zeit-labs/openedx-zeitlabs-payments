@@ -5,6 +5,10 @@ __pycache__
 # C extensions
 *.so
 
+# Compiled translation catalogs
+*.mo
+zeitlabs_payments/conf/locale/**/*.mo
+
 # Packages
 *.egg
 *.egg-info

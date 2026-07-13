@@ -57,7 +57,7 @@
   .product-description { font-size: 12px; color: #666 !important; margin-top: 2px; }
   .totals-label { color: #666 !important; }
   .totals-value { color: #000 !important; }
-  .print-receipt-button, .go-to-course-button, .invoice-actions { display: none !important; }
+  .print-receipt-button, .go-to-course-button, .go-to-dashboard-button, .invoice-actions { display: none !important; }
   .mb-3 { margin-bottom: 1rem; }
   .logo-screen { display: none !important; }
   .logo-print { display: inline-block !important; }
@@ -182,6 +182,15 @@
 
             <!-- Print Button -->
             <div class="text-center mt-4 invoice-actions no-print">
+                <a href="/dashboard" class="btn btn-primary go-to-dashboard-button">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="7" height="9"/>
+                        <rect x="14" y="3" width="7" height="5"/>
+                        <rect x="14" y="12" width="7" height="9"/>
+                        <rect x="3" y="16" width="7" height="5"/>
+                    </svg>
+                    {% trans "Go to Dashboard" %}
+                </a>
                 {% for invoice_item in invoice.items.all %}
                     {% if invoice_item.cart_item.catalogue_item.type == 'paid_course' %}
                     <a href="/courses/{{ invoice_item.cart_item.catalogue_item.item_ref_id }}/course/" class="go-to-course-button">
