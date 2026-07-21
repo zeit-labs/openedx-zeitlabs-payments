@@ -169,11 +169,11 @@ msgstr "ضريبة القيمة المضافة"
 #: templates/zeitlabs_payments/payment_pending.html:29
 #: templates/zeitlabs_payments/payment_successful.html:28
 msgid "Go to Dashboard"
-msgstr "الذهاب إلى لوحة التحكم"
+msgstr "الذهاب إلى صفحة المتعلم الرئيسية"
 
 #: templates/zeitlabs_payments/invoice.html:201
-msgid "Go to Course"
-msgstr "الذهاب إلى الدورة"
+msgid "Go to Program"
+msgstr "الذهاب إلى البرنامج"
 
 #: templates/zeitlabs_payments/invoice.html:211
 msgid "Print Receipt"
