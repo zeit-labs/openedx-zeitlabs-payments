@@ -1,5 +1,5 @@
 """
-Custom Django template tags and filters for zeitlabs-payments.
+Custom Django template tags and filters for openedx-zeitlabs-payments.
 
 Provides QR-code generation, currency formatting, invoice URL
 building, and payment-status display helpers used across payment

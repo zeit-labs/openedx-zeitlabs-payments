@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 
 def _payments_enabled() -> bool:
-    """Return True if zeitlabs-payments is active on this instance."""
+    """Return True if openedx-zeitlabs-payments is active on this instance."""
     return get_settings().is_payments_enabled
 
 
