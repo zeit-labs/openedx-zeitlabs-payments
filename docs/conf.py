@@ -1,6 +1,6 @@
 # pylint: disable=invalid-name
 """
-zeitlabs-payments documentation build configuration file.
+openedx-zeitlabs-payments documentation build configuration file.
 
 This file is execfile()d with the current directory set to its
 containing dir.
@@ -91,17 +91,17 @@ source_suffix = '.rst'
 top_level_doc = 'index'
 
 # General information about the project.
-project = 'zeitlabs-payments'
+project = 'openedx-zeitlabs-payments'
 copyright = f'{datetime.now().year}, Axim Collaborative, Inc.'  # pylint: disable=redefined-builtin
 author = 'Axim Collaborative, Inc.'
-project_title = 'zeitlabs-payments'
+project_title = 'openedx-zeitlabs-payments'
 documentation_title = f"{project_title}"
 
 # Set display_github to False if you don't want "edit on Github" button
 html_context = {
     "display_github": True,  # Integrate GitHub
     "github_user": "edx",  # Username
-    "github_repo": 'zeitlabs-payments',  # Repo name
+    "github_repo": 'openedx-zeitlabs-payments',  # Repo name
     "github_version": "main",  # Version
     "conf_py_path": "/docs/",  # Path in the checkout to the docs root
 }
@@ -186,7 +186,7 @@ html_theme = 'sphinx_book_theme'
 # documentation.
 #
 html_theme_options = {
-    "repository_url": "https://github.com/zeit-labs/zeitlabs-payments",
+    "repository_url": "https://github.com/zeit-labs/openedx-zeitlabs-payments",
     "repository_branch": 'main',
     "path_to_docs": "docs/",
     "home_page_in_toc": True,
@@ -223,7 +223,7 @@ html_theme_options = {
 # The name for this set of Sphinx documents.
 # "<project> v<release> documentation" by default.
 #
-# html_title = 'zeitlabs-payments v0.1.0'
+# html_title = 'openedx-zeitlabs-payments v0.1.0'
 
 # A shorter title for the navigation bar.  Default is the same as html_title.
 #
