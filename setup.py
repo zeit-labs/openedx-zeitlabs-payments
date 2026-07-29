@@ -129,12 +129,12 @@ README = open(os.path.join(os.path.dirname(__file__), 'README.rst'), encoding="u
 CHANGELOG = open(os.path.join(os.path.dirname(__file__), 'CHANGELOG.md'), encoding="utf8").read()
 
 setup(
-    name='zeitlabs-payments',
+    name='openedx-zeitlabs-payments',
     version=VERSION,
     description="""Simple Ecommerce for Open edX payments""",
     long_description=README + '\n\n' + CHANGELOG,
     author='Zeitlabs Project',
-    url='https://github.com/zeit-labs/zeitlabs-payments',
+    url='https://github.com/zeit-labs/openedx-zeitlabs-payments',
     packages=find_packages(
         include=['zeitlabs_payments', 'zeitlabs_payments.*'],
         exclude=["*tests"],

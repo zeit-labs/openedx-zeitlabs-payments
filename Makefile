@@ -102,7 +102,7 @@ else
 # Experimental: OEP-58 Pulls translations using atlas
 pull_translations:
 	find zeitlabs_payments/conf/locale -mindepth 1 -maxdepth 1 -type d -exec rm -r {} \;
-	atlas pull $(OPENEDX_ATLAS_ARGS) translations/zeitlabs-payments/zeitlabs_payments/conf/locale:zeitlabs_payments/conf/locale
+	atlas pull $(OPENEDX_ATLAS_ARGS) translations/openedx-zeitlabs-payments/zeitlabs_payments/conf/locale:zeitlabs_payments/conf/locale
 	python manage.py compilemessages
 
 	@echo "Translations have been pulled via Atlas and compiled."

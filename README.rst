@@ -1,4 +1,4 @@
-zeitlabs-payments
+openedx-zeitlabs-payments
 #################
 
 A pluggable Django/Python plugin for Open edX that simplifies payment integration.
@@ -23,7 +23,7 @@ There's more than one option for payment in Open edX. Most have their own flaws,
      - **WooCommerce**
      - **Saleor**
    * - URL
-     - https://github.com/zeit-labs/zeitlabs-payments/
+     - https://github.com/zeit-labs/openedx-zeitlabs-payments/
        Supported for all Open edX releases starting from Redwood
      - https://github.com/openedx/unsupported/ecommerce (Deprecated)
      - https://github.com/openedx/openedx-wordpress-ecommerce
@@ -134,7 +134,7 @@ Clone repo
 
 .. code-block:: bash
 
-   git clone git@github.com:zeit-labs/zeitlabs-payments.git
+   git clone git@github.com:zeit-labs/openedx-zeitlabs-payments.git
 
 
 Add the app to the Open edX platform in Tutor development mode
@@ -154,7 +154,7 @@ Add the app to the Open edX platform in Tutor development mode
    services:
      lms:
        volumes:
-       - <YOUR-CLONED-DIRECTORY-PATH>:/openedx/requirements/zeitlabs-payments/
+       - <YOUR-CLONED-DIRECTORY-PATH>:/openedx/requirements/openedx-zeitlabs-payments/
 
 3. Restart containers with the new volume:
 
@@ -169,7 +169,7 @@ Add the app to the Open edX platform in Tutor development mode
 .. code-block:: bash
 
    tutor dev exec lms bash
-   cd /openedx/requirements/zeitlabs-payments && pip install -e .
+   cd /openedx/requirements/openedx-zeitlabs-payments && pip install -e .
 
 5. Restart the container:
 
@@ -202,7 +202,7 @@ To enable the plugin in your Tutor deployment, add the following to your
 .. code-block:: yaml
 
     OPENEDX_EXTRA_PIP_REQUIREMENTS:
-      - git+https://github.com/zeit-labs/zeitlabs-payments.git
+      - git+https://github.com/zeit-labs/openedx-zeitlabs-payments.git
 
 
 How to use:
