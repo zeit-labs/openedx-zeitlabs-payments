@@ -172,7 +172,7 @@ msgid "Go to Dashboard"
 msgstr ""
 
 #: templates/zeitlabs_payments/invoice.html:201
-msgid "Go to Program"
+msgid "Go to Course"
 msgstr ""
 
 #: templates/zeitlabs_payments/invoice.html:211

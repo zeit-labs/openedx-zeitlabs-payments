@@ -172,8 +172,8 @@ msgid "Go to Dashboard"
 msgstr "الذهاب إلى صفحة المتعلم الرئيسية"
 
 #: templates/zeitlabs_payments/invoice.html:201
-msgid "Go to Program"
-msgstr "الذهاب إلى البرنامج"
+msgid "Go to Course"
+msgstr "الذهاب إلى الدورة"
 
 #: templates/zeitlabs_payments/invoice.html:211
 msgid "Print Receipt"
