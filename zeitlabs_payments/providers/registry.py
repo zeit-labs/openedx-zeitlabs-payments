@@ -4,9 +4,11 @@ from typing import Dict, Type
 import pkg_resources
 
 from .base import BaseProcessor
+from .manual_payment.processor import ManualPaymentProcessor
+
+from zeitlabs_payments.helpers import get_settings
 
 PROCESSORS: Dict[str, Type[BaseProcessor]] = {}
-
 
 def load_entrypoint_processors() -> None:
     """
@@ -17,6 +19,8 @@ def load_entrypoint_processors() -> None:
         slug = getattr(cls, 'SLUG', None)
         if not slug:
             raise ValueError(f"Processor {cls.__name__} from entry point '{ep.name}' must define a SLUG")
+        if slug == ManualPaymentProcessor.SLUG and not get_settings().is_manual_payment_enabled:
+            continue
         PROCESSORS[slug] = cls
 
 

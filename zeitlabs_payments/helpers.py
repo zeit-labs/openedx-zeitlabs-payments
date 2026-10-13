@@ -63,6 +63,9 @@ class ZeitLabsPluginSettings:
     is_payments_enabled: bool = field(
         default_factory=lambda: ZeitLabsPluginSettings.get_by_root_key('IS_ZEITLABS_PAYMENTS_ENABLED', False)
     )
+    is_manual_payment_enabled: bool = field(
+        default_factory=lambda: ZeitLabsPluginSettings.get_by_root_key('ZEITLABS_MANUAL_PAYMENT_ENABLED', False)
+    )
     valid_currency: str = field(
         default_factory=lambda: ZeitLabsPluginSettings.get_by_zeitlabs_key('valid_currency', '!!!')
     )
