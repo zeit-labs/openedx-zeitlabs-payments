@@ -263,7 +263,8 @@ def check_user_enroll_conditions(user: get_user_model, course_mode: CourseMode) 
     This function validates:
     - If enrollment for the course is closed.
     - If the course has reached its maximum capacity.
-    - If the user is already enrolled.
+    - If the user is already enrolled in the same course mode (an active enrollment
+      in another mode, e.g. audit, is allowed so the purchase acts as an upgrade).
 
     Raises an appropriate exception if any condition is not met.
 
@@ -271,7 +272,7 @@ def check_user_enroll_conditions(user: get_user_model, course_mode: CourseMode) 
     :param course_mode: The course mode of the course to check.
     :raises EnrollmentClosedError: If enrollment for the course is closed.
     :raises CourseFullError: If the course has reached its maximum allowed enrollments.
-    :raises AlreadyEnrolledError: If the user is already enrolled in the course.
+    :raises AlreadyEnrolledError: If the user is already enrolled in the course with the same mode.
     :return: None
     """
     if CourseEnrollment.is_enrollment_closed(user, course_mode.course):
@@ -290,13 +291,15 @@ def check_user_enroll_conditions(user: get_user_model, course_mode: CourseMode) 
             user.username,
         )
         raise CourseFullError('Course is Full.')
-    if CourseEnrollment.is_enrolled(user, course_mode.course.id):
+    enrollment = CourseEnrollment.get_enrollment(user, course_mode.course.id)
+    if enrollment and enrollment.is_active and enrollment.mode == course_mode.mode_slug:
         logger.warning(
-            'User %s attempted to enroll in %s, but they were already enrolled',
+            'User %s attempted to buy mode %s of %s, but they were already enrolled in that mode',
             user.username,
+            course_mode.mode_slug,
             str(course_mode.course.id)
         )
-        raise AlreadyEnrolledError('User is already enrolled in the course.')
+        raise AlreadyEnrolledError('User is already enrolled in the course with this mode.')
 
 
 def generate_invoice_number(request: Any) -> str:

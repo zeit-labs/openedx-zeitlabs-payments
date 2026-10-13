@@ -103,6 +103,19 @@ class CourseEnrollment(models.Model):
         return
 
     @classmethod
+    def get_enrollment(cls, user, course_key):
+        """Mock get_enrollment."""
+        return cls.objects.filter(user=user, course__id=course_key).first()
+
+    def update_enrollment(self, mode=None, is_active=None, **kwargs):
+        """Mock update_enrollment."""
+        if mode is not None:
+            self.mode = mode
+        if is_active is not None:
+            self.is_active = is_active
+        self.save()
+
+    @classmethod
     def is_enrolled(cls, user, course_key):
         """Mock"""
         return cls.objects.filter(user=user, course__id=course_key, is_active=True).exists()

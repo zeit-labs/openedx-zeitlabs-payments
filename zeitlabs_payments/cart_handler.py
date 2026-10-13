@@ -176,12 +176,17 @@ class PaidCourseCartHandler(BaseCartHandler):
             raise CartFulfillmentError('Course Mode found but item ref id mismatched. ')
 
         try:
-            CourseEnrollment.enroll(
-                cart.user,
-                course_mode.course.id,
-                mode=course_mode.mode_slug,
-                check_access=True
-            )
+            enrollment = CourseEnrollment.get_enrollment(cart.user, course_mode.course.id)
+            if enrollment and enrollment.is_active:
+                # Already enrolled (e.g. audit): upgrade the existing enrollment to the purchased mode.
+                enrollment.update_enrollment(mode=course_mode.mode_slug, is_active=True)
+            else:
+                CourseEnrollment.enroll(
+                    cart.user,
+                    course_mode.course.id,
+                    mode=course_mode.mode_slug,
+                    check_access=True
+                )
             AuditLog.log(
                 action=AuditLog.AuditActions.USER_ENROLLED,
                 cart=cart,

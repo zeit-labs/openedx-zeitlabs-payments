@@ -5,7 +5,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from common.djangoapps.course_modes.models import CourseMode
-from common.djangoapps.student.models import AlreadyEnrolledError, CourseFullError, EnrollmentClosedError
+from common.djangoapps.student.models import (
+    AlreadyEnrolledError,
+    CourseEnrollment,
+    CourseFullError,
+    EnrollmentClosedError,
+)
 from django.contrib.auth import get_user_model
 from django.contrib.sites.models import Site
 
@@ -423,10 +428,6 @@ def test_check_user_enroll_conditions_success():
             'zeitlabs_payments.helpers.CourseEnrollment.objects.is_course_full',
             True, CourseFullError, 'Course is Full.'
         ),
-        (
-            'zeitlabs_payments.helpers.CourseEnrollment.is_enrolled',
-            True, AlreadyEnrolledError, 'User is already enrolled in the course.'
-        ),
     ]
 )
 def test_check_user_enroll_conditions_failures(patch_target, return_value, expected_exception, expected_msg):
@@ -440,6 +441,30 @@ def test_check_user_enroll_conditions_failures(patch_target, return_value, expec
     with patch(patch_target, return_value=return_value):
         with pytest.raises(expected_exception, match=expected_msg):
             check_user_enroll_conditions(user, course_mode)
+
+
+@pytest.mark.django_db
+def test_check_user_enroll_conditions_already_enrolled_same_mode():
+    """
+    Should raise AlreadyEnrolledError when the user already has an active enrollment in the same mode.
+    """
+    user = User.objects.get(id=3)
+    course_mode = CourseMode.objects.get(sku='custom-sku-1')
+    CourseEnrollment.objects.create(user=user, course=course_mode.course, mode=course_mode.mode_slug, is_active=True)
+    with pytest.raises(AlreadyEnrolledError, match='User is already enrolled in the course with this mode.'):
+        check_user_enroll_conditions(user, course_mode)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('mode, is_active', [('audit', True), ('no-id-professional', False)])
+def test_check_user_enroll_conditions_allows_upgrade(mode, is_active):
+    """
+    Should not raise when the user is enrolled in another mode (upgrade) or the enrollment is inactive.
+    """
+    user = User.objects.get(id=3)
+    course_mode = CourseMode.objects.get(sku='custom-sku-1')
+    CourseEnrollment.objects.create(user=user, course=course_mode.course, mode=mode, is_active=is_active)
+    check_user_enroll_conditions(user, course_mode)
 
 
 @pytest.mark.django_db

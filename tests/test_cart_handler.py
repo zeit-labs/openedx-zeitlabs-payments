@@ -1,10 +1,10 @@
 """Fullment related tests."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from common.djangoapps.course_modes.models import CourseMode
-from common.djangoapps.student.models import CourseEnrollmentException
+from common.djangoapps.student.models import CourseEnrollment, CourseEnrollmentException
 from django.contrib.auth import get_user_model
 
 from zeitlabs_payments.cart_handler import BaseCartHandler, PaidCourseCartHandler
@@ -103,10 +103,10 @@ class TestPaidCourseCartHandler:
         'patch_target, return_value, expected_msg',
         [
             (
-                'zeitlabs_payments.helpers.CourseEnrollment.is_enrolled',
-                True,
+                'zeitlabs_payments.helpers.CourseEnrollment.get_enrollment',
+                Mock(is_active=True, mode='no-id-professional'),
                 'Unable to add item to the cart as user: user3 does not fulfill enrollment conditions. '
-                'User is already enrolled in the course.'
+                'User is already enrolled in the course with this mode.'
             ),
             (
                 'zeitlabs_payments.helpers.CourseEnrollment.objects.is_course_full',
@@ -194,6 +194,27 @@ class TestPaidCourseCartHandler:
                 'during cart fulfillment for catalogue_item: 1.'
             )
         ).exists()
+
+    def test_fulfill_upgrades_existing_enrollment(self):
+        """
+        Should update the mode of an existing active enrollment instead of enrolling again.
+        """
+        enrollment = CourseEnrollment.objects.create(
+            user=self.learner_user, course=self.course_mode.course, mode='audit', is_active=True
+        )
+        cart = Cart.objects.create(user=self.learner_user, status=Cart.Status.PROCESSING)
+        cart_item = cart.items.create(
+            catalogue_item=self.catalog_item,
+            original_price=self.catalog_item.price,
+            final_price=self.catalog_item.price
+        )
+        with patch('zeitlabs_payments.cart_handler.CourseEnrollment.enroll') as mock_enroll:
+            self.fulfillment.fulfill(cart_item, 'processor')
+        mock_enroll.assert_not_called()
+        enrollment.refresh_from_db()
+        assert enrollment.mode == 'no-id-professional'
+        assert enrollment.is_active
+        assert AuditLog.objects.filter(action=AuditLog.AuditActions.USER_ENROLLED, cart=cart).exists()
 
     def test_fulfill_course_mode_not_found(self):
         """

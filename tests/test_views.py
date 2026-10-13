@@ -1,6 +1,6 @@
 """Test views for the zeitlabs_payments app"""
 
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -169,14 +169,14 @@ class CartViewTest(BaseTestViewMixin):
         self.assertEqual(response.data['error'], 'Item with given SKU has unsupported type: paid_course.')
 
     @patch(
-        'zeitlabs_payments.helpers.CourseEnrollment.is_enrolled'
+        'zeitlabs_payments.helpers.CourseEnrollment.get_enrollment'
     )
-    def test_post_failed_for_add_to_cart_validation(self, mock_is_enrolled):
+    def test_post_failed_for_add_to_cart_validation(self, mock_get_enrollment):
         """Verify that """
         user = User.objects.get(id=self.learner1_id)
         course_item = CatalogueItem.objects.get(sku='custom-sku-1')
         self.login_user(user)
-        mock_is_enrolled.return_value = True
+        mock_get_enrollment.return_value = Mock(is_active=True, mode='no-id-professional')
         response = self.client.post(self.url, data={
             'sku': course_item.sku
         })
@@ -184,7 +184,7 @@ class CartViewTest(BaseTestViewMixin):
         self.assertEqual(response.data['error'], 'Given SKU item does not match add to cart requirements')
         self.assertEqual(response.data['details'], (
             'Unable to add item to the cart as user: user3 does not fulfill enrollment conditions. '
-            'User is already enrolled in the course.'
+            'User is already enrolled in the course with this mode.'
         ))
 
 
@@ -294,17 +294,17 @@ class CheckoutViewTests(TestCase):
         self.assertEqual(response.status_code, 400)
 
     @patch(
-        'zeitlabs_payments.helpers.CourseEnrollment.is_enrolled'
+        'zeitlabs_payments.helpers.CourseEnrollment.get_enrollment'
     )
     def test_checkout_view_with_sku_for_course_item_sku_already_enrolled(self, mock_enrolled):
-        mock_enrolled.return_value = True
+        mock_enrolled.return_value = Mock(is_active=True, mode='no-id-professional')
         self.client.force_login(self.user)
         response = self.client.get(f'{self.url}?sku=custom-sku-1')
         self.assertTemplateUsed(response, 'zeitlabs_payments/invalid_cart.html')
         self.assertEqual(
             response.context['error_message'],
             'Unable to add item to the cart as user: user3 does not fulfill enrollment '
-            'conditions. User is already enrolled in the course.'
+            'conditions. User is already enrolled in the course with this mode.'
         )
         self.assertEqual(response.status_code, 400)
 
