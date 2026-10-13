@@ -8,6 +8,7 @@ from common.djangoapps.course_modes.models import CourseMode
 from common.djangoapps.student.models import AlreadyEnrolledError, CourseFullError, EnrollmentClosedError
 from django.contrib.auth import get_user_model
 from django.contrib.sites.models import Site
+from django.db import transaction
 
 from zeitlabs_payments.exceptions import DuplicateCartError, GatewayError
 from zeitlabs_payments.helpers import (
@@ -26,7 +27,7 @@ from zeitlabs_payments.helpers import (
     sanitize_text,
     verify_param,
 )
-from zeitlabs_payments.models import AuditLog, Cart, CartItem, CatalogueItem, Invoice
+from zeitlabs_payments.models import AuditLog, Cart, CartItem, CatalogueItem, Invoice, InvoiceSequence
 
 User = get_user_model()
 
@@ -372,33 +373,67 @@ def test_get_order_description_invalid_cart():
 @pytest.mark.django_db
 def test_generate_invoice_number_no_previous_invoice():
     """
-    Should generate invoice number starting from 100001 when no previous invoice exists.
+    Should generate invoice number starting from 100001 when no sequence exists yet,
+    and create the sequence row for the configured prefix.
     """
     invoice_number = generate_invoice_number(request=None)
     assert invoice_number == 'TEST-100001'
+    assert InvoiceSequence.objects.get(prefix='TEST').last_number == 100001
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    'existing_invoice_number, expected_invoice_number',
+    'last_number, expected_invoice_number',
     [
-        ('TEST-100005', 'TEST-100006'),
-        ('TEST-INVALID', 'TEST-100001'),
+        (100005, 'TEST-100006'),
+        (999999, 'TEST-1000000'),  # gaining a digit keeps the sequence going
+        (7, 'TEST-100001'),  # a counter below the first number is bumped to it
     ]
 )
-def test_generate_invoice_number_with_existing_invoice(existing_invoice_number, expected_invoice_number):
+def test_generate_invoice_number_with_existing_sequence(last_number, expected_invoice_number):
     """
-    Should increment when last invoice number is valid,
-    or reset when last invoice number is invalid.
+    Should increment the sequence counter of the prefix, comparing numerically.
+    """
+    InvoiceSequence.objects.create(prefix='TEST', last_number=last_number)
+    invoice_number = generate_invoice_number(request=None)
+    assert invoice_number == expected_invoice_number
+
+
+@pytest.mark.django_db
+def test_generate_invoice_number_ignores_invoices_table():
+    """
+    The sequence row is the single source of truth: existing invoices with a higher
+    text-sorted number must not influence the next number.
     """
     Invoice.objects.create(
-        invoice_number=existing_invoice_number,
+        invoice_number='TEST-999999',
         total=100,
         cart=Cart.objects.create(user=User.objects.get(id=3), status=Cart.Status.PAID),
         gross_total=100
     )
-    invoice_number = generate_invoice_number(request=None)
-    assert invoice_number == expected_invoice_number
+    InvoiceSequence.objects.create(prefix='TEST', last_number=1000000)
+    assert generate_invoice_number(request=None) == 'TEST-1000001'
+
+
+@pytest.mark.django_db
+def test_generate_invoice_number_sequential_and_gap_free():
+    """
+    Consecutive allocations must produce distinct, consecutive numbers.
+    """
+    numbers = [generate_invoice_number(request=None) for _ in range(5)]
+    assert numbers == [f'TEST-{n}' for n in range(100001, 100006)]
+
+
+@pytest.mark.django_db
+def test_generate_invoice_number_released_on_rollback():
+    """
+    A number allocated inside a transaction that rolls back is not consumed.
+    """
+    with pytest.raises(RuntimeError):
+        with transaction.atomic():
+            assert generate_invoice_number(request=None) == 'TEST-100001'
+            raise RuntimeError('invoice creation failed')
+    assert generate_invoice_number(request=None) == 'TEST-100001'
 
 
 @pytest.mark.django_db

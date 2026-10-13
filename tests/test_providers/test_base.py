@@ -16,7 +16,16 @@ from zeitlabs_payments.exceptions import (
     InvoiceError,
 )
 from zeitlabs_payments.helpers import get_currency
-from zeitlabs_payments.models import AuditLog, Cart, CatalogueItem, Invoice, InvoiceItem, Transaction, WebhookEvent
+from zeitlabs_payments.models import (
+    AuditLog,
+    Cart,
+    CatalogueItem,
+    Invoice,
+    InvoiceItem,
+    InvoiceSequence,
+    Transaction,
+    WebhookEvent,
+)
 from zeitlabs_payments.providers.base import BaseProcessor
 
 User = get_user_model()
@@ -374,7 +383,10 @@ def test_process_payment_handle_payment_exception(mock_handle_payment, cart):  #
 @patch('zeitlabs_payments.providers.base.CART_HANDLER', new={})
 @patch('zeitlabs_payments.providers.base.logger.exception')
 def test_process_payment_invoice_or_fulfillment_fails(mock_exc, cart):  # pylint: disable=redefined-outer-name
-    """Test when invoice creation or fulfillment raises exception."""
+    """
+    When fulfillment fails after the payment was recorded, the failure is not only logged:
+    an audit entry flags the paid cart so support can act on it.
+    """
     processor = DummyProcessor()
 
     request = MagicMock()
@@ -395,6 +407,62 @@ def test_process_payment_invoice_or_fulfillment_fails(mock_exc, cart):  # pylint
     mock_exc.assert_called_once_with(
         'Failed to fulfill cart 1 or to create invoice: Unsupported catalogue item type: paid_course'
     )
+
+    cart.refresh_from_db()
+    assert cart.status == Cart.Status.PAID
+    assert Transaction.objects.filter(gateway='dummy', gateway_transaction_id='t4', cart=cart).exists()
+    audit_log = AuditLog.objects.get(
+        gateway='dummy', cart=cart, action=AuditLog.AuditActions.PAID_CART_NOT_FULFILLED
+    )
+    assert audit_log.details == (
+        'Cart is paid (transaction: t4) but invoice creation or fulfillment failed and was rolled back: '
+        'Unsupported catalogue item type: paid_course. Manual action required.'
+    )
+
+
+@pytest.mark.django_db
+def test_create_invoice_allocates_sequential_numbers(base_processor, cart):  # pylint: disable=redefined-outer-name
+    """
+    Invoices created one after the other for different paid carts get distinct, consecutive numbers.
+    """
+    request = HttpRequest()
+    cart.status = Cart.Status.PAID
+    other_cart = Cart.objects.create(user=cart.user, status=Cart.Status.PAID)
+    other_cart.items.create(
+        catalogue_item=cart.items.first().catalogue_item,
+        original_price=cart.items.first().original_price,
+        final_price=cart.items.first().final_price,
+    )
+
+    invoices = [base_processor.create_invoice(c, request) for c in (cart, other_cart, cart)]
+
+    assert [invoice.invoice_number for invoice in invoices] == ['TEST-100001', 'TEST-100002', 'TEST-100003']
+    assert Invoice.objects.count() == 3
+    assert InvoiceSequence.objects.get(prefix='TEST').last_number == 100003
+
+
+@pytest.mark.django_db
+@patch('zeitlabs_payments.providers.base.InvoiceItem.objects.create', side_effect=RuntimeError('boom'))
+def test_create_invoice_rolls_back_number_when_items_fail(
+    mock_create_item, base_processor, cart  # pylint: disable=redefined-outer-name
+):
+    """
+    The invoice and its number are allocated in one transaction: when creating the items fails,
+    no invoice is left behind and the number is not consumed.
+    """
+    request = HttpRequest()
+    cart.status = Cart.Status.PAID
+
+    with pytest.raises(RuntimeError, match='boom'):
+        base_processor.create_invoice(cart, request)
+
+    mock_create_item.assert_called_once()
+    assert not Invoice.objects.exists()
+    assert not InvoiceSequence.objects.filter(prefix='TEST').exists()
+
+    mock_create_item.side_effect = None
+    mock_create_item.return_value = None
+    assert base_processor.create_invoice(cart, request).invoice_number == 'TEST-100001'
 
 
 @pytest.mark.django_db

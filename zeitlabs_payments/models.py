@@ -5,7 +5,7 @@ from typing import Any
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 
 User = get_user_model()
 
@@ -115,6 +115,7 @@ class AuditLog(TimeStampedModel):
         INVALID_TRANSACTION = 'invalid_transaction'
         CART_STATUS_UPDATED = 'cart_status_updated'
         CART_FULFILLED = 'cart_fulfilled'
+        PAID_CART_NOT_FULFILLED = 'paid_cart_not_fulfilled'
 
     TEMPLATES = {
         AuditActions.CART_FULFILLMENT_ERROR: (
@@ -150,7 +151,11 @@ class AuditLog(TimeStampedModel):
         ),
         AuditActions.CART_FULFILLED: (
             'Cart fulfilled successfully.'
-        )
+        ),
+        AuditActions.PAID_CART_NOT_FULFILLED: (
+            'Cart is paid (transaction: {transaction_id}) but invoice creation or fulfillment failed '
+            'and was rolled back: {error}. Manual action required.'
+        ),
     }
 
     action = models.CharField(max_length=32)
@@ -280,6 +285,42 @@ class Invoice(TimeStampedModel):
     currency = models.CharField(max_length=3)
     paid_at = models.DateTimeField(blank=True, null=True)
     related_transaction = models.ForeignKey(Transaction, on_delete=models.SET_NULL, null=True, blank=True)
+
+
+class InvoiceSequence(TimeStampedModel):
+    """
+    Per-prefix counter used to allocate invoice numbers.
+
+    Invoice numbers are allocated by locking this row and incrementing ``last_number`` inside a
+    transaction, so concurrent payments always get distinct, sequential numbers. The invoices table
+    is never used to derive the next number.
+    """
+
+    FIRST_NUMBER = 100001
+
+    prefix = models.CharField(max_length=255, unique=True)
+    last_number = models.PositiveBigIntegerField(default=0)
+
+    def __str__(self) -> str:
+        """Return the prefix and its last issued number."""
+        return f'{self.prefix}: {self.last_number}'
+
+    @classmethod
+    def next_number(cls, prefix: str) -> int:
+        """
+        Atomically allocate and return the next invoice number for the given prefix.
+
+        Must be called inside the transaction that creates the invoice, so the number is released
+        back (the increment is rolled back) when the invoice is not created.
+
+        :param prefix: The invoice prefix the number belongs to.
+        :return: The allocated number, starting at ``FIRST_NUMBER`` for a new prefix.
+        """
+        with transaction.atomic():
+            sequence, _ = cls.objects.select_for_update().get_or_create(prefix=prefix)
+            sequence.last_number = max(sequence.last_number + 1, cls.FIRST_NUMBER)
+            sequence.save(update_fields=['last_number', 'updated_at'])
+            return sequence.last_number
 
 
 class InvoiceItem(TimeStampedModel):

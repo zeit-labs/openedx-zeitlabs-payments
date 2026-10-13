@@ -6,8 +6,8 @@ from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
-from zeitlabs_payments.admin import AuditLogAdmin, PaymentProcessorAdminPage
-from zeitlabs_payments.models import AuditLog
+from zeitlabs_payments.admin import AuditLogAdmin, InvoiceSequenceAdmin, PaymentProcessorAdminPage
+from zeitlabs_payments.models import AuditLog, InvoiceSequence
 
 User = get_user_model()
 
@@ -25,6 +25,29 @@ class AuditLogAdminTest(TestCase):
         """test has_add_permission"""
         request = self.factory.get('/admin/myapp/auditlog/add/')
         self.assertFalse(self.audit_log_admin.has_add_permission(request))
+
+
+class InvoiceSequenceAdminTest(TestCase):
+    """InvoiceSequence admin test."""
+
+    def setUp(self):
+        """setup."""
+        self.factory = RequestFactory()
+        self.sequence_admin = InvoiceSequenceAdmin(InvoiceSequence, AdminSite())
+        self.sequence = InvoiceSequence.objects.create(prefix='TEST', last_number=100010)
+
+    def test_counters_cannot_be_added_or_deleted(self):
+        """Counters are managed by the invoice numbering only."""
+        request = self.factory.get('/admin/zeitlabs_payments/invoicesequence/')
+        self.assertFalse(self.sequence_admin.has_add_permission(request))
+        self.assertFalse(self.sequence_admin.has_delete_permission(request))
+        self.assertFalse(self.sequence_admin.has_delete_permission(request, self.sequence))
+
+    def test_counter_fields_are_read_only(self):
+        """The prefix and counter value cannot be edited by hand."""
+        request = self.factory.get('/admin/zeitlabs_payments/invoicesequence/')
+        self.assertIn('prefix', self.sequence_admin.get_readonly_fields(request, self.sequence))
+        self.assertIn('last_number', self.sequence_admin.get_readonly_fields(request, self.sequence))
 
 
 @ddt

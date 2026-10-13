@@ -21,7 +21,7 @@ from openedx.core.djangoapps.content.course_overviews.models import CourseOvervi
 from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
 
 from zeitlabs_payments.exceptions import DuplicateCartError, GatewayError
-from zeitlabs_payments.models import AuditLog, Cart, CartItem, CatalogueItem, Invoice
+from zeitlabs_payments.models import AuditLog, Cart, CartItem, CatalogueItem, InvoiceSequence
 
 logger = logging.getLogger(__name__)
 
@@ -301,24 +301,18 @@ def check_user_enroll_conditions(user: get_user_model, course_mode: CourseMode) 
 
 def generate_invoice_number(request: Any) -> str:
     """
-    Generate a new unique invoice number with the given prefix.
+    Allocate a new unique, sequential invoice number with the configured prefix.
 
-    :param prefix: The prefix string to prepend to the invoice number (e.g., 'DEV-').
-    :type prefix: str
-    :returns: A unique invoice number string with the given prefix (e.g., 'DEV-100002').
+    The number comes from the ``InvoiceSequence`` counter of the prefix, incremented under a row
+    lock, so concurrent callers never get the same number. Call it inside the transaction that
+    creates the invoice: if that transaction rolls back, the number is not consumed.
+
+    :param request: The current request (unused, kept for backward compatibility).
+    :returns: A unique invoice number string with the configured prefix (e.g., 'DEV-100002').
     :rtype: str
     """
     prefix = get_settings().invoice_prefix
-    last_invoice = Invoice.objects.filter(invoice_number__startswith=prefix).order_by('-invoice_number').first()
-    if last_invoice and last_invoice.invoice_number:
-        try:
-            last_number = int(last_invoice.invoice_number.replace(prefix, '').replace('-', ''))
-            new_number = last_number + 1
-        except ValueError:
-            new_number = 100001
-    else:
-        new_number = 100001
-    return f'{prefix}-{new_number}'
+    return f'{prefix}-{InvoiceSequence.next_number(prefix)}'
 
 
 def cancel_old_pending_carts(user: get_user_model) -> None:

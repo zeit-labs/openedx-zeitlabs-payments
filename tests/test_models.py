@@ -1,13 +1,15 @@
 """test for models."""
 
 from decimal import Decimal
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.utils import timezone
 
-from zeitlabs_payments.models import AuditLog, Cart, CatalogueItem, Coupon, CouponUsage, TaxRule
+from zeitlabs_payments.models import AuditLog, Cart, CatalogueItem, Coupon, CouponUsage, InvoiceSequence, TaxRule
 
 User = get_user_model()
 
@@ -213,3 +215,79 @@ def test_valid_item_types_returns_all_choices():
     assert result == expected_item_types
     assert len(result) == len(set(result))
     assert all(item_type in dict(CatalogueItem.ItemType.choices) for item_type in result)
+
+
+@pytest.mark.django_db
+class TestInvoiceSequence:
+    """
+    Tests for the InvoiceSequence counter.
+    """
+
+    def test_next_number_creates_sequence_and_starts_at_first_number(self):
+        """
+        Should create the counter row on first use and start at FIRST_NUMBER.
+        """
+        assert InvoiceSequence.next_number('ABC') == InvoiceSequence.FIRST_NUMBER
+        sequence = InvoiceSequence.objects.get(prefix='ABC')
+        assert sequence.last_number == InvoiceSequence.FIRST_NUMBER
+        assert str(sequence) == f'ABC: {InvoiceSequence.FIRST_NUMBER}'
+
+    def test_next_number_increments_existing_sequence(self):
+        """
+        Should increment the stored counter by one on each call.
+        """
+        InvoiceSequence.objects.create(prefix='ABC', last_number=100010)
+        assert InvoiceSequence.next_number('ABC') == 100011
+        assert InvoiceSequence.next_number('ABC') == 100012
+        assert InvoiceSequence.objects.get(prefix='ABC').last_number == 100012
+
+    def test_next_number_is_independent_per_prefix(self):
+        """
+        Each prefix keeps its own counter.
+        """
+        InvoiceSequence.objects.create(prefix='ABC', last_number=100500)
+        assert InvoiceSequence.next_number('XYZ') == InvoiceSequence.FIRST_NUMBER
+        assert InvoiceSequence.next_number('ABC') == 100501
+
+    def test_next_number_survives_gaining_a_digit(self):
+        """
+        Numbers are compared numerically, so 999999 is followed by 1000000.
+        """
+        InvoiceSequence.objects.create(prefix='ABC', last_number=999999)
+        assert InvoiceSequence.next_number('ABC') == 1000000
+
+    def test_next_number_locks_the_sequence_row(self):
+        """
+        The counter must be read with a row lock (select_for_update) inside a transaction.
+        """
+        InvoiceSequence.objects.create(prefix='ABC', last_number=100010)
+        with patch.object(
+            InvoiceSequence.objects, 'select_for_update', wraps=InvoiceSequence.objects.select_for_update
+        ) as mock_lock:
+            with patch('zeitlabs_payments.models.transaction.atomic', wraps=transaction.atomic) as mock_atomic:
+                assert InvoiceSequence.next_number('ABC') == 100011
+        mock_lock.assert_called_once_with()
+        mock_atomic.assert_called_once_with()
+
+    def test_next_number_concurrent_allocations_are_unique_and_gap_free(self):
+        """
+        Simulate two callers interleaving: the second caller only reads the row after the
+        first one has incremented and saved it, which is what the row lock guarantees.
+        """
+        InvoiceSequence.objects.create(prefix='ABC', last_number=100010)
+        allocated = []
+        original_save = InvoiceSequence.save
+
+        def save_then_let_other_caller_in(sequence, *args, **kwargs):
+            original_save(sequence, *args, **kwargs)
+            if not allocated:
+                allocated.append(sequence.last_number)
+                allocated.append(InvoiceSequence.next_number('ABC'))
+
+        with patch.object(InvoiceSequence, 'save', save_then_let_other_caller_in):
+            first = InvoiceSequence.next_number('ABC')
+
+        assert first == 100011
+        assert allocated == [100011, 100012]
+        assert len(set(allocated)) == 2
+        assert InvoiceSequence.objects.get(prefix='ABC').last_number == 100012

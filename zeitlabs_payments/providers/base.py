@@ -196,27 +196,28 @@ class BaseProcessor:
                 f'Cannot create invoice: Cart {cart.id} is in status "{cart.status}", '
                 f'expected status "{Cart.Status.PAID}".'
             )
-        invoice = Invoice.objects.create(
-            invoice_number=generate_invoice_number(request),
-            cart=cart,
-            status=Invoice.InvoiceStatus.PAID,
-            gross_total=cart.gross_total,
-            discount_total=cart.discount_total,
-            tax_total=cart.tax_total,
-            total=cart.total,
-            currency=get_currency(cart),
-            paid_at=timezone.now(),
-            related_transaction=transaction_record
-        )
-        for item in cart.items.all():
-            InvoiceItem.objects.create(
-                invoice=invoice,
-                cart_item=item,
-                original_price=item.original_price,
-                discount_amount=item.discount_amount,
-                tax_amount=item.tax_amount,
-                price=item.final_price,
+        with db_transaction.atomic():
+            invoice = Invoice.objects.create(
+                invoice_number=generate_invoice_number(request),
+                cart=cart,
+                status=Invoice.InvoiceStatus.PAID,
+                gross_total=cart.gross_total,
+                discount_total=cart.discount_total,
+                tax_total=cart.tax_total,
+                total=cart.total,
+                currency=get_currency(cart),
+                paid_at=timezone.now(),
+                related_transaction=transaction_record
             )
+            for item in cart.items.all():
+                InvoiceItem.objects.create(
+                    invoice=invoice,
+                    cart_item=item,
+                    original_price=item.original_price,
+                    discount_amount=item.discount_amount,
+                    tax_amount=item.tax_amount,
+                    price=item.final_price,
+                )
 
         logger.info(
             f'Invoice (ID: {invoice.id}) with status "{Invoice.InvoiceStatus.PAID}" '
@@ -436,5 +437,14 @@ class BaseProcessor:
             return invoice
 
         except Exception as e:  # pylint: disable=broad-exception-caught
+            AuditLog.log(
+                action=AuditLog.AuditActions.PAID_CART_NOT_FULFILLED,
+                cart=cart,
+                gateway=self.SLUG,
+                context={
+                    'transaction_id': transaction_id,
+                    'error': str(e),
+                },
+            )
             logger.exception(f'Failed to fulfill cart {cart.id} or to create invoice: {e}')
             return None

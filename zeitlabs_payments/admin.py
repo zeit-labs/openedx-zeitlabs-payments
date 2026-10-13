@@ -6,7 +6,18 @@ from django.http import HttpResponse
 from django.shortcuts import render
 from django.urls import path, reverse
 
-from .models import AuditLog, Cart, CartItem, CatalogueItem, Invoice, InvoiceItem, TaxRule, Transaction, WebhookEvent
+from .models import (
+    AuditLog,
+    Cart,
+    CartItem,
+    CatalogueItem,
+    Invoice,
+    InvoiceItem,
+    InvoiceSequence,
+    TaxRule,
+    Transaction,
+    WebhookEvent,
+)
 from .providers.registry import PROCESSORS
 
 
@@ -132,6 +143,24 @@ class InvoiceAdmin(admin.ModelAdmin):
     search_fields = ('invoice_number', 'cart__id')
     inlines = [InvoiceItemInline]
     readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(InvoiceSequence)
+class InvoiceSequenceAdmin(admin.ModelAdmin):
+    """
+    Read-only admin for the InvoiceSequence counters.
+    """
+
+    list_display = ('prefix', 'last_number', 'updated_at')
+    readonly_fields = ('prefix', 'last_number', 'created_at', 'updated_at')
+
+    def has_add_permission(self, request: Any) -> bool:
+        """Disallow adding counters by hand: they are created on demand by the invoice numbering."""
+        return False
+
+    def has_delete_permission(self, request: Any, obj: Any = None) -> bool:
+        """Disallow deleting counters: numbering would restart and collide with existing invoices."""
+        return False
 
 
 @admin.register(InvoiceItem)
