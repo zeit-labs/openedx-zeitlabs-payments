@@ -17,6 +17,7 @@ from common.djangoapps.student.models import (
     EnrollmentClosedError,
 )
 from django.contrib.auth import get_user_model
+from django.db.models import Q
 from django.utils.safestring import mark_safe
 from django.utils.timezone import now
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
@@ -229,19 +230,40 @@ def get_merchant_reference(site_id: int, cart: Cart) -> str:
     return f'{site_id}-{cart.id}'
 
 
-def learner_holds_mode(user: get_user_model, course_mode: CourseMode) -> bool:
+def learner_holds_course(user: get_user_model, course_key: Any, ignored_cart: Optional[Cart] = None) -> bool:
     """
-    Return whether the learner is enrolled in the mode's course, in that very mode, and the enrolment is active.
+    Return whether the learner holds the course: buying it again would give them nothing.
 
-    Open edX keeps one enrolment per learner and course, so a learner holding the mode already has what buying it would
-    give them: there is nothing to enrol them in.
+    They hold it when either is true:
+
+    - A cart of theirs that is paid, or awaiting a refund, contains the course: on its own in any paid mode, or inside
+      a bundle. It stays held after they unenrol; a refunded cart no longer counts.
+    - They have an active enrolment in it in a mode Open edX does not upgrade from, however it was made, staff
+      enrolling them by hand included. A course they only audit or honor is not held: buying it upgrades them.
 
     :param user: The learner.
-    :param course_mode: The course mode bought.
-    :return: Whether the learner holds the mode, in an active enrolment.
+    :param course_key: The course's id.
+    :param ignored_cart: A cart not to count: the one being fulfilled, which is paid by then and would hold every
+        course in it.
+    :return: Whether the learner holds the course.
     """
-    mode, is_active = CourseEnrollment.enrollment_mode_for_user(user, course_mode.course.id)
-    return bool(is_active) and mode == course_mode.mode_slug
+    mode, is_active = CourseEnrollment.enrollment_mode_for_user(user, course_key)
+    if is_active and not CourseMode.is_mode_upgradeable(mode):
+        return True
+
+    course_ref = str(course_key)
+    purchases = Cart.objects.filter(
+        user=user, status__in=(Cart.Status.PAID, Cart.Status.REFUND_REQUESTED),
+    ).filter(
+        Q(
+            items__catalogue_item__type=CatalogueItem.ItemType.PAID_COURSE,
+            items__catalogue_item__item_ref_id=course_ref,
+        ) |
+        Q(items__catalogue_item__bundle_courses__course_item__item_ref_id=course_ref),
+    )
+    if ignored_cart is not None:
+        purchases = purchases.exclude(id=ignored_cart.id)
+    return purchases.exists()
 
 
 def check_user_enroll_conditions(user: get_user_model, course_mode: CourseMode) -> None:
@@ -398,8 +420,16 @@ def check_carts_holding_item(user: get_user_model, catalogue_item: CatalogueItem
         return
     if blocking_cart.status == Cart.Status.PAID and blocking_cart.invoices.exists():
         # TODO: implement the credit-note refund feature to allow refunding paid carts with invoices
-        raise DuplicateCartError(f'It was already bought in cart {blocking_cart.id}.')
-    raise DuplicateCartError(f'A payment for it in cart {blocking_cart.id} is still being resolved.')
+        raise DuplicateCartError(
+            f'It was already bought in cart {blocking_cart.id}.',
+            cart_id=blocking_cart.id,
+            reason=DuplicateCartError.BOUGHT,
+        )
+    raise DuplicateCartError(
+        f'A payment for it in cart {blocking_cart.id} is still being resolved.',
+        cart_id=blocking_cart.id,
+        reason=DuplicateCartError.UNRESOLVED,
+    )
 
 
 def describe_error(error: BaseException) -> str:

@@ -4,21 +4,71 @@ import logging
 from typing import Any
 
 from common.djangoapps.course_modes.models import CourseMode
-from common.djangoapps.student.models import CourseEnrollment, CourseEnrollmentException
+from common.djangoapps.student.models import (
+    AlreadyEnrolledError,
+    CourseEnrollment,
+    CourseEnrollmentException,
+    CourseFullError,
+    EnrollmentClosedError,
+)
 from django.contrib.auth import get_user_model
+from django.utils.translation import gettext as _
 
 from zeitlabs_payments.exceptions import CartFulfillmentError, DuplicateCartError, InvalidCartError
 from zeitlabs_payments.helpers import (
     cancel_old_pending_carts,
     check_carts_holding_item,
     check_user_enroll_conditions,
-    learner_holds_mode,
+    learner_holds_course,
 )
 from zeitlabs_payments.models import AuditLog, BundleCourseItem, Cart, CartItem, CatalogueItem
 
 logger = logging.getLogger(__name__)
 
 CART_HANDLER: dict = {}
+
+
+def _refuse(user: get_user_model, learner_message: str, detail: str) -> None:
+    """
+    Log what actually went wrong, then refuse with the one sentence the learner sees.
+
+    A refusal is read by a learner, so its sentence carries no username, SKU, model name or internal status value; the
+    cart number stays only where support needs it to find the cart. The technical detail goes to the log, and the
+    add-to-cart API returns it in ``details``.
+
+    :param user: The learner whose checkout is refused.
+    :param learner_message: The plain, translated sentence shown to the learner.
+    :param detail: The technical detail: the user, the SKU, the course id and the error behind the refusal.
+    :raises InvalidCartError: Always.
+    """
+    logger.warning('Checkout refused for user %s: %s', user.username, detail)
+    raise InvalidCartError(learner_message, detail)
+
+
+def _duplicate_cart_message(error: DuplicateCartError) -> str:
+    """Return the sentence for a cart that blocks the item, keeping its number so support can find it."""
+    if error.reason == DuplicateCartError.BOUGHT:
+        return _('You already bought this item in cart %(cart_id)s.') % {'cart_id': error.cart_id}
+    return _('A payment for this item is still being processed in cart %(cart_id)s.') % {'cart_id': error.cart_id}
+
+
+def _enrollment_message(error: CourseEnrollmentException, bundle: bool = False) -> str:
+    """Return the sentence for an enrolment that refuses the item, from the error behind it."""
+    if isinstance(error, AlreadyEnrolledError):
+        if bundle:
+            return _("You are already enrolled in one of this bundle's courses.")
+        return _('You are already enrolled in this course.')
+    if isinstance(error, EnrollmentClosedError):
+        if bundle:
+            return _("Enrollment is closed for one of this bundle's courses.")
+        return _('Enrollment for this course is closed.')
+    if isinstance(error, CourseFullError):
+        if bundle:
+            return _("One of this bundle's courses is full.")
+        return _('This course is full.')
+    if bundle:
+        return _("You can't buy this bundle right now.")
+    return _("You can't buy this course right now.")
 
 
 class BaseCartHandler:
@@ -144,6 +194,11 @@ class PaidCourseCartHandler(BaseCartHandler):
         - Checks if the user meets enrollment conditions for that course.
         - Raises an appropriate error if validation fails.
 
+        A refusal is one plain sentence for the learner, translated, with no username, SKU, model name or internal
+        status value; the cart number stays in it only where support needs it to find the cart. What actually went
+        wrong -- the user, the SKU, the course id and the error behind it -- is logged, and the add-to-cart API
+        returns it in ``details``.
+
         :param user: The user attempting to add the item to the cart.
         :param catalogue_item: The catalogue item representing the course to add.
         :raises InvalidCartError: If the course mode does not exist, if the user does not meet enrollment conditions,
@@ -154,20 +209,34 @@ class PaidCourseCartHandler(BaseCartHandler):
         try:
             course_mode = CourseMode.objects.get(sku=catalogue_item.sku)
             if str(course_mode.course.id) != catalogue_item.item_ref_id:
-                raise InvalidCartError(
-                    'Unable to add item to the cart as Course mode found with given sku but course_id'
-                    ' mismatch with catalogue item ref-id.'
+                _refuse(
+                    user,
+                    _('This course is not available to buy right now.'),
+                    f'CourseMode {catalogue_item.sku} belongs to course {course_mode.course.id}, not to catalogue '
+                    f'item ref id {catalogue_item.item_ref_id}.',
                 )
             check_user_enroll_conditions(user, course_mode)
             check_carts_holding_item(user, catalogue_item)
-        except CourseMode.DoesNotExist as exc:
-            raise InvalidCartError('Unable to add item to the cart as CourseMode not found') from exc
+        except CourseMode.DoesNotExist:
+            _refuse(
+                user,
+                _('This course is not available to buy right now.'),
+                f'No CourseMode found for sku {catalogue_item.sku}.',
+            )
         except DuplicateCartError as exc:
-            raise InvalidCartError(f'Unable to add item to the cart: {exc}') from exc
+            _refuse(
+                user,
+                _duplicate_cart_message(exc),
+                f'Cart {exc.cart_id} blocks buying course {catalogue_item.item_ref_id} '
+                f'(sku {catalogue_item.sku}): {exc}',
+            )
         except CourseEnrollmentException as exc:
-            raise InvalidCartError(
-                f'Unable to add item to the cart as user: {user} does not fulfill enrollment conditions. {str(exc)}'
-            ) from exc
+            _refuse(
+                user,
+                _enrollment_message(exc),
+                f'User {user.username} does not fulfill enrollment conditions for course '
+                f'{catalogue_item.item_ref_id} (sku {catalogue_item.sku}): {exc}',
+            )
 
     def fulfill(self, item: CartItem, processor: Any) -> None:
         """
@@ -248,53 +317,98 @@ class ProgramBundleCartHandler(BaseCartHandler):
     course is purchasable; fulfillment enrolls the user in all of them.
 
     Only the learner's carts for the bundle itself can block buying it. Their carts for its courses never do: buying a
-    course must never stop its learner buying a bundle that contains it. For the same reason a course the learner
-    already holds in its mode neither stops the bundle being bought nor is enrolled in again.
+    course must never stop its learner buying a bundle that contains it. A course the learner already holds -- bought
+    before, or enrolled in a paid mode -- is neither checked nor enrolled in again; a bundle whose every course they
+    hold is refused, since they would pay for nothing.
     """
 
     def validate_add_to_cart(self, user: get_user_model, catalogue_item: CatalogueItem) -> None:
         """
         Validate whether the user can purchase this program bundle.
 
+        The bundle's own configuration is checked first. A bundle with no courses linked cannot be bought by anyone,
+        so that is what the learner is told -- before the cart checks below, which would otherwise refuse them for a
+        cart of their own, or send them back to an earlier payment for a bundle that cannot be bought.
+
+        A bundle whose every course the learner already holds (``learner_holds_course``) is refused too: fulfilment
+        would skip every one of them, so the learner would pay its full price for nothing. Holding only some of its
+        courses does not stop the bundle -- they buy the rest as usual -- and a free mode, audit or honor, is upgraded
+        rather than held. A held course is not checked against its enrolment conditions: nothing is granted for it, so
+        whatever mode it is held in, and whether the learner has since unenrolled, its closing or filling up does not
+        stop the bundle.
+
         Checks:
-        - No other cart of the user for this bundle blocks buying it.
         - The bundle has at least one constituent course.
+        - No other cart of the user for this bundle blocks buying it.
+        - The user does not already hold every constituent course.
         - Each constituent course has a matching CourseMode (by SKU).
         - Each CourseMode course_id matches the course CatalogueItem's item_ref_id.
-        - The user meets enrollment conditions for every course they do not already hold in its mode.
+        - The user meets enrollment conditions for every course they do not already hold.
+
+        A refusal is one plain sentence for the learner, translated, with no username, SKU, model name or internal
+        status value; the cart number stays in it only where support needs it to find the cart. What actually went
+        wrong -- the user, the SKU, the course id and the error behind it -- is logged, and the add-to-cart API
+        returns it in ``details``.
 
         :param user: The user attempting to add the bundle to the cart.
         :param catalogue_item: The program_bundle CatalogueItem.
         :raises InvalidCartError: If any validation fails.
         :raises InFlightPaymentError: If the user's earlier payment for this bundle is still open, carrying its cart.
         """
-        try:
-            check_carts_holding_item(user, catalogue_item)
-        except DuplicateCartError as exc:
-            raise InvalidCartError(f'Unable to add bundle to the cart: {exc}') from exc
-
         bundle_courses = BundleCourseItem.objects.filter(bundle=catalogue_item).select_related('course_item')
 
         if not bundle_courses.exists():
-            raise InvalidCartError('Unable to add bundle to the cart: no courses linked to this bundle.')
+            _refuse(
+                user,
+                _('This bundle is not available to buy right now.'),
+                f'No courses are linked to bundle {catalogue_item.sku}.',
+            )
 
+        try:
+            check_carts_holding_item(user, catalogue_item)
+        except DuplicateCartError as exc:
+            _refuse(
+                user,
+                _duplicate_cart_message(exc),
+                f'Cart {exc.cart_id} blocks buying bundle {catalogue_item.sku}: {exc}',
+            )
+
+        courses_held = 0
         for link in bundle_courses:
             course_item = link.course_item
             try:
                 course_mode = CourseMode.objects.get(sku=course_item.sku)
                 if str(course_mode.course.id) != course_item.item_ref_id:
-                    raise InvalidCartError(
-                        f'Bundle course {course_item.sku}: CourseMode course_id mismatch with catalogue item ref-id.'
+                    _refuse(
+                        user,
+                        _('This bundle is not available to buy right now.'),
+                        f'Bundle {catalogue_item.sku}: CourseMode {course_item.sku} belongs to course '
+                        f'{course_mode.course.id}, not to catalogue item ref id {course_item.item_ref_id}.',
                     )
-                if learner_holds_mode(user, course_mode):
+                if learner_holds_course(user, course_mode.course.id):
+                    courses_held += 1
                     continue
                 check_user_enroll_conditions(user, course_mode)
-            except CourseMode.DoesNotExist as exc:
-                raise InvalidCartError(f'Bundle course {course_item.sku}: CourseMode not found.') from exc
+            except CourseMode.DoesNotExist:
+                _refuse(
+                    user,
+                    _('This bundle is not available to buy right now.'),
+                    f'Bundle {catalogue_item.sku}: no CourseMode found for sku {course_item.sku}.',
+                )
             except CourseEnrollmentException as exc:
-                raise InvalidCartError(
-                    f'Bundle course {course_item.sku}: user does not fulfill enrollment conditions. {str(exc)}'
-                ) from exc
+                _refuse(
+                    user,
+                    _enrollment_message(exc, bundle=True),
+                    f'Bundle {catalogue_item.sku}: user {user.username} does not fulfill enrollment conditions '
+                    f'for course {course_item.item_ref_id} (sku {course_item.sku}): {exc}',
+                )
+
+        if courses_held == len(bundle_courses):
+            _refuse(
+                user,
+                _('You already have all the courses in this bundle.'),
+                f'Bundle {catalogue_item.sku}: the learner already holds all {len(bundle_courses)} of its courses.',
+            )
 
     def fulfill(self, item: CartItem, processor: Any) -> None:
         """
@@ -308,10 +422,11 @@ class ProgramBundleCartHandler(BaseCartHandler):
         undo the enrollment call's non-transactional side effects and staff need
         the record.
 
-        Each course is enrolled or upgraded as ``enrol_or_upgrade`` decides. One the learner already holds in its mode
-        -- bought on its own before the bundle, say -- is left as it is and is not among the courses that landed, since
-        nothing changed for it: it is among the courses held instead. One upgraded from a free mode is among those that
-        landed, since its mode-change events outlive a rollback as an enrolment's do.
+        A course the learner already holds (``learner_holds_course``), not counting this cart, is left as it is: in the
+        mode it is held in, or unenrolled if they have unenrolled from it, since staff re-enrol a learner who left. It
+        is among the courses held, not those that landed, since nothing changed for it. Every other course is enrolled
+        or upgraded as ``enrol_or_upgrade`` decides; one upgraded from a free mode is among those that landed, since
+        its mode-change events outlive a rollback as an enrolment's do.
 
         :param item: The cart item representing a program bundle.
         :param processor: The payment processor slug.
@@ -392,11 +507,25 @@ class ProgramBundleCartHandler(BaseCartHandler):
         landed_courses = []
         held_courses = []
         for course_item, course_mode in validated_modes:
+            course_id = str(course_mode.course.id)
             try:
-                if enrol_or_upgrade(cart, processor, course_mode, course_item.id):
-                    landed_courses.append(str(course_mode.course.id))
+                if learner_holds_course(cart.user, course_mode.course.id, ignored_cart=cart):
+                    AuditLog.log(
+                        action=AuditLog.AuditActions.USER_ALREADY_ENROLLED,
+                        cart=cart,
+                        processor=processor,
+                        context={
+                            'course_id': course_mode.course.id,
+                            'mode_slug': course_mode.mode_slug,
+                            'catalogue_item_id': course_item.id,
+                        },
+                    )
+                    logger.info(f'User {cart.user.id} holds course {course_id} already; cart {cart.id} skips it.')
+                    held_courses.append(course_id)
+                elif enrol_or_upgrade(cart, processor, course_mode, course_item.id):
+                    landed_courses.append(course_id)
                 else:
-                    held_courses.append(str(course_mode.course.id))
+                    held_courses.append(course_id)
             except Exception as exc:
                 logger.exception(
                     f'Enrollment failed for user {cart.user.id} in course '

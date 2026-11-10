@@ -119,8 +119,7 @@ class CheckoutView(LoginRequiredMixin, TemplateView):
                 'zeitlabs_payments/invalid_cart.html',
                 {
                     'error_message': _(
-                        'This product accepts one item per purchase. '
-                        'Please complete each purchase separately.'
+                        'This product sells one item per purchase; please complete each purchase separately.'
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -130,19 +129,23 @@ class CheckoutView(LoginRequiredMixin, TemplateView):
             try:
                 catalog_item = models.CatalogueItem.objects.get(sku=sku_code)
             except models.CatalogueItem.DoesNotExist:
+                logger.warning('Checkout refused: no catalogue item with sku %s.', sku_code)
                 return render(
                     request,
                     'zeitlabs_payments/invalid_cart.html',
-                    {'error_message': _('Item with sku: %(sku)s does not exist.') % {'sku': sku_code}},
+                    {'error_message': _('This item is not available.')},
                     status=404
                 )
 
             handler = CART_HANDLER.get(catalog_item.type)
             if not handler:
+                logger.warning(
+                    'Checkout refused: catalogue item %s has unsupported type %s.', sku_code, catalog_item.type,
+                )
                 return render(
                     request,
                     'zeitlabs_payments/invalid_cart.html',
-                    {'error_message': _('Item has unsupported type: %(type)s.') % {'type': catalog_item.type}},
+                    {'error_message': _('This item cannot be bought right now.')},
                     status=400
                 )
             try:
@@ -372,8 +375,7 @@ class CartView(APIView):
             return Response(
                 {
                     'error': (
-                        'This product accepts one item per purchase. '
-                        'Please complete each purchase separately.'
+                        'This product sells one item per purchase; please complete each purchase separately.'
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -410,7 +412,7 @@ class CartView(APIView):
             return Response(
                 {
                     'error': 'Given SKU item does not match add to cart requirements',
-                    'details': f'{str(exc)}'
+                    'details': exc.detail or str(exc),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )

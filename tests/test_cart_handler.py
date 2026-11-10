@@ -1,6 +1,6 @@
 """Fullment related tests."""
 
-import re
+import logging
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
@@ -121,23 +121,15 @@ class TestPaidCourseCartHandler:
         """
         self.fulfillment.validate_add_to_cart(self.learner_user, self.catalog_item)
 
-    @pytest.mark.parametrize(
-        'sku, expected_msg',
-        [
-            (
-                'custom-sku-with_invlaid_ref_id',
-                'Unable to add item to the cart as Course mode found with given sku but course_id'
-                ' mismatch with catalogue item ref-id.'
-            ),
-            (
-                'sku-does-not-match-to-any-course-mode',
-                'Unable to add item to the cart as CourseMode not found'
-            ),
-        ],
-    )
-    def test_validate_add_to_cart_invalid_cases(self, sku, expected_msg):
+    @pytest.mark.parametrize('sku', [
+        'custom-sku-with_invlaid_ref_id',
+        'sku-does-not-match-to-any-course-mode',
+    ])
+    def test_validate_add_to_cart_invalid_cases(self, sku):
         """
-        Should raise InvalidCartError for invalid ref_id or invalid sku.
+        Verify that a course whose mode is missing, or belongs to another course, is refused as unavailable.
+
+        The learner sees one plain sentence; the SKU stays in the detail kept for support.
         """
         if 'does-not-match' in sku:
             # dynamically create the item with invalid sku
@@ -152,35 +144,35 @@ class TestPaidCourseCartHandler:
         else:
             course_item = CatalogueItem.objects.get(sku=sku)
 
-        with pytest.raises(InvalidCartError, match=expected_msg):
+        with pytest.raises(InvalidCartError) as raised:
             self.fulfillment.validate_add_to_cart(self.learner_user, course_item)
 
+        assert str(raised.value) == 'This course is not available to buy right now.'
+        assert course_item.sku in raised.value.detail, 'the refused SKU is not kept for support'
+
     @pytest.mark.parametrize(
-        'patch_target, return_value, expected_msg',
+        'patch_target, return_value, expected_message',
         [
             (
                 'zeitlabs_payments.helpers.CourseEnrollment.is_enrolled',
                 True,
-                'Unable to add item to the cart as user: user3 does not fulfill enrollment conditions. '
-                'User is already enrolled in the course.'
+                'You are already enrolled in this course.',
             ),
             (
                 'zeitlabs_payments.helpers.CourseEnrollment.objects.is_course_full',
                 True,
-                'Unable to add item to the cart as user: user3 does not fulfill enrollment conditions. '
-                'Course is Full.'
+                'This course is full.',
             ),
             (
                 'zeitlabs_payments.helpers.CourseEnrollment.is_enrollment_closed',
                 True,
-                'Unable to add item to the cart as user: user3 does not fulfill enrollment conditions. '
-                'Enrollment is closed.'
+                'Enrollment for this course is closed.',
             ),
         ],
     )
-    def test_validate_add_to_cart_enrollment_failures(self, patch_target, return_value, expected_msg):
+    def test_validate_add_to_cart_enrollment_failures(self, patch_target, return_value, expected_message):
         """
-        Should raise InvalidCartError when enrollment conditions fail (user enrolled, course full, enrollment closed).
+        Verify that an enrolment refusal is one plain sentence, with the user, course and error kept in the detail.
         """
         # For course_full case, make sure course_overview.max_student_enrollments_allowed is set
         if 'is_course_full' in patch_target:
@@ -189,8 +181,36 @@ class TestPaidCourseCartHandler:
             course_overview.save()
 
         with patch(patch_target, return_value=return_value):
-            with pytest.raises(InvalidCartError, match=expected_msg):
+            with pytest.raises(InvalidCartError) as raised:
                 self.fulfillment.validate_add_to_cart(self.learner_user, self.catalog_item)
+
+        assert str(raised.value) == expected_message
+        assert self.learner_user.username in raised.value.detail, 'the user is not kept for support'
+        assert self.catalog_item.sku in raised.value.detail, 'the SKU is not kept for support'
+        assert str(self.course_mode.course.id) in raised.value.detail, 'the course id is not kept for support'
+
+    def test_course_refusal_is_one_plain_sentence_and_its_detail_is_logged(self, caplog):
+        """
+        Verify that a refused course shows one plain sentence, and the user, SKU, course id and error are logged.
+        """
+        with patch('zeitlabs_payments.helpers.CourseEnrollment.is_enrolled', return_value=True):
+            with caplog.at_level(logging.WARNING):
+                with pytest.raises(InvalidCartError) as raised:
+                    self.fulfillment.validate_add_to_cart(self.learner_user, self.catalog_item)
+
+        sentence = str(raised.value)
+        assert sentence == 'You are already enrolled in this course.'
+        assert self.learner_user.username not in sentence, 'the learner sentence names the user'
+        assert self.catalog_item.sku not in sentence, 'the learner sentence names the SKU'
+        assert str(self.course_mode.course.id) not in sentence, 'the learner sentence names the course id'
+        assert 'CourseMode' not in sentence and 'ref-id' not in sentence, 'the learner sentence is developer English'
+
+        logged = caplog.text
+        assert 'Checkout refused for user' in logged, 'the refusal is not logged'
+        assert self.learner_user.username in logged, 'the logged detail does not name the user'
+        assert self.catalog_item.sku in logged, 'the logged detail does not name the SKU'
+        assert str(self.course_mode.course.id) in logged, 'the logged detail does not name the course id'
+        assert 'User is already enrolled in the course.' in logged, 'the logged detail omits the error behind it'
 
     def test_validate_add_to_cart_duplicate_cart_failure(self):
         """
@@ -203,10 +223,10 @@ class TestPaidCourseCartHandler:
             final_price=self.catalog_item.price
         )
         assert existing_cart.status == Cart.Status.PAYMENT_PENDING
-        with pytest.raises(InvalidCartError) as exc:
+        with pytest.raises(InvalidCartError) as raised:
             self.fulfillment.validate_add_to_cart(self.learner_user, self.catalog_item)
-        assert str(exc.value) == (
-            f'Unable to add item to the cart: A payment for it in cart {existing_cart.id} is still being resolved.'
+        assert str(raised.value) == (
+            f'A payment for this item is still being processed in cart {existing_cart.id}.'
         )
 
         existing_cart.status = Cart.Status.PENDING
@@ -228,8 +248,10 @@ class TestPaidCourseCartHandler:
             final_price=self.catalog_item.price,
         )
 
-        with pytest.raises(InvalidCartError, match=re.escape(f'cart {held_cart.id} is still being resolved')):
+        with pytest.raises(InvalidCartError) as raised:
             self.fulfillment.validate_add_to_cart(self.learner_user, self.catalog_item)
+
+        assert str(raised.value) == f'A payment for this item is still being processed in cart {held_cart.id}.'
 
     def test_validate_add_to_cart_refuses_while_a_paid_cart_has_no_invoice(self):
         """
@@ -245,8 +267,10 @@ class TestPaidCourseCartHandler:
             final_price=self.catalog_item.price,
         )
 
-        with pytest.raises(InvalidCartError, match=re.escape(f'cart {unfulfilled.id} is still being resolved')):
+        with pytest.raises(InvalidCartError) as raised:
             self.fulfillment.validate_add_to_cart(self.learner_user, self.catalog_item)
+
+        assert str(raised.value) == f'A payment for this item is still being processed in cart {unfulfilled.id}.'
 
     @patch('zeitlabs_payments.cart_handler.CourseEnrollment.enroll')
     def test_fulfill_success(self, mock_enroll):
@@ -376,13 +400,16 @@ class TestPaidCourseCartHandler:
 
         self.course_mode._expiration_datetime = now() - timedelta(days=1)  # pylint: disable=protected-access
         self.course_mode.save()
-        with pytest.raises(InvalidCartError, match=f'The {self.course_mode.mode_slug} mode closed on'):
+        with pytest.raises(InvalidCartError) as raised:
             self.fulfillment.validate_add_to_cart(self.learner_user, self.catalog_item)
+        assert str(raised.value) == 'Enrollment for this course is closed.'
+        assert self.course_mode.mode_slug in raised.value.detail, 'the closed mode is not kept for support'
         CourseEnrollment.objects.create(
             user=self.learner_user, course=self.course_mode.course, mode='audit', is_active=True,
         )
-        with pytest.raises(InvalidCartError, match=f'The {self.course_mode.mode_slug} mode closed on'):
+        with pytest.raises(InvalidCartError) as raised:
             self.fulfillment.validate_add_to_cart(self.learner_user, self.catalog_item)
+        assert str(raised.value) == 'Enrollment for this course is closed.'
 
     def test_fulfill_course_mode_not_found(self):
         """
@@ -477,60 +504,109 @@ class TestProgramBundleCartHandler:
         self.handler.validate_add_to_cart(self.learner_user, self.bundle_item)
 
     def test_validate_add_to_cart_empty_bundle(self):
-        """Verify that an InvalidCartError is raised when the bundle has no linked courses."""
-        with pytest.raises(InvalidCartError, match='no courses linked to this bundle'):
+        """Verify that an empty bundle is refused with one plain sentence, the bundle kept in the detail."""
+        with pytest.raises(InvalidCartError) as raised:
             self.handler.validate_add_to_cart(self.learner_user, self.empty_bundle_item)
 
+        assert str(raised.value) == 'This bundle is not available to buy right now.'
+        assert self.empty_bundle_item.sku in raised.value.detail, 'the bundle SKU is not kept for support'
+
+    def test_validate_add_to_cart_empty_bundle_is_refused_before_a_blocking_cart(self):
+        """
+        Verify that an empty bundle is refused for its setup error, though the learner has a blocking cart for it.
+
+        The bundle cannot be bought while it has no courses linked, so that is what the learner must be told; the cart
+        refusal would read as a problem with their own cart instead of the bundle's configuration.
+        """
+        blocking = Cart.objects.create(user=self.learner_user, status=Cart.Status.UNRECONCILED)
+        blocking.items.create(
+            catalogue_item=self.empty_bundle_item,
+            original_price=self.empty_bundle_item.price,
+            final_price=self.empty_bundle_item.price,
+        )
+
+        with pytest.raises(InvalidCartError) as raised:
+            self.handler.validate_add_to_cart(self.learner_user, self.empty_bundle_item)
+
+        assert str(raised.value) == 'This bundle is not available to buy right now.'
+        assert self.empty_bundle_item.sku in raised.value.detail, 'the bundle SKU is not kept for support'
+
+    def test_validate_add_to_cart_empty_bundle_does_not_resolve_a_payment_in_flight(self):
+        """
+        Verify that an empty bundle is refused without raising its payment in flight, so none is resolved.
+
+        Raising it is what sends the learner back to the payment, makes them wait on it, or expires it; a bundle that
+        cannot be bought must not hide its misconfiguration behind any of those.
+        """
+        inflight = Cart.objects.create(
+            user=self.learner_user,
+            status=Cart.Status.PROCESSING,
+            gateway='dummy',
+            gateway_order_id='ORDER-EMPTY',
+        )
+        inflight.items.create(
+            catalogue_item=self.empty_bundle_item,
+            original_price=self.empty_bundle_item.price,
+            final_price=self.empty_bundle_item.price,
+        )
+
+        with pytest.raises(InvalidCartError) as raised:
+            self.handler.validate_add_to_cart(self.learner_user, self.empty_bundle_item)
+
+        assert str(raised.value) == 'This bundle is not available to buy right now.'
+        inflight.refresh_from_db()
+        assert inflight.status == Cart.Status.PROCESSING, 'the payment in flight was resolved'
+
     def test_validate_add_to_cart_course_mode_not_found(self):
-        """Verify that an InvalidCartError is raised when a constituent course has no matching CourseMode."""
+        """Verify that a bundle whose constituent course has no mode is refused, keeping the course in the detail."""
         course_item = BundleCourseItem.objects.filter(bundle=self.bundle_item).first().course_item
         CourseMode.objects.filter(sku=course_item.sku).delete()
 
-        with pytest.raises(
-            InvalidCartError,
-            match=f'Bundle course {course_item.sku}: CourseMode not found',
-        ):
+        with pytest.raises(InvalidCartError) as raised:
             self.handler.validate_add_to_cart(self.learner_user, self.bundle_item)
 
+        assert str(raised.value) == 'This bundle is not available to buy right now.'
+        assert course_item.sku in raised.value.detail, 'the course SKU is not kept for support'
+
     def test_validate_add_to_cart_course_id_mismatch(self):
-        """Verify that an InvalidCartError is raised when a CourseMode course_id mismatches the item ref id."""
+        """Verify that a bundle whose constituent course mode belongs to another course is refused the same way."""
         link = BundleCourseItem.objects.filter(bundle=self.bundle_item).first()
         course_item = link.course_item
         original_ref = course_item.item_ref_id
         course_item.item_ref_id = 'course-v1:wrong+0+0'
         course_item.save()
 
-        with pytest.raises(
-            InvalidCartError,
-            match=f'Bundle course {course_item.sku}: CourseMode course_id mismatch',
-        ):
+        with pytest.raises(InvalidCartError) as raised:
             self.handler.validate_add_to_cart(self.learner_user, self.bundle_item)
+
+        assert str(raised.value) == 'This bundle is not available to buy right now.'
+        assert course_item.sku in raised.value.detail, 'the course SKU is not kept for support'
 
         course_item.item_ref_id = original_ref
         course_item.save()
 
     @pytest.mark.parametrize(
-        'patch_target, return_value, expected_msg_fragment',
+        'patch_target, return_value, expected_message',
         [
             (
                 'zeitlabs_payments.helpers.CourseEnrollment.is_enrolled',
                 True,
-                'does not fulfill enrollment conditions',
+                "You are already enrolled in one of this bundle's courses.",
             ),
             (
                 'zeitlabs_payments.helpers.CourseEnrollment.objects.is_course_full',
                 True,
-                'does not fulfill enrollment conditions',
+                "One of this bundle's courses is full.",
             ),
             (
                 'zeitlabs_payments.helpers.CourseEnrollment.is_enrollment_closed',
                 True,
-                'does not fulfill enrollment conditions',
+                "Enrollment is closed for one of this bundle's courses.",
             ),
         ],
     )
-    def test_validate_add_to_cart_enrollment_failures(self, patch_target, return_value, expected_msg_fragment):
-        """Verify that an InvalidCartError is raised when enrollment conditions fail for any constituent course."""
+    def test_validate_add_to_cart_enrollment_failures(self, patch_target, return_value, expected_message):
+        """Verify that an enrolment refusal is one plain sentence, with the course and error kept in the detail."""
         if 'is_course_full' in patch_target:
             for link in BundleCourseItem.objects.filter(bundle=self.bundle_item).select_related('course_item'):
                 course_mode = CourseMode.objects.get(sku=link.course_item.sku)
@@ -538,8 +614,34 @@ class TestProgramBundleCartHandler:
                 course_mode.course.save()
 
         with patch(patch_target, return_value=return_value):
-            with pytest.raises(InvalidCartError, match=expected_msg_fragment):
+            with pytest.raises(InvalidCartError) as raised:
                 self.handler.validate_add_to_cart(self.learner_user, self.bundle_item)
+
+        assert str(raised.value) == expected_message
+        assert self.bundle_item.sku in raised.value.detail, 'the bundle SKU is not kept for support'
+        assert self.learner_user.username in raised.value.detail, 'the user is not kept for support'
+
+    def test_bundle_refusal_is_one_plain_sentence_and_its_detail_is_logged(self, caplog):
+        """
+        Verify that a refused bundle shows one plain sentence, and the bundle, course and user behind it are logged.
+        """
+        course_item = BundleCourseItem.objects.filter(bundle=self.bundle_item).first().course_item
+        CourseMode.objects.filter(sku=course_item.sku).delete()
+
+        with caplog.at_level(logging.WARNING):
+            with pytest.raises(InvalidCartError) as raised:
+                self.handler.validate_add_to_cart(self.learner_user, self.bundle_item)
+
+        sentence = str(raised.value)
+        assert sentence == 'This bundle is not available to buy right now.'
+        assert self.bundle_item.sku not in sentence, 'the learner sentence names the bundle SKU'
+        assert course_item.sku not in sentence, 'the learner sentence names the course SKU'
+        assert 'CourseMode' not in sentence and 'ref-id' not in sentence, 'the learner sentence is developer English'
+
+        logged = caplog.text
+        assert 'Checkout refused for user' in logged, 'the refusal is not logged'
+        assert self.bundle_item.sku in logged, 'the logged detail does not name the bundle'
+        assert course_item.sku in logged, 'the logged detail does not name the course'
 
     @pytest.mark.parametrize('course_cart_status', [
         Cart.Status.PROCESSING, Cart.Status.PAYMENT_PENDING, Cart.Status.PAID, Cart.Status.UNRECONCILED,
@@ -559,15 +661,16 @@ class TestProgramBundleCartHandler:
         self.handler.validate_add_to_cart(self.learner_user, self.bundle_item)
 
     def test_validate_add_to_cart_refuses_a_bundle_already_bought(self):
-        """Verify that a bundle the learner already has a paid cart for is refused."""
+        """Verify that a bundle the learner already has an unresolved cart for is refused, naming that cart."""
         bought = Cart.objects.create(user=self.learner_user, status=Cart.Status.PAID)
         bought.items.create(
             catalogue_item=self.bundle_item, original_price=self.bundle_item.price, final_price=self.bundle_item.price,
         )
 
-        refusal = f'Unable to add bundle to the cart: A payment for it in cart {bought.id} is still being'
-        with pytest.raises(InvalidCartError, match=re.escape(refusal)):
+        with pytest.raises(InvalidCartError) as raised:
             self.handler.validate_add_to_cart(self.learner_user, self.bundle_item)
+
+        assert str(raised.value) == f'A payment for this item is still being processed in cart {bought.id}.'
 
     def test_validate_add_to_cart_sends_the_learner_back_to_the_bundle_in_flight(self):
         """Verify that a bundle whose earlier payment is still in flight raises that payment, carrying its cart."""
@@ -619,6 +722,17 @@ class TestProgramBundleCartHandler:
         )
         return course_mode
 
+    def _hold_every_course(self, mode=None):
+        """Enrol the learner in every course of the bundle, in each course's own mode unless another is named."""
+        held = []
+        for link in BundleCourseItem.objects.filter(bundle=self.bundle_item).select_related('course_item'):
+            course_mode = CourseMode.objects.get(sku=link.course_item.sku)
+            CourseEnrollment.objects.create(
+                user=self.learner_user, course=course_mode.course, mode=mode or course_mode.mode_slug, is_active=True,
+            )
+            held.append(course_mode)
+        return held
+
     def test_validate_add_to_cart_allows_a_bundle_containing_a_course_the_learner_holds(self):
         """
         Verify that a learner who already holds one of the bundle's courses in its mode can buy the bundle.
@@ -629,14 +743,102 @@ class TestProgramBundleCartHandler:
 
         self.handler.validate_add_to_cart(self.learner_user, self.bundle_item)
 
-    def test_validate_add_to_cart_refuses_a_learner_holding_another_paid_mode_of_a_course(self):
+    def test_validate_add_to_cart_refuses_a_bundle_whose_every_course_is_held(self):
         """
-        Verify that a learner enrolled in one of the bundle's courses in another paid mode is still refused the bundle.
+        Verify that a bundle whose every course the learner already holds in its mode is refused.
+
+        Fulfilment would skip every course they hold, so buying it would grant nothing: they would pay its full price
+        for nothing.
+        """
+        self._hold_every_course()
+
+        with pytest.raises(InvalidCartError) as raised:
+            self.handler.validate_add_to_cart(self.learner_user, self.bundle_item)
+
+        assert str(raised.value) == 'You already have all the courses in this bundle.'
+        assert self.bundle_item.sku in raised.value.detail, 'the bundle SKU is not kept for support'
+
+    def test_validate_add_to_cart_allows_a_bundle_when_all_but_one_course_are_held(self):
+        """Verify that holding every course but one does not stop the bundle: the learner buys the remaining one."""
+        links = list(BundleCourseItem.objects.filter(bundle=self.bundle_item).select_related('course_item'))
+        for link in links[:-1]:
+            course_mode = CourseMode.objects.get(sku=link.course_item.sku)
+            CourseEnrollment.objects.create(
+                user=self.learner_user, course=course_mode.course, mode=course_mode.mode_slug, is_active=True,
+            )
+
+        self.handler.validate_add_to_cart(self.learner_user, self.bundle_item)
+
+    @pytest.mark.parametrize('free_mode', ['audit', 'honor'])
+    def test_validate_add_to_cart_allows_a_bundle_when_every_course_is_in_a_free_mode(self, free_mode):
+        """
+        Verify that auditing or honouring every course does not count as holding it, so the bundle can still be bought.
+
+        The learner holds a free seat, not the mode the bundle sells; fulfilment upgrades them to it.
+        """
+        self._hold_every_course(mode=free_mode)
+
+        self.handler.validate_add_to_cart(self.learner_user, self.bundle_item)
+
+    def _buy_and_leave_first_course(self):
+        """Have the learner buy the bundle's first course on its own, then unenrol from it; return its mode."""
+        course_item = BundleCourseItem.objects.filter(bundle=self.bundle_item).first().course_item
+        bought = Cart.objects.create(user=self.learner_user, status=Cart.Status.PAID)
+        bought.items.create(catalogue_item=course_item, original_price=course_item.price, final_price=course_item.price)
+        course_mode = CourseMode.objects.get(sku=course_item.sku)
+        CourseEnrollment.objects.create(
+            user=self.learner_user, course=course_mode.course, mode=course_mode.mode_slug, is_active=False,
+        )
+        return course_mode
+
+    def test_validate_add_to_cart_allows_a_learner_holding_another_paid_mode_of_a_course(self):
+        """
+        Verify that a course the learner holds in another paid mode counts as held, so the bundle is sold for its
+        other courses instead of being refused by that course's enrolment.
         """
         self._hold_mode_of_first_course(mode='verified')
 
-        with pytest.raises(InvalidCartError, match='does not fulfill enrollment conditions'):
+        self.handler.validate_add_to_cart(self.learner_user, self.bundle_item)
+
+    def test_validate_add_to_cart_refuses_a_bundle_held_in_other_paid_modes(self):
+        """
+        Verify that a bundle whose every course the learner holds, in paid modes other than the ones it sells, is
+        refused as one they have every course of.
+        """
+        self._hold_every_course(mode='verified')
+
+        with pytest.raises(InvalidCartError) as raised:
             self.handler.validate_add_to_cart(self.learner_user, self.bundle_item)
+
+        assert str(raised.value) == 'You already have all the courses in this bundle.'
+
+    def test_validate_add_to_cart_refuses_a_bundle_bought_course_by_course_after_unenrolling_from_one(self):
+        """
+        Verify that a bundle whose every course the learner bought is refused when they have since unenrolled from one:
+        the purchase still holds it.
+        """
+        self._buy_and_leave_first_course()
+        for link in BundleCourseItem.objects.filter(bundle=self.bundle_item).select_related('course_item')[1:]:
+            course_mode = CourseMode.objects.get(sku=link.course_item.sku)
+            CourseEnrollment.objects.create(
+                user=self.learner_user, course=course_mode.course, mode=course_mode.mode_slug, is_active=True,
+            )
+
+        with pytest.raises(InvalidCartError) as raised:
+            self.handler.validate_add_to_cart(self.learner_user, self.bundle_item)
+
+        assert str(raised.value) == 'You already have all the courses in this bundle.'
+
+    def test_validate_add_to_cart_skips_the_deadline_of_a_course_bought_and_left(self):
+        """
+        Verify that a course the learner bought and has since unenrolled from is not checked against its enrolment
+        conditions, so its closing does not stop a bundle sold for its other courses.
+        """
+        held = self._buy_and_leave_first_course()
+        held._expiration_datetime = now() - timedelta(days=1)  # pylint: disable=protected-access
+        held.save()
+
+        self.handler.validate_add_to_cart(self.learner_user, self.bundle_item)
 
     def test_validate_add_to_cart_allows_a_learner_auditing_one_of_its_courses(self):
         """Verify that a learner enrolled in audit in one of the bundle's courses can buy the bundle, as an upgrade."""
@@ -655,8 +857,10 @@ class TestProgramBundleCartHandler:
         self.handler.validate_add_to_cart(self.learner_user, self.bundle_item)
 
         CourseEnrollment.objects.filter(user=self.learner_user).delete()
-        with pytest.raises(InvalidCartError, match=f'The {held.mode_slug} mode closed on'):
+        with pytest.raises(InvalidCartError) as raised:
             self.handler.validate_add_to_cart(self.learner_user, self.bundle_item)
+        assert str(raised.value) == "Enrollment is closed for one of this bundle's courses."
+        assert held.mode_slug in raised.value.detail, 'the closed mode is not kept for support'
 
     @patch('zeitlabs_payments.cart_handler.CourseEnrollment.enroll')
     def test_fulfill_counts_a_course_upgraded_before_a_failure_among_those_that_landed(self, mock_enroll):
@@ -697,6 +901,105 @@ class TestProgramBundleCartHandler:
         assert AuditLog.objects.filter(
             cart=cart, action=AuditLog.AuditActions.USER_ALREADY_ENROLLED, details__contains=str(held.course.id),
         ).exists(), 'The course the learner holds is not on the trail'
+
+    def _bundle_cart(self, status=Cart.Status.PROCESSING):
+        """Return the learner's cart item for the bundle, in a cart of the given status."""
+        cart = Cart.objects.create(user=self.learner_user, status=status)
+        return cart.items.create(
+            catalogue_item=self.bundle_item, original_price=self.bundle_item.price, final_price=self.bundle_item.price,
+        )
+
+    @patch('zeitlabs_payments.cart_handler.CourseEnrollment.enroll')
+    def test_fulfill_leaves_a_course_held_in_another_paid_mode_in_that_mode(self, mock_enroll):
+        """
+        Verify that fulfilling a bundle leaves a course the learner holds in another paid mode in that mode, recording
+        it as held, and enrols them in the others.
+        """
+        held = self._hold_mode_of_first_course(mode='verified')
+        cart_item = self._bundle_cart()
+
+        self.handler.fulfill(cart_item, DummyProcessor())
+
+        enrolled_in = [call.args[1] for call in mock_enroll.call_args_list]
+        assert held.course.id not in enrolled_in, 'A course held in another paid mode was enrolled in again'
+        assert enrolled_in, 'The course the learner does not hold was not enrolled in'
+        assert CourseEnrollment.objects.get(user=self.learner_user, course=held.course).mode == 'verified', \
+            'The course held in another paid mode was moved from it'
+        assert AuditLog.objects.filter(
+            cart=cart_item.cart, action=AuditLog.AuditActions.USER_ALREADY_ENROLLED,
+            details__contains=str(held.course.id),
+        ).exists(), 'The course the learner holds is not on the trail'
+
+    @patch('zeitlabs_payments.cart_handler.CourseEnrollment.enroll')
+    def test_fulfill_leaves_a_course_bought_and_left_unenrolled(self, mock_enroll):
+        """
+        Verify that fulfilling a bundle does not re-enrol the learner in a course they bought and have since unenrolled
+        from, while enrolling them in the others.
+        """
+        held = self._buy_and_leave_first_course()
+        cart_item = self._bundle_cart()
+
+        self.handler.fulfill(cart_item, DummyProcessor())
+
+        enrolled_in = [call.args[1] for call in mock_enroll.call_args_list]
+        assert held.course.id not in enrolled_in, 'A course the learner left was enrolled in again'
+        assert enrolled_in, 'The course the learner does not hold was not enrolled in'
+        assert not CourseEnrollment.objects.get(user=self.learner_user, course=held.course).is_active, \
+            'The course the learner left was re-activated'
+
+    @patch('zeitlabs_payments.cart_handler.CourseEnrollment.enroll')
+    def test_fulfill_does_not_count_the_cart_being_fulfilled_as_holding_its_courses(self, mock_enroll):
+        """
+        Verify that a bundle cart already marked paid when fulfilled still enrols its learner in every course: its own
+        purchase is not a purchase made before it.
+        """
+        cart_item = self._bundle_cart(status=Cart.Status.PAID)
+
+        self.handler.fulfill(cart_item, DummyProcessor())
+
+        assert mock_enroll.call_count == BundleCourseItem.objects.filter(bundle=self.bundle_item).count(), \
+            'A course of the cart being fulfilled was skipped as held'
+
+    @patch('zeitlabs_payments.cart_handler.CourseEnrollment.enroll')
+    def test_fulfill_counts_a_free_mode_already_held_as_held(self, mock_enroll):
+        """
+        Verify that a bundle selling a free mode the learner is already active in leaves that course as it is and
+        carries it among the courses held, not those that landed.
+        """
+        honor = self._hold_mode_of_first_course(mode='honor')
+        honor.mode_slug = 'honor'
+        honor.save()
+        mock_enroll.side_effect = CourseEnrollmentException('the course is full')
+
+        with pytest.raises(CartFulfillmentError) as raised:
+            self.handler.fulfill(self._bundle_cart(), DummyProcessor())
+
+        assert raised.value.held_courses == [str(honor.course.id)], 'The free mode already held is not carried as held'
+        assert raised.value.landed_courses == [], 'The free mode already held was counted as landed'
+
+    @patch('zeitlabs_payments.cart_handler.CourseEnrollment.enroll')
+    def test_fulfill_upgrades_a_learner_who_audits_every_course(self, mock_enroll):
+        """
+        Verify that fulfilling a bundle upgrades every audited course to the mode the bundle sells, enrolling nobody.
+
+        Auditing every course does not count as holding it, so the bundle is bought; the upgrade is what the learner
+        receives.
+        """
+        audited = self._hold_every_course(mode='audit')
+        cart = Cart.objects.create(user=self.learner_user, status=Cart.Status.PROCESSING)
+        cart_item = cart.items.create(
+            catalogue_item=self.bundle_item, original_price=self.bundle_item.price, final_price=self.bundle_item.price,
+        )
+
+        self.handler.fulfill(cart_item, DummyProcessor())
+
+        assert not mock_enroll.called, 'A learner upgrading was enrolled again'
+        modes = set(CourseEnrollment.objects.filter(user=self.learner_user).values_list('mode', flat=True))
+        assert modes == {course_mode.mode_slug for course_mode in audited}, \
+            'Every audited course was not moved to the mode the bundle sells'
+        assert AuditLog.objects.filter(
+            cart=cart, action=AuditLog.AuditActions.USER_UPGRADED,
+        ).count() == len(audited), 'Every upgrade is not on the trail'
 
     @patch('zeitlabs_payments.cart_handler.CourseEnrollment.enroll')
     def test_fulfill_success(self, mock_enroll):

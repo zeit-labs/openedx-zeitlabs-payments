@@ -36,7 +36,7 @@ from zeitlabs_payments.helpers import (
     get_language,
     get_merchant_reference,
     get_order_description,
-    learner_holds_mode,
+    learner_holds_course,
     relative_url_to_absolute_url,
     sanitize_text,
     verify_param,
@@ -513,17 +513,29 @@ def test_generate_invoice_number_normalizes_the_configured_prefix():
         assert generate_invoice_number() == 'DEV-100002', 'Padding does not open a second series'
 
 
+def _buy(user, catalogue_item, status=Cart.Status.PAID):
+    """Return a cart of the learner's, in the given status, holding the catalogue item."""
+    cart = Cart.objects.create(user=user, status=status)
+    cart.items.create(
+        catalogue_item=catalogue_item, original_price=catalogue_item.price, final_price=catalogue_item.price,
+    )
+    return cart
+
+
 @pytest.mark.django_db
 @pytest.mark.usefixtures('base_data')
 @pytest.mark.parametrize('enrolment, holds, usecase', [
     (None, False, 'a learner not enrolled in the course'),
-    (('no-id-professional', True), True, 'a learner enrolled in the very mode bought'),
-    (('no-id-professional', False), False, 'a learner who left the course after enrolling in that mode'),
-    (('audit', True), False, 'a learner enrolled in the course in another mode'),
+    (('no-id-professional', True), True, 'a learner enrolled in the very mode sold'),
+    (('verified', True), True, 'a learner enrolled in another paid mode'),
+    (('no-id-professional', False), False, 'a learner who left the course and never bought it'),
+    (('audit', True), False, 'a learner auditing the course'),
+    (('honor', True), False, 'a learner on the honor track of the course'),
 ])
-def test_learner_holds_mode_only_for_an_active_enrolment_in_that_very_mode(enrolment, holds, usecase):
+def test_learner_holds_course_through_an_active_paid_enrolment(enrolment, holds, usecase):
     """
-    Verify that a learner holds a course mode only while enrolled in that mode, and active, and in no other case.
+    Verify that an active enrolment in any mode but audit or honor holds the course, however it was made, and that
+    a free or inactive enrolment does not.
     """
     user = User.objects.get(id=3)
     course_mode = CourseMode.objects.get(sku='custom-sku-1')
@@ -531,7 +543,48 @@ def test_learner_holds_mode_only_for_an_active_enrolment_in_that_very_mode(enrol
         mode, is_active = enrolment
         CourseEnrollment.objects.create(user=user, course=course_mode.course, mode=mode, is_active=is_active)
 
-    assert learner_holds_mode(user, course_mode) is holds, f'Failed usecase: {usecase}'
+    assert learner_holds_course(user, course_mode.course.id) is holds, f'Failed usecase: {usecase}'
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures('base_data')
+@pytest.mark.parametrize('bought_as, status, holds, usecase', [
+    ('custom-sku-1', Cart.Status.PAID, True, 'a course bought on its own'),
+    ('custom-sku-1', Cart.Status.REFUND_REQUESTED, True, 'a course whose refund is awaited'),
+    ('BUNDLE-PRO-CERT', Cart.Status.PAID, True, 'a course bought inside a bundle'),
+    ('custom-sku-1', Cart.Status.REFUNDED, False, 'a course whose purchase was refunded'),
+    ('custom-sku-1', Cart.Status.PAYMENT_PENDING, False, 'a course whose payment is not settled'),
+    ('course1-org2-no-id-professional', Cart.Status.PAID, False, 'another course bought'),
+])
+def test_learner_holds_course_through_a_purchase(bought_as, status, holds, usecase):
+    """
+    Verify that a paid cart, or one awaiting a refund, holds every course in it, on its own or inside a bundle, even
+    after the learner unenrolled; and that a refunded or unsettled cart, or one for another course, does not.
+    """
+    user = User.objects.get(id=3)
+    course_mode = CourseMode.objects.get(sku='custom-sku-1')
+    CourseEnrollment.objects.create(user=user, course=course_mode.course, mode=course_mode.mode_slug, is_active=False)
+    _buy(user, CatalogueItem.objects.get(sku=bought_as), status=status)
+
+    assert learner_holds_course(user, course_mode.course.id) is holds, f'Failed usecase: {usecase}'
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures('base_data')
+def test_learner_holds_course_leaves_out_the_ignored_cart():
+    """
+    Verify that the cart being fulfilled does not hold its own courses, while another paid cart for the course does.
+    """
+    user = User.objects.get(id=3)
+    course_item = CatalogueItem.objects.get(sku='custom-sku-1')
+    fulfilling = _buy(user, course_item)
+
+    assert learner_holds_course(user, course_item.item_ref_id, ignored_cart=fulfilling) is False, \
+        'The cart being fulfilled holds its own course'
+
+    _buy(user, CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT'))
+    assert learner_holds_course(user, course_item.item_ref_id, ignored_cart=fulfilling) is True, \
+        'An earlier purchase of the course is not counted beside the ignored cart'
 
 
 @pytest.mark.django_db
