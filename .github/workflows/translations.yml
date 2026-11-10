@@ -1,0 +1,44 @@
+# Fail when an Arabic translation is missing: once the messages are re-extracted, no Arabic entry may be untranslated or
+# fuzzy, since Django shows English for either. Moved line references and dates are not checked: every code change moves
+# them.
+
+name: Translations
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches:
+      - "**"
+
+jobs:
+  translations:
+    name: translations are up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: setup python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install gettext
+        run: sudo apt-get update && sudo apt-get install -y gettext
+
+      - name: Install Dependencies
+        run: pip install -r requirements/ci.in
+
+      - name: Extract and compile translations
+        run: tox -e translation
+
+      - name: Verify that every Arabic entry is translated
+        run: |
+          catalog=zeitlabs_payments/conf/locale/ar/LC_MESSAGES/django.po
+          untranslated="$(msgattrib --untranslated --no-obsolete "$catalog")"
+          fuzzy="$(msgattrib --only-fuzzy --no-obsolete "$catalog")"
+          if [ -n "$untranslated$fuzzy" ]; then
+            echo "Arabic entries are missing. Run 'tox -e translation', translate them, and commit the result."
+            echo "$untranslated"
+            echo "$fuzzy"
+            exit 1
+          fi
