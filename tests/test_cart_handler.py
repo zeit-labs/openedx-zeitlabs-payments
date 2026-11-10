@@ -13,7 +13,7 @@ from django.utils.timezone import now
 from test_utils.dummy_processor import DummyProcessor
 from zeitlabs_payments.cart_handler import BaseCartHandler, PaidCourseCartHandler, ProgramBundleCartHandler
 from zeitlabs_payments.exceptions import CartFulfillmentError, InFlightPaymentError, InvalidCartError
-from zeitlabs_payments.models import AuditLog, BundleCourseItem, Cart, CatalogueItem
+from zeitlabs_payments.models import AuditLog, BundleCourseItem, Cart, CatalogueItem, Invoice, Transaction
 
 User = get_user_model()
 
@@ -271,6 +271,49 @@ class TestPaidCourseCartHandler:
             self.fulfillment.validate_add_to_cart(self.learner_user, self.catalog_item)
 
         assert str(raised.value) == f'A payment for this item is still being processed in cart {unfulfilled.id}.'
+
+    def test_validate_add_to_cart_refuses_a_course_already_bought(self):
+        """
+        Verify that a course bought and invoiced in an earlier cart is refused as bought, naming that cart.
+
+        A learner who left the course is no longer enrolled, so the enrolment check lets them through; the invoiced
+        cart has to stop them instead.
+        """
+        bought = Cart.objects.create(user=self.learner_user, status=Cart.Status.PAID)
+        bought.items.create(
+            catalogue_item=self.catalog_item,
+            original_price=self.catalog_item.price,
+            final_price=self.catalog_item.price,
+        )
+        payment = Transaction.objects.create(
+            cart=bought, amount=self.catalog_item.price, gateway='dummy', gateway_transaction_id=f'TX-{bought.id}',
+        )
+        Invoice.objects.create(
+            status=Invoice.InvoiceStatus.PAID, invoice_number=f'TEST-{bought.id}', cart=bought,
+            gross_total=self.catalog_item.price, total=self.catalog_item.price, currency='SAR',
+            related_transaction=payment,
+        )
+
+        with pytest.raises(InvalidCartError) as raised:
+            self.fulfillment.validate_add_to_cart(self.learner_user, self.catalog_item)
+
+        assert str(raised.value) == f'You already bought this item in cart {bought.id}.'
+
+    def test_validate_add_to_cart_refuses_an_enrolment_failing_for_another_reason(self):
+        """
+        Verify that an enrolment refused for a reason without a sentence of its own is refused with a general one.
+
+        The error behind it stays in the detail kept for support.
+        """
+        with patch(
+            'zeitlabs_payments.cart_handler.check_user_enroll_conditions',
+            side_effect=CourseEnrollmentException('Enrollment failed'),
+        ):
+            with pytest.raises(InvalidCartError) as raised:
+                self.fulfillment.validate_add_to_cart(self.learner_user, self.catalog_item)
+
+        assert str(raised.value) == "You can't buy this course right now."
+        assert 'Enrollment failed' in raised.value.detail, 'the error behind the refusal is not kept for support'
 
     @patch('zeitlabs_payments.cart_handler.CourseEnrollment.enroll')
     def test_fulfill_success(self, mock_enroll):
@@ -620,6 +663,23 @@ class TestProgramBundleCartHandler:
         assert str(raised.value) == expected_message
         assert self.bundle_item.sku in raised.value.detail, 'the bundle SKU is not kept for support'
         assert self.learner_user.username in raised.value.detail, 'the user is not kept for support'
+
+    def test_validate_add_to_cart_refuses_an_enrolment_failing_for_another_reason(self):
+        """
+        Verify that a course enrolment refused for a reason without a sentence of its own refuses the bundle with a
+        general one.
+
+        The error behind it stays in the detail kept for support.
+        """
+        with patch(
+            'zeitlabs_payments.cart_handler.check_user_enroll_conditions',
+            side_effect=CourseEnrollmentException('Enrollment failed'),
+        ):
+            with pytest.raises(InvalidCartError) as raised:
+                self.handler.validate_add_to_cart(self.learner_user, self.bundle_item)
+
+        assert str(raised.value) == "You can't buy this bundle right now."
+        assert 'Enrollment failed' in raised.value.detail, 'the error behind the refusal is not kept for support'
 
     def test_bundle_refusal_is_one_plain_sentence_and_its_detail_is_logged(self, caplog):
         """
