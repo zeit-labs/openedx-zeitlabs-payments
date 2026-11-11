@@ -6,6 +6,8 @@ from decimal import Decimal
 from unittest.mock import call, patch
 
 import pytest
+from common.djangoapps.course_modes.models import CourseMode
+from common.djangoapps.student.models import CourseEnrollment
 from django.contrib.auth import get_user_model
 from django.contrib.sites.models import Site
 from django.test import RequestFactory, TestCase, override_settings
@@ -18,7 +20,16 @@ from waffle.testutils import override_switch
 from test_utils.dummy_processor import DummyProcessor
 from zeitlabs_payments.constants import DEFAULT_PAYMENT_SESSION_DURATION
 from zeitlabs_payments.exceptions import CartStatusError
-from zeitlabs_payments.models import AuditLog, Cart, CartItem, CatalogueItem, Invoice, InvoiceItem, Transaction
+from zeitlabs_payments.models import (
+    AuditLog,
+    BundleCourseItem,
+    Cart,
+    CartItem,
+    CatalogueItem,
+    Invoice,
+    InvoiceItem,
+    Transaction,
+)
 from zeitlabs_payments.views import InitiatePaymentView
 
 User = get_user_model()
@@ -264,10 +275,11 @@ class CartViewTest(BaseTestViewMixin):
         })
         self.assertEqual(response.status_code, http_status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data['error'], 'Given SKU item does not match add to cart requirements')
-        self.assertEqual(response.data['details'], (
-            'Unable to add item to the cart as user: user3 does not fulfill enrollment conditions. '
-            'User is already enrolled in the course.'
-        ))
+        details = response.data['details']
+        self.assertIn(f'User {user.username} does not fulfill enrollment conditions', details)
+        self.assertIn(course_item.sku, details, 'the API detail does not name the SKU')
+        self.assertIn(course_item.item_ref_id, details, 'the API detail does not name the course')
+        self.assertIn('User is already enrolled in the course.', details, 'the API detail omits the error behind it')
 
 
 @pytest.mark.usefixtures('base_data')
@@ -756,6 +768,133 @@ class InFlightPaymentOnBuyingAgainTest(TestCase):
 
 @pytest.mark.django_db
 @pytest.mark.usefixtures('base_data')
+class BundleEveryCourseHeldTest(TestCase):
+    """Checkout and the cart API refuse a bundle whose every course the learner already holds."""
+
+    def setUp(self):
+        self.user = User.objects.get(id=3)
+        self.bundle = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
+        self.checkout_url = f"{reverse('zeitlabs_payments:checkout')}?sku={self.bundle.sku}"
+        self.cart_url = reverse('zeitlabs_payments:cart-add')
+        self.client.force_login(self.user)
+        for link in BundleCourseItem.objects.filter(bundle=self.bundle).select_related('course_item'):
+            course_mode = CourseMode.objects.get(sku=link.course_item.sku)
+            CourseEnrollment.objects.create(
+                user=self.user, course=course_mode.course, mode=course_mode.mode_slug, is_active=True,
+            )
+
+    def test_checkout_refuses_the_bundle_and_says_every_course_is_held(self):
+        """Verify that checkout refuses the bundle, saying the learner already has all its courses."""
+        response = self.client.get(self.checkout_url)
+
+        self.assertEqual(response.status_code, 400, 'the bundle whose every course is held was not refused')
+        self.assertContains(response, 'You already have all the courses in this bundle.', status_code=400)
+        self.assertFalse(
+            Cart.objects.filter(user=self.user).exists(), 'a cart was made for a bundle the learner already holds',
+        )
+
+    def test_api_refuses_the_bundle_and_says_every_course_is_held(self):
+        """Verify that the cart API refuses the bundle the same way, in its usual error shape."""
+        response = self.client.post(self.cart_url, data={'sku': self.bundle.sku})
+
+        self.assertEqual(response.status_code, 400, 'the bundle whose every course is held was not refused')
+        self.assertIn(self.bundle.sku, response.json()['details'], 'the API detail does not name the bundle')
+        self.assertIn('already holds all', response.json()['details'])
+        self.assertFalse(
+            Cart.objects.filter(user=self.user).exists(), 'a cart was made for a bundle the learner already holds',
+        )
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures('base_data')
+class EmptyBundleOnCheckoutTest(TestCase):
+    """Checkout of a bundle with no courses linked: its setup error comes before the learner's carts."""
+
+    def setUp(self):
+        self.user = User.objects.get(id=3)
+        self.bundle = CatalogueItem.objects.get(sku='BUNDLE-EMPTY')
+        self.checkout_url = f"{reverse('zeitlabs_payments:checkout')}?sku={self.bundle.sku}"
+        self.cart_url = reverse('zeitlabs_payments:cart-add')
+        self.client.force_login(self.user)
+
+    def inflight_cart(self, gateway_order_id='ORDER-EMPTY', age=timedelta(0)):
+        """Return the learner's cart for the empty bundle, handed to the dummy gateway the given time ago."""
+        cart = Cart.objects.create(
+            user=self.user, status=Cart.Status.PROCESSING, gateway='dummy', gateway_order_id=gateway_order_id,
+        )
+        cart.items.create(catalogue_item=self.bundle, original_price=self.bundle.price, final_price=self.bundle.price)
+        Cart.objects.filter(pk=cart.pk).update(updated_at=now() - age)
+        cart.refresh_from_db()
+        return cart
+
+    def test_checkout_reports_an_empty_bundle_instead_of_resuming_its_payment(self):
+        """
+        Verify that checkout refuses an empty bundle with its setup error, leaving the resumable payment untouched.
+
+        Its order is known and the dummy processor has a waiting page, so the cart checks would have sent the learner
+        back to it; the bundle's configuration is reported instead.
+        """
+        inflight = self.inflight_cart()
+
+        response = self.client.get(self.checkout_url)
+
+        self.assertEqual(response.status_code, 400, 'the empty bundle was not refused')
+        self.assertContains(response, 'This bundle is not available to buy right now.', status_code=400)
+        inflight.refresh_from_db()
+        self.assertEqual(inflight.status, Cart.Status.PROCESSING, 'the payment in flight was resolved')
+
+    def test_checkout_reports_an_empty_bundle_instead_of_waiting_on_its_payment(self):
+        """
+        Verify that checkout refuses an empty bundle with its setup error, instead of asking the learner to wait.
+
+        Its order is not recorded and its session has not lapsed, so the cart checks would have said a payment is in
+        progress; the bundle's configuration is reported instead.
+        """
+        inflight = self.inflight_cart(gateway_order_id=None)
+
+        response = self.client.get(self.checkout_url)
+
+        self.assertEqual(response.status_code, 400, 'the empty bundle was not refused')
+        self.assertContains(response, 'This bundle is not available to buy right now.', status_code=400)
+        inflight.refresh_from_db()
+        self.assertEqual(inflight.status, Cart.Status.PROCESSING, 'the payment in flight was resolved')
+
+    def test_checkout_reports_an_empty_bundle_instead_of_expiring_its_payment(self):
+        """
+        Verify that checkout refuses an empty bundle even when its payment is past the session, leaving it processing.
+
+        An abandoned payment would have been expired and a new cart made; the bundle's configuration is reported
+        instead, and nothing of the learner's is moved or made.
+        """
+        inflight = self.inflight_cart(gateway_order_id=None, age=DEFAULT_PAYMENT_SESSION_DURATION * 2)
+
+        response = self.client.get(self.checkout_url)
+
+        self.assertEqual(response.status_code, 400, 'the empty bundle was not refused')
+        self.assertContains(response, 'This bundle is not available to buy right now.', status_code=400)
+        inflight.refresh_from_db()
+        self.assertEqual(inflight.status, Cart.Status.PROCESSING, 'the abandoned payment was expired')
+        self.assertEqual(
+            Cart.objects.filter(user=self.user).count(), 1, 'a new cart was made for a bundle that cannot be bought',
+        )
+
+    def test_api_reports_an_empty_bundle_instead_of_resuming_its_payment(self):
+        """Verify that the cart API refuses an empty bundle with its setup error, leaving its payment untouched."""
+        inflight = self.inflight_cart()
+
+        response = self.client.post(self.cart_url, data={'sku': self.bundle.sku})
+
+        self.assertEqual(response.status_code, 400, 'the empty bundle was not refused')
+        self.assertIn(self.bundle.sku, response.json()['details'], 'the API detail does not name the bundle')
+        inflight.refresh_from_db()
+        self.assertEqual(inflight.status, Cart.Status.PROCESSING, 'the payment in flight was resolved')
+        self.assertEqual(
+            Cart.objects.filter(user=self.user).count(), 1, 'a cart was made for a bundle that cannot be bought',
+        )
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures('base_data')
 class CheckoutViewTests(TestCase):
     """Checkout View Test."""
     VIEW_NAME = 'zeitlabs_payments:checkout'
@@ -797,40 +936,47 @@ class CheckoutViewTests(TestCase):
         self.assertEqual(user_existing_cart.status, Cart.Status.CANCELLED, 'Old pending cart should be cancelled.')
 
     def test_checkout_view_with_sku_for_invalid_sku(self):
+        """Verify that an unknown SKU is refused with one plain sentence, with the SKU kept in the log."""
         self.client.force_login(self.user)
         test_sku = 'does-not-exist'
-        response = self.client.get(f'{self.url}?sku={test_sku}')
+        with self.assertLogs('zeitlabs_payments.views', level='WARNING') as logs:
+            response = self.client.get(f'{self.url}?sku={test_sku}')
         self.assertTemplateUsed(response, 'zeitlabs_payments/invalid_cart.html')
-        self.assertEqual(response.context['error_message'], 'Item with sku: does-not-exist does not exist.')
+        self.assertEqual(response.context['error_message'], 'This item is not available.')
+        self.assertNotIn(test_sku, response.context['error_message'], 'the learner sentence names the SKU')
+        self.assertIn(test_sku, '\n'.join(logs.output), 'the refused SKU is not logged')
         self.assertEqual(response.status_code, 404)
 
     @patch.dict(
         'zeitlabs_payments.views.CART_HANDLER', {}, clear=True
     )
     def test_checkout_view_with_sku_for_item_sku_with_unsuppported_type(self):
+        """Verify that an unsupported item is refused with one plain sentence, its type kept in the log."""
         self.client.force_login(self.user)
-        response = self.client.get(f'{self.url}?sku=custom-sku-1')
+        with self.assertLogs('zeitlabs_payments.views', level='WARNING') as logs:
+            response = self.client.get(f'{self.url}?sku=custom-sku-1')
         self.assertTemplateUsed(response, 'zeitlabs_payments/invalid_cart.html')
-        self.assertEqual(
-            response.context['error_message'],
-            'Item has unsupported type: paid_course.'
-        )
+        self.assertEqual(response.context['error_message'], 'This item cannot be bought right now.')
+        self.assertIn('paid_course', '\n'.join(logs.output), 'the refused type is not logged')
         self.assertEqual(response.status_code, 400)
 
     @patch(
         'zeitlabs_payments.helpers.CourseEnrollment.is_enrolled'
     )
     def test_checkout_view_with_sku_for_course_item_sku_already_enrolled(self, mock_enrolled):
+        """Verify that an already-enrolled learner sees one plain sentence, with the detail kept in the log."""
         mock_enrolled.return_value = True
         self.client.force_login(self.user)
-        response = self.client.get(f'{self.url}?sku=custom-sku-1')
+        with self.assertLogs('zeitlabs_payments.cart_handler', level='WARNING') as logs:
+            response = self.client.get(f'{self.url}?sku=custom-sku-1')
         self.assertTemplateUsed(response, 'zeitlabs_payments/invalid_cart.html')
-        self.assertEqual(
-            response.context['error_message'],
-            'Unable to add item to the cart as user: user3 does not fulfill enrollment '
-            'conditions. User is already enrolled in the course.'
-        )
+        self.assertEqual(response.context['error_message'], 'You are already enrolled in this course.')
+        self.assertNotIn('user3', response.context['error_message'], 'the learner sentence names the user')
+        self.assertNotIn('custom-sku-1', response.context['error_message'], 'the learner sentence names the SKU')
         self.assertEqual(response.status_code, 400)
+        logged = '\n'.join(logs.output)
+        self.assertIn('Checkout refused for user', logged)
+        self.assertIn('custom-sku-1', logged, 'the refused SKU is not logged')
 
     def test_checkout_view_with_multiple_skus_renders_invalid_cart_page(self):
         """Verify that a multi-SKU checkout URL renders the invalid-cart page with status 400.
