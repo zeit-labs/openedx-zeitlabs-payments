@@ -121,6 +121,31 @@ class TestPaidCourseCartHandler:
         """
         self.fulfillment.validate_add_to_cart(self.learner_user, self.catalog_item)
 
+    def test_validate_add_to_cart_refuses_a_course_bought_through_a_bundle_and_left(self):
+        """
+        Verify that a course bought through a bundle is refused after its learner unenrolled from it, naming the
+        bundle's cart.
+
+        The enrolment is inactive, so only the bundle's purchase shows the learner holds the course; selling it again
+        would charge them twice.
+        """
+        bundle_item = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
+        bundle_cart = Cart.objects.create(user=self.learner_user, status=Cart.Status.PAID, gateway='dummy')
+        bundle_cart.items.create(catalogue_item=bundle_item, original_price=bundle_item.price, final_price=0)
+        payment = Transaction.objects.create(cart=bundle_cart, amount=0, gateway='dummy', gateway_transaction_id='TX')
+        Invoice.objects.create(
+            status=Invoice.InvoiceStatus.PAID, invoice_number='TEST-1', cart=bundle_cart, gross_total=0, total=0,
+            currency='SAR', related_transaction=payment,
+        )
+        CourseEnrollment.objects.create(
+            user=self.learner_user, course=self.course_mode.course, mode=self.course_mode.mode_slug, is_active=False,
+        )
+
+        with pytest.raises(InvalidCartError) as raised:
+            self.fulfillment.validate_add_to_cart(self.learner_user, self.catalog_item)
+
+        assert str(raised.value) == f'You already bought this item in cart {bundle_cart.id}.', 'the course was sold'
+
     @pytest.mark.parametrize('sku', [
         'custom-sku-with_invlaid_ref_id',
         'sku-does-not-match-to-any-course-mode',

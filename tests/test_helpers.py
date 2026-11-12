@@ -786,21 +786,71 @@ def test_a_course_is_held_by_any_of_its_paid_items():
 
 @pytest.mark.django_db
 @pytest.mark.usefixtures('base_data')
-@pytest.mark.parametrize('held_sku, bought_sku', [
-    ('custom-sku-1', 'BUNDLE-PRO-CERT'),
-    ('BUNDLE-PRO-CERT', 'custom-sku-1'),
-], ids=['a bundle bought after one of its courses', 'a course bought after a bundle containing it'])
-def test_a_course_and_a_bundle_containing_it_never_block_each_other(held_sku, bought_sku):
+def test_a_cart_for_a_course_never_blocks_a_bundle_containing_it():
     """
-    Verify that a cart holding a course never blocks buying a bundle that contains it, nor the other way round.
+    Verify that a cart for a course, whatever its blocking status, never blocks buying a bundle that contains it.
 
-    Buying a course must never stop its learner buying a bundle that contains it. Whether a learner may buy a course
-    they hold through a bundle is decided by their enrolment, not their carts.
+    Buying a course must never stop its learner buying a bundle that contains it; the bundle is sold as is, its
+    fulfilment skipping the course they hold.
     """
     for status in (Cart.Status.PAYMENT_PENDING, Cart.Status.PAID, Cart.Status.UNRECONCILED):
-        cart_holding(CatalogueItem.objects.get(sku=held_sku), status)
+        cart_holding(CatalogueItem.objects.get(sku='custom-sku-1'), status)
 
-    check_carts_holding_item(User.objects.get(id=3), CatalogueItem.objects.get(sku=bought_sku))
+    check_carts_holding_item(User.objects.get(id=3), CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT'))
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures('base_data')
+def test_a_bundle_in_flight_sends_a_learner_buying_one_of_its_courses_back_to_it():
+    """
+    Verify that a bundle whose payment is in flight is raised to a learner buying one of its courses, carrying the
+    bundle's cart, as a payment in flight for the course itself is.
+
+    The bundle pays for the course too, so selling the course before the bundle's payment resolves charges for it twice.
+    """
+    bundle_cart = cart_holding(CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT'), Cart.Status.PAYMENT_PENDING)
+
+    with pytest.raises(InFlightPaymentError) as raised:
+        check_carts_holding_item(User.objects.get(id=3), CatalogueItem.objects.get(sku='custom-sku-1'))
+
+    assert raised.value.cart == bundle_cart, 'The bundle in flight is not the cart raised'
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures('base_data')
+@pytest.mark.parametrize('status, invoiced, refusal, usecase', [
+    (Cart.Status.PAID, True, 'It was already bought in cart {id}.', 'a bundle bought'),
+    (Cart.Status.UNRECONCILED, False, 'A payment for it in cart {id} is still being resolved.', 'a bundle held'),
+])
+def test_a_bundle_containing_the_course_refuses_it_saying_why(status, invoiced, refusal, usecase):
+    """
+    Verify that a blocking cart for a bundle containing the course refuses the course, as a cart for the course does.
+    """
+    bundle_cart = cart_holding(CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT'), status)
+    if invoiced:
+        invoice_cart(bundle_cart)
+
+    with pytest.raises(DuplicateCartError) as raised:
+        check_carts_holding_item(User.objects.get(id=3), CatalogueItem.objects.get(sku='custom-sku-1'))
+
+    assert str(raised.value) == refusal.format(id=bundle_cart.id), f'Failed usecase: {usecase}'
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures('base_data')
+def test_a_bundle_not_containing_the_course_or_not_blocking_lets_it_through():
+    """
+    Verify that a bundle cart lets the course through when the bundle does not contain it, or its status does not
+    block.
+    """
+    other_course = CatalogueItem.objects.get(sku='custom-sku-2')
+    for status in Cart.NON_BLOCKING_STATUSES:
+        cart_holding(CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT'), status)
+
+    check_carts_holding_item(User.objects.get(id=3), CatalogueItem.objects.get(sku='custom-sku-1'))
+
+    cart_holding(CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT'), Cart.Status.PAID)
+    check_carts_holding_item(User.objects.get(id=3), other_course)
 
 
 @pytest.mark.django_db
