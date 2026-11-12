@@ -356,6 +356,40 @@ class PaymentStatusViewMixinTest(TestCase):
         self.assert_outcome(response, Outcome.INVALID_REFERENCE)
         self.assertFalse(mocks['get_order_status'].called, 'the gateway was asked about an order with no site')
 
+    def test_poll_by_another_learner_is_answered_as_naming_no_cart(self):
+        """
+        Verify that a poll by anyone but the cart's learner is answered as an order naming no cart, and changes nothing.
+
+        An order id can be seen elsewhere -- a shared screenshot, a forwarded link -- and a poll that went on would
+        record the order on the cart, settle its payment with the poller as the initiator, and hand them its invoice
+        number. The gateway is not asked about the payment, and the poller is not told whose cart it is.
+        """
+        self.client.force_login(User.objects.get(id=4))
+
+        with self.assertLogs('zeitlabs_payments.providers.mixins', level='WARNING') as logs:
+            response, mocks = self.poll(
+                get_order_cart_reference=self.reference,
+                get_order_status=self.answer,
+                get_payment_status=PaymentStatus.SUCCESS,
+                get_transaction_details=self.details,
+            )
+
+        self.assert_outcome(response, Outcome.INVALID_REFERENCE)
+        self.assertFalse(mocks['get_order_status'].called, 'the gateway was asked about another learner\'s payment')
+        self.cart.refresh_from_db()
+        self.assertEqual(
+            (self.cart.status, self.cart.gateway_order_id), (Cart.Status.PROCESSING, None),
+            'another learner\'s poll moved the cart or recorded its order',
+        )
+        self.assertEqual(self.audit_trail(), [], 'another learner\'s poll was recorded on the cart')
+        self.assertFalse(
+            Transaction.objects.filter(cart=self.cart).exists(), 'another learner\'s poll settled the cart',
+        )
+        self.assertIn(
+            f'user 4 polled gateway order ORDER-1 of cart {self.cart.id}, which is user 3\'s', '\n'.join(logs.output),
+            'the refused poll was not logged with who polled whose cart',
+        )
+
     def test_gateway_unreachable_for_the_status(self):
         """
         Verify that a gateway that cannot be asked for the status is reported as unreachable, and nothing changes.

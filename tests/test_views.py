@@ -292,30 +292,68 @@ class InitiatePaymentViewTest(TestCase):
         self.cart = Cart.objects.create(user=self.user, status=Cart.Status.PENDING)
         self.provider = 'dummy'
         self.url = reverse('zeitlabs_payments:initiate-payment', args=[self.provider, str(self.cart.id)])
+        self.checkout_link = f'href="{reverse("zeitlabs_payments:checkout")}?sku=custom-sku-1"'
+
+    def add_item(self):
+        """Put a catalogue item in the cart, so that a refusal can lead back to checkout for it."""
+        item = CatalogueItem.objects.get(sku='custom-sku-1')
+        self.cart.items.create(catalogue_item=item, original_price=item.price, final_price=item.price)
+
+    def assert_refused(self, response, message, status_code=400):
+        """Assert that the response is the refusal page saying the message, with the status code given."""
+        self.assertEqual(response.status_code, status_code, f'the refusal is not answered {status_code}')
+        self.assertTemplateUsed(response, 'zeitlabs_payments/payment_refused.html', 'the refusal is not a page')
+        self.assertContains(response, message, status_code=status_code, msg_prefix='the refusal does not say why')
 
     def test_redirects_if_not_logged_in(self):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 302)
 
-    def test_returns_400_if_provider_invalid(self):
+    def test_unknown_provider_is_refused_with_a_way_back_to_checkout(self):
+        """Verify that an unknown payment method is refused with a page leading back to checkout for the cart's item."""
+        self.add_item()
         self.client.force_login(self.user)
-        bad_url = reverse('zeitlabs_payments:initiate-payment', args=['invalid', str(self.cart.id)])
-        response = self.client.get(bad_url)
-        self.assertEqual(response.status_code, 400)
-        self.assertIn(b'Unsupported payment provider', response.content)
 
-    def test_returns_400_if_cart_does_not_exist(self):
-        self.client.force_login(self.user)
-        bad_url = reverse('zeitlabs_payments:initiate-payment', args=[self.provider, str(1000)])
-        response = self.client.get(bad_url)
-        self.assertEqual(response.status_code, 400)
-        self.assertIn(b'Cart with ID 1000 does not exist.', response.content)
+        response = self.client.get(reverse('zeitlabs_payments:initiate-payment', args=['invalid', str(self.cart.id)]))
 
-    def test_returns_400_if_cart_does_not_belong_to_user(self):
+        self.assert_refused(response, 'This payment method is not available.')
+        self.assertContains(response, self.checkout_link, status_code=400, msg_prefix='no way back to checkout')
+        self.assertNotContains(response, 'invalid', status_code=400, msg_prefix='the page names the provider asked for')
+
+    def test_a_cart_not_the_learners_is_answered_alike_whatever_the_reason(self):
+        """
+        Verify that a malformed cart id, a cart that does not exist, and another learner's cart get the same page.
+
+        Cart ids are sequential, so any answer telling them apart would let a learner walking the ids learn which
+        carts exist and whose they are. The page names no one and leads to the courses, the cart being none of theirs.
+        """
         self.client.force_login(self.other_user)
-        response = self.client.get(self.url)
-        self.assertEqual(response.status_code, 400)
-        self.assertIn(b'attempted to access cart', response.content)
+        urls = {
+            'malformed': reverse('zeitlabs_payments:initiate-payment', args=[self.provider, 'abc']),
+            'missing': reverse('zeitlabs_payments:initiate-payment', args=[self.provider, '1000']),
+            "another learner's": self.url,
+        }
+
+        with self.assertLogs('zeitlabs_payments.views', level='WARNING') as logs:
+            responses = {reason: self.client.get(url) for reason, url in urls.items()}
+
+        for reason, response in responses.items():
+            with self.subTest(reason=reason):
+                self.assert_refused(response, 'This payment cannot be found.', status_code=404)
+                self.assertContains(
+                    response, f'href="{reverse("courses")}"', status_code=404, msg_prefix='no way to the courses',
+                )
+                for name in (self.user.username, self.other_user.username):
+                    self.assertNotContains(response, name, status_code=404, msg_prefix='the page names a learner')
+        self.assertEqual(
+            len({response.content for response in responses.values()}), 1, 'the three refusals can be told apart',
+        )
+        self.assertIn(
+            f'User 4 asked to pay for cart {self.cart.id}, which is user 3\'s.', '\n'.join(logs.output),
+            'the log does not tell another learner\'s cart apart',
+        )
+        self.cart.refresh_from_db()
+        self.assertEqual(self.cart.status, Cart.Status.PENDING, 'another learner\'s request moved the cart')
 
     def test_successful_payment_view_initiation(self):
         request = RequestFactory().get(self.url)
@@ -337,11 +375,7 @@ class InitiatePaymentViewTest(TestCase):
             with self.assertLogs('zeitlabs_payments.views', level='ERROR') as logs:
                 response = self.client.get(self.url)
 
-        self.assertEqual(response.status_code, 400, 'A processor hidden for the user must be refused')
-        self.assertIn(
-            b'Unsupported payment provider', response.content,
-            'A processor hidden for the user must be refused as an unknown one is',
-        )
+        self.assert_refused(response, 'This payment method is not available.')
         self.assertIn(
             'Payment provider dummy is not offered to user user3', '\n'.join(logs.output),
             'The refusal must be logged with the provider and the user',
@@ -364,11 +398,7 @@ class InitiatePaymentViewTest(TestCase):
             with self.assertLogs('zeitlabs_payments.views', level='ERROR') as logs:
                 response = self.client.get(self.url)
 
-        self.assertEqual(response.status_code, 400, 'A processor that cannot decide must be refused')
-        self.assertIn(
-            b'Unsupported payment provider', response.content,
-            'A processor that cannot decide must be refused as an unknown one is',
-        )
+        self.assert_refused(response, 'This payment method is not available.')
         self.assertIn(
             'RuntimeError: flag lookup failed', '\n'.join(logs.output),
             'The failure must be logged with its traceback',
@@ -438,6 +468,10 @@ class InitiatePaymentViewTest(TestCase):
 
         self.assertEqual(response.status_code, 400, 'a site with no usable origin was not refused')
         self.assertIn(
+            'Payments cannot be made on this site right now.', response.content.decode(),
+            'the refusal page does not say why',
+        )
+        self.assertIn(
             "Payment origin 'https://learn.example.com/lms' must be a scheme and a host", '\n'.join(logs.output),
             'the refusal does not say which origin was refused',
         )
@@ -456,6 +490,7 @@ class InitiatePaymentViewTest(TestCase):
         what replaying this URL from the browser history after paying reaches. Either way, a second gateway order would
         be opened for a cart that has one.
         """
+        self.add_item()
         self.client.force_login(self.user)
         for cart_status in (
             Cart.Status.PROCESSING, Cart.Status.PAYMENT_PENDING, Cart.Status.PAID, Cart.Status.CANCELLED,
@@ -467,13 +502,64 @@ class InitiatePaymentViewTest(TestCase):
                     response = self.client.get(self.url)
 
                 self.assertEqual(response.status_code, 400, f'a {cart_status} cart was not refused')
-                self.assertIn(
-                    f'is {cart_status}; only a pending cart can be paid'.encode(), response.content,
-                    'the refusal does not say why',
+                self.assertTemplateUsed(response, 'zeitlabs_payments/payment_refused.html', 'the refusal is not a page')
+                self.assertNotContains(
+                    response, f'>{cart_status}', status_code=400, msg_prefix='the page shows the cart\'s status',
                 )
                 self.assertFalse(payment_view.called, f'the gateway was called for a {cart_status} cart')
                 self.cart.refresh_from_db()
                 self.assertEqual(self.cart.status, cart_status, f'a {cart_status} cart was moved')
+
+    def test_a_cart_no_longer_pending_leads_back_to_checkout(self):
+        """
+        Verify that a cart that is no longer pending, and not paid, is refused with a way back to checkout for its item.
+
+        A replay of an address already handed off, or an older tab whose cart a newer checkout cancelled, reaches this.
+        Checkout decides from there: it resumes a payment still at the gateway, or starts a new cart.
+        """
+        self.add_item()
+        self.client.force_login(self.user)
+        Cart.objects.filter(pk=self.cart.pk).update(status=Cart.Status.CANCELLED)
+
+        response = self.client.get(self.url)
+
+        self.assert_refused(response, 'This payment link is no longer valid.')
+        self.assertContains(response, self.checkout_link, status_code=400, msg_prefix='no way back to checkout')
+
+    def test_a_paid_cart_leads_to_its_invoice(self):
+        """Verify that a cart already paid is refused as paid, with a way to its invoice rather than to checkout."""
+        self.add_item()
+        self.client.force_login(self.user)
+        Cart.objects.filter(pk=self.cart.pk).update(status=Cart.Status.PAID)
+        transaction = Transaction.objects.create(
+            cart=self.cart, amount=100, gateway='dummy', gateway_transaction_id='TX-1',
+        )
+        Invoice.objects.create(
+            status=Invoice.InvoiceStatus.PAID, cart=self.cart, invoice_number='INV-1', total=100, gross_total=100,
+            currency='SAR', related_transaction=transaction,
+        )
+
+        response = self.client.get(self.url)
+
+        self.assert_refused(response, 'This purchase is already paid.')
+        self.assertContains(
+            response, f'href="{reverse("zeitlabs_payments:invoice", args=["INV-1"])}"', status_code=400,
+            msg_prefix='no way to the invoice',
+        )
+        self.assertNotContains(response, self.checkout_link, status_code=400, msg_prefix='a paid cart offers checkout')
+
+    def test_a_paid_cart_without_an_invoice_leads_to_the_courses(self):
+        """Verify that a cart paid but never invoiced is refused as paid, with a way to the courses only."""
+        self.add_item()
+        self.client.force_login(self.user)
+        Cart.objects.filter(pk=self.cart.pk).update(status=Cart.Status.PAID)
+
+        response = self.client.get(self.url)
+
+        self.assert_refused(response, 'This purchase is already paid.')
+        self.assertContains(
+            response, f'href="{reverse("courses")}"', status_code=400, msg_prefix='no way to the courses',
+        )
 
     def test_failed_hand_off_closes_the_cart(self):
         """

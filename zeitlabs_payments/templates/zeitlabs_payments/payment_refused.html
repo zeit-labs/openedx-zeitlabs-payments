@@ -1,0 +1,38 @@
+{% extends "zeitlabs_payments/status_page.html" %}
+{% load i18n %}
+
+{% block status_icon_class %}error{% endblock %}
+
+{% block status_icon %}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <circle cx="12" cy="12" r="10"/>
+    <line x1="15" y1="9" x2="9" y2="15"/>
+    <line x1="9" y1="9" x2="15" y2="15"/>
+</svg>
+{% endblock %}
+
+{% block status_title %}{% trans "Payment Not Started" %}{% endblock %}
+
+{% block status_content %}
+<p class="status-message">
+    {{ error_message }}
+</p>
+{% endblock %}
+
+{# A paid cart leads to its invoice, any other cart of the learner's own back to checkout for its item, and a refusal #}
+{# that names no cart of theirs to the courses. #}
+{% block status_actions %}
+{% if invoice_url %}
+<a href="{{ invoice_url }}" class="btn btn-primary">
+    {% trans "View Invoice" %}
+</a>
+{% elif checkout_url %}
+<a href="{{ checkout_url }}" class="btn btn-primary">
+    {% trans "Back to Checkout" %}
+</a>
+{% else %}
+<a href="{% url 'courses' %}" class="btn btn-primary">
+    {% trans "Browse Courses" %}
+</a>
+{% endif %}
+{% endblock %}
