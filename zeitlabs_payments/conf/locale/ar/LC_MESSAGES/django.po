@@ -1,0 +1,636 @@
+# Arabic translations for openedx-zeitlabs-payments.
+# Copyright (C) 2026 Zeitlabs
+# This file is distributed under the same license as the openedx-zeitlabs-payments package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: openedx-zeitlabs-payments 1.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-11-12 04:34+0300\n"
+"PO-Revision-Date: 2026-01-01 00:00+0000\n"
+"Last-Translator: Zeitlabs <support@zeitlabs.com>\n"
+"Language-Team: Arabic <ar@li.org>\n"
+"Language: ar\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=6; plural=n==0 ? 0 : n==1 ? 1 : n==2 ? 2 : n%100>=3 "
+"&& n%100<=10 ? 3 : n%100>=11 ? 4 : 5;\n"
+
+#: admin.py:615
+msgid "Payment Processors"
+msgstr "معالجات الدفع"
+
+#: cart_handler.py:51
+#, python-format
+msgid "You already bought this item in cart %(cart_id)s."
+msgstr "لقد اشتريت هذا العنصر بالفعل في السلة %(cart_id)s."
+
+#: cart_handler.py:52
+#, python-format
+msgid "A payment for this item is still being processed in cart %(cart_id)s."
+msgstr "لا تزال عملية دفع لهذا العنصر قيد المعالجة في السلة %(cart_id)s."
+
+#: cart_handler.py:59
+msgid "You are already enrolled in one of this bundle's courses."
+msgstr "أنت مسجّل بالفعل في إحدى دورات هذه الحزمة."
+
+#: cart_handler.py:60
+msgid "You are already enrolled in this course."
+msgstr "أنت مسجّل بالفعل في هذه الدورة."
+
+#: cart_handler.py:63
+msgid "Enrollment is closed for one of this bundle's courses."
+msgstr "التسجيل مغلق في إحدى دورات هذه الحزمة."
+
+#: cart_handler.py:64
+msgid "Enrollment for this course is closed."
+msgstr "التسجيل في هذه الدورة مغلق."
+
+#: cart_handler.py:67
+msgid "One of this bundle's courses is full."
+msgstr "إحدى دورات هذه الحزمة مكتملة العدد."
+
+#: cart_handler.py:68
+msgid "This course is full."
+msgstr "هذه الدورة مكتملة العدد."
+
+#: cart_handler.py:70
+msgid "You can't buy this bundle right now."
+msgstr "لا يمكنك شراء هذه الحزمة الآن."
+
+#: cart_handler.py:71
+msgid "You can't buy this course right now."
+msgstr "لا يمكنك شراء هذه الدورة الآن."
+
+# Checkout refusal sentences (ENG-1131).
+#: cart_handler.py:214 cart_handler.py:223
+msgid "This course is not available to buy right now."
+msgstr "هذه الدورة غير متاحة للشراء الآن."
+
+#: cart_handler.py:363 cart_handler.py:384 cart_handler.py:395
+msgid "This bundle is not available to buy right now."
+msgstr "هذه الحزمة غير متاحة للشراء الآن."
+
+#: cart_handler.py:409
+msgid "You already have all the courses in this bundle."
+msgstr "لديك بالفعل جميع دورات هذه الحزمة."
+
+#: templates/zeitlabs_payments/admin/accept_payment.html:6
+#: templates/zeitlabs_payments/admin/processors_list.html:7
+#: templates/zeitlabs_payments/admin/record_refund.html:6
+msgid "Home"
+msgstr "الرئيسية"
+
+#: templates/zeitlabs_payments/admin/accept_payment.html:15
+msgid ""
+"Accept the payment only once the gateway's dashboard shows it taken, for the "
+"cart total. The cart moves to paid, and its invoice and enrollment follow."
+msgstr ""
+"اقبل الدفعة فقط بعد أن تُظهر لوحة تحكم بوابة الدفع أنه تم تحصيلها بقيمة "
+"إجمالي السلة. تنتقل السلة إلى حالة «مدفوعة»، ويتبع ذلك إصدار فاتورتها وإتمام "
+"التسجيل."
+
+#: templates/zeitlabs_payments/admin/accept_payment.html:18
+#: templates/zeitlabs_payments/admin/record_refund.html:18
+#, python-format
+msgid "Cart %(cart_id)s of %(username)s"
+msgstr "السلة %(cart_id)s الخاصة بـ %(username)s"
+
+#: templates/zeitlabs_payments/admin/accept_payment.html:19
+#, python-format
+msgid "Handed to %(gateway)s. Total: %(total)s."
+msgstr "أُحيلت إلى %(gateway)s. المجموع الكلي: %(total)s."
+
+#: templates/zeitlabs_payments/admin/accept_payment.html:24
+#, python-format
+msgid "Payment %(reference)s: %(amount)s %(currency)s, %(status)s. %(reason)s"
+msgstr "الدفعة %(reference)s: %(amount)s %(currency)s، %(status)s. %(reason)s"
+
+#: templates/zeitlabs_payments/admin/accept_payment.html:28
+msgid ""
+"No payment was recorded for this cart: the gateway's answer could not be "
+"read or recorded."
+msgstr "لم تُسجَّل أي دفعة لهذه السلة: تعذّرت قراءة رد بوابة الدفع أو تسجيله."
+
+#: templates/zeitlabs_payments/admin/accept_payment.html:32
+msgid "Why the gateway's answers were not settled"
+msgstr "لماذا لم تُحسم ردود بوابة الدفع"
+
+#: templates/zeitlabs_payments/admin/accept_payment.html:46
+msgid "Accept the payment"
+msgstr "قبول الدفعة"
+
+#: templates/zeitlabs_payments/admin/accept_payment.html:47
+#: templates/zeitlabs_payments/admin/record_refund.html:43
+msgid "Cancel"
+msgstr "إلغاء"
+
+#: templates/zeitlabs_payments/admin/processors_list.html:17
+msgid "Name"
+msgstr "الاسم"
+
+#: templates/zeitlabs_payments/admin/processors_list.html:18
+msgid "Slug"
+msgstr "المعرّف المختصر"
+
+#: templates/zeitlabs_payments/admin/processors_list.html:19
+msgid "Class"
+msgstr "الصنف البرمجي"
+
+#: templates/zeitlabs_payments/admin/record_refund.html:15
+msgid ""
+"Record the refund only once it has been made in the gateway's dashboard: "
+"nothing here calls the gateway. The cart moves to refunded and stops "
+"blocking its course."
+msgstr ""
+"سجّل الاسترداد فقط بعد إجرائه في لوحة تحكم بوابة الدفع: لا شيء هنا يتصل "
+"ببوابة الدفع. تنتقل السلة إلى حالة «مستردة» ولا تعود تمنع شراء دورتها."
+
+#: templates/zeitlabs_payments/admin/record_refund.html:19
+#, python-format
+msgid "Status: %(status)s. Total: %(total)s."
+msgstr "الحالة: %(status)s. المجموع الكلي: %(total)s."
+
+#: templates/zeitlabs_payments/admin/record_refund.html:22
+#, python-format
+msgid ""
+"Payment %(reference)s through %(gateway)s: %(amount)s %(currency)s, "
+"%(status)s"
+msgstr ""
+"الدفعة %(reference)s عبر %(gateway)s: %(amount)s %(currency)s، %(status)s"
+
+#: templates/zeitlabs_payments/admin/record_refund.html:27
+msgid "The learner may have been told they are enrolled"
+msgstr "ربما أُبلغ المتعلم بأنه مسجّل"
+
+#: templates/zeitlabs_payments/admin/record_refund.html:28
+msgid ""
+"A bundle in this cart failed part-way, after the enrollment of some of its "
+"courses went through:"
+msgstr ""
+"تعثّرت حزمة في هذه السلة في منتصف العملية، بعد أن تم التسجيل في بعض دوراتها:"
+
+#: templates/zeitlabs_payments/admin/record_refund.html:42
+msgid "Record the refund"
+msgstr "تسجيل الاسترداد"
+
+#: templates/zeitlabs_payments/base.html:24
+#: templates/zeitlabs_payments/checkout.html:110
+msgid "Have questions?"
+msgstr "هل لديك أسئلة؟"
+
+#: templates/zeitlabs_payments/base.html:26
+msgid "Contact Support"
+msgstr "تواصل مع الدعم"
+
+#: templates/zeitlabs_payments/checkout.html:13
+msgid "Checkout"
+msgstr "إتمام الشراء"
+
+#: templates/zeitlabs_payments/checkout.html:31
+#: templates/zeitlabs_payments/order_history.html:50
+msgid "Program"
+msgstr "برنامج"
+
+#: templates/zeitlabs_payments/checkout.html:80
+#: templates/zeitlabs_payments/invoice.html:114
+msgid "Subtotal"
+msgstr "المجموع الفرعي"
+
+#: templates/zeitlabs_payments/checkout.html:85
+#: templates/zeitlabs_payments/invoice.html:81
+#: templates/zeitlabs_payments/invoice.html:118
+msgid "Total"
+msgstr "المجموع الكلي"
+
+#: templates/zeitlabs_payments/checkout.html:111
+msgid "Please read our FAQs to view common questions about our certificates."
+msgstr "يرجى قراءة الأسئلة الشائعة لعرض الأسئلة المتكررة حول شهاداتنا."
+
+#: templates/zeitlabs_payments/checkout.html:125
+msgid "No cart exists"
+msgstr "لا توجد سلة تسوق"
+
+#: templates/zeitlabs_payments/checkout.html:126
+msgid "Your shopping cart is empty. Please add items to continue."
+msgstr "سلة التسوق فارغة. يرجى إضافة عناصر للمتابعة."
+
+#: templates/zeitlabs_payments/checkout.html:128
+#: templates/zeitlabs_payments/invalid_cart.html:27
+#: templates/zeitlabs_payments/payment_decline.html:43
+#: templates/zeitlabs_payments/payment_error.html:33
+msgid "Browse Courses"
+msgstr "تصفح الدورات"
+
+#: templates/zeitlabs_payments/invalid_cart.html:14
+msgid "Cannot Add Item"
+msgstr "لا يمكن إضافة العنصر"
+
+#: templates/zeitlabs_payments/invalid_cart.html:21
+msgid "If you need help, please contact admin support team."
+msgstr "إذا كنت بحاجة إلى مساعدة، يرجى التواصل مع فريق الدعم."
+
+#: templates/zeitlabs_payments/invoice.html:9
+#, python-format
+msgid "Receipt for %(order_number)s"
+msgstr "إيصال للطلب رقم %(order_number)s"
+
+#: templates/zeitlabs_payments/invoice.html:22
+#: templates/zeitlabs_payments/order_history.html:33
+msgid "Invoice"
+msgstr "فاتورة"
+
+#: templates/zeitlabs_payments/invoice.html:24
+#: templates/zeitlabs_payments/invoice.html:27
+msgid "Logo"
+msgstr "الشعار"
+
+#: templates/zeitlabs_payments/invoice.html:38
+msgid "VAT No.:"
+msgstr "الرقم الضريبي:"
+
+#: templates/zeitlabs_payments/invoice.html:41
+msgid "CR No.:"
+msgstr "رقم السجل التجاري:"
+
+#: templates/zeitlabs_payments/invoice.html:53
+msgid "Customer Name"
+msgstr "اسم العميل"
+
+#: templates/zeitlabs_payments/invoice.html:58
+msgid "Invoice Number"
+msgstr "رقم الفاتورة"
+
+#: templates/zeitlabs_payments/invoice.html:62
+msgid "Order Date"
+msgstr "تاريخ الطلب"
+
+#: templates/zeitlabs_payments/invoice.html:67
+msgid "Payment Method"
+msgstr "طريقة الدفع"
+
+#: templates/zeitlabs_payments/invoice.html:74
+msgid "Order Details"
+msgstr "تفاصيل الطلب"
+
+#: templates/zeitlabs_payments/invoice.html:78
+msgid "Product"
+msgstr "المنتج"
+
+#: templates/zeitlabs_payments/invoice.html:79
+msgid "Description"
+msgstr "الوصف"
+
+#: templates/zeitlabs_payments/invoice.html:80
+msgid "Unit Price"
+msgstr "سعر الوحدة"
+
+#: templates/zeitlabs_payments/invoice.html:133
+#: templates/zeitlabs_payments/payment_in_progress.html:41
+#: templates/zeitlabs_payments/payment_reconciliation.html:38
+msgid "Go to Dashboard"
+msgstr "الذهاب إلى لوحة التحكم"
+
+#: templates/zeitlabs_payments/invoice.html:142
+msgid "Go to Program"
+msgstr "الذهاب إلى البرنامج"
+
+#: templates/zeitlabs_payments/invoice.html:152
+msgid "Print Receipt"
+msgstr "طباعة الإيصال"
+
+#: templates/zeitlabs_payments/invoice_private.html:8
+msgid "This invoice is private"
+msgstr "هذه الفاتورة خاصة"
+
+#: templates/zeitlabs_payments/invoice_private.html:10
+msgid "Only the owner of this invoice can open this address."
+msgstr "لا يستطيع فتح هذا الرابط إلا صاحب هذه الفاتورة."
+
+#: templates/zeitlabs_payments/invoice_private.html:14
+msgid ""
+"If you scanned this code from a printed invoice in order to check it, ask "
+"the person named on it for a current copy."
+msgstr ""
+"إذا مسحت هذا الرمز من فاتورة مطبوعة للتحقق منها، فاطلب نسخة حديثة من الشخص "
+"المذكور اسمه فيها."
+
+#: templates/zeitlabs_payments/order_history.html:6
+#: templates/zeitlabs_payments/order_history.html:17
+msgid "Payment History"
+msgstr "سجل المدفوعات"
+
+#: templates/zeitlabs_payments/order_history.html:18
+msgid "Track and manage your academic investments"
+msgstr "تابع استثماراتك التعليمية وأدرها"
+
+#: templates/zeitlabs_payments/order_history.html:25
+msgid "Your Invoices"
+msgstr "فواتيرك"
+
+#: templates/zeitlabs_payments/order_history.html:32
+msgid "Date"
+msgstr "التاريخ"
+
+#: templates/zeitlabs_payments/order_history.html:34
+msgid "Item"
+msgstr "العنصر"
+
+#: templates/zeitlabs_payments/order_history.html:35
+msgid "Amount"
+msgstr "المبلغ"
+
+#: templates/zeitlabs_payments/order_history.html:36
+msgid "Status"
+msgstr "الحالة"
+
+#: templates/zeitlabs_payments/order_history.html:85
+msgid "You have not made any payments yet."
+msgstr "لم تقم بأي عمليات دفع بعد."
+
+#: templates/zeitlabs_payments/payment_decline.html:15
+msgid "Payment Cancelled"
+msgstr "تم إلغاء الدفع"
+
+#: templates/zeitlabs_payments/payment_decline.html:15
+msgid "Payment Declined"
+msgstr "تم رفض الدفع"
+
+#: templates/zeitlabs_payments/payment_decline.html:20
+msgid "You cancelled the payment. Nothing was charged."
+msgstr "لقد ألغيت عملية الدفع. لم يُخصم أي مبلغ."
+
+#: templates/zeitlabs_payments/payment_decline.html:23
+msgid "You can try again whenever you are ready."
+msgstr "يمكنك المحاولة مرة أخرى متى كنت مستعدًا."
+
+#: templates/zeitlabs_payments/payment_decline.html:27
+msgid ""
+"Your payment was declined by your bank or the payment provider. Nothing was "
+"charged."
+msgstr "تم رفض الدفع من قبل البنك أو مزود خدمة الدفع. لم يُخصم أي مبلغ."
+
+#: templates/zeitlabs_payments/payment_decline.html:30
+msgid "You can try again, or use another card or payment method."
+msgstr "يمكنك المحاولة مرة أخرى، أو استخدام بطاقة أو طريقة دفع أخرى."
+
+#: templates/zeitlabs_payments/payment_decline.html:39
+#: templates/zeitlabs_payments/payment_error.html:29
+msgid "Try Again"
+msgstr "حاول مرة أخرى"
+
+#: templates/zeitlabs_payments/payment_error.html:14
+msgid "Payment Error"
+msgstr "خطأ في الدفع"
+
+#: templates/zeitlabs_payments/payment_error.html:18
+msgid "Something went wrong while processing your payment."
+msgstr "حدث خطأ أثناء معالجة الدفع."
+
+#: templates/zeitlabs_payments/payment_error.html:21
+msgid "We couldn't process your transaction completely at this time."
+msgstr "لم نتمكن من إكمال معاملتك في الوقت الحالي."
+
+#: templates/zeitlabs_payments/payment_in_progress.html:13
+msgid "Payment In Progress"
+msgstr "الدفع قيد المعالجة"
+
+#: templates/zeitlabs_payments/payment_in_progress.html:17
+msgid "A payment for this course is already in progress."
+msgstr "هناك عملية دفع لهذه الدورة قيد المعالجة بالفعل."
+
+#: templates/zeitlabs_payments/payment_in_progress.html:21
+#, python-format
+msgid ""
+"Please do not pay again. If it does not go through, you can try again in "
+"about %(hours)s hour."
+msgid_plural ""
+"Please do not pay again. If it does not go through, you can try again in "
+"about %(hours)s hours."
+msgstr[0] ""
+"يرجى عدم الدفع مرة أخرى. إذا لم تكتمل العملية، يمكنك المحاولة مرة أخرى بعد "
+"حوالي %(hours)s ساعة."
+msgstr[1] ""
+"يرجى عدم الدفع مرة أخرى. إذا لم تكتمل العملية، يمكنك المحاولة مرة أخرى بعد "
+"حوالي %(hours)s ساعة."
+msgstr[2] ""
+"يرجى عدم الدفع مرة أخرى. إذا لم تكتمل العملية، يمكنك المحاولة مرة أخرى بعد "
+"حوالي %(hours)s ساعتين."
+msgstr[3] ""
+"يرجى عدم الدفع مرة أخرى. إذا لم تكتمل العملية، يمكنك المحاولة مرة أخرى بعد "
+"حوالي %(hours)s ساعات."
+msgstr[4] ""
+"يرجى عدم الدفع مرة أخرى. إذا لم تكتمل العملية، يمكنك المحاولة مرة أخرى بعد "
+"حوالي %(hours)s ساعة."
+msgstr[5] ""
+"يرجى عدم الدفع مرة أخرى. إذا لم تكتمل العملية، يمكنك المحاولة مرة أخرى بعد "
+"حوالي %(hours)s ساعة."
+
+#: templates/zeitlabs_payments/payment_in_progress.html:27
+#, python-format
+msgid ""
+"Please do not pay again. If it does not go through, you can try again in "
+"about %(minutes)s minute."
+msgid_plural ""
+"Please do not pay again. If it does not go through, you can try again in "
+"about %(minutes)s minutes."
+msgstr[0] ""
+"يرجى عدم الدفع مرة أخرى. إذا لم تكتمل العملية، يمكنك المحاولة مرة أخرى بعد "
+"حوالي %(minutes)s دقيقة."
+msgstr[1] ""
+"يرجى عدم الدفع مرة أخرى. إذا لم تكتمل العملية، يمكنك المحاولة مرة أخرى بعد "
+"حوالي %(minutes)s دقيقة."
+msgstr[2] ""
+"يرجى عدم الدفع مرة أخرى. إذا لم تكتمل العملية، يمكنك المحاولة مرة أخرى بعد "
+"حوالي %(minutes)s دقيقتين."
+msgstr[3] ""
+"يرجى عدم الدفع مرة أخرى. إذا لم تكتمل العملية، يمكنك المحاولة مرة أخرى بعد "
+"حوالي %(minutes)s دقائق."
+msgstr[4] ""
+"يرجى عدم الدفع مرة أخرى. إذا لم تكتمل العملية، يمكنك المحاولة مرة أخرى بعد "
+"حوالي %(minutes)s دقيقة."
+msgstr[5] ""
+"يرجى عدم الدفع مرة أخرى. إذا لم تكتمل العملية، يمكنك المحاولة مرة أخرى بعد "
+"حوالي %(minutes)s دقيقة."
+
+#: templates/zeitlabs_payments/payment_in_progress.html:33
+msgid ""
+"Please do not pay again. If it does not go through, you can try again later."
+msgstr ""
+"يرجى عدم الدفع مرة أخرى. إذا لم تكتمل العملية، يمكنك المحاولة مرة أخرى لاحقًا."
+
+#: templates/zeitlabs_payments/payment_reconciliation.html:15
+msgid "Payment Not Yet Confirmed"
+msgstr "لم يتم تأكيد الدفع بعد"
+
+#: templates/zeitlabs_payments/payment_reconciliation.html:15
+msgid "Payment Received"
+msgstr "تم استلام الدفع"
+
+#: templates/zeitlabs_payments/payment_reconciliation.html:20
+msgid "Your bank or the payment provider has not confirmed your payment yet."
+msgstr "لم يؤكد البنك أو مزود خدمة الدفع عملية الدفع بعد."
+
+#: templates/zeitlabs_payments/payment_reconciliation.html:23
+msgid ""
+"Please do not pay again. If your card was charged and the course does not "
+"appear in your dashboard, contact support and quote the reference below."
+msgstr ""
+"يرجى عدم الدفع مرة أخرى. إذا خُصم المبلغ من بطاقتك ولم تظهر الدورة في لوحة "
+"التحكم، فتواصل مع الدعم واذكر المرجع أدناه."
+
+#: templates/zeitlabs_payments/payment_reconciliation.html:27
+msgid ""
+"Your payment was received, but we could not complete your enrolment "
+"automatically."
+msgstr "تم استلام دفعتك، لكن لم نتمكن من إتمام تسجيلك تلقائيًا."
+
+#: templates/zeitlabs_payments/payment_reconciliation.html:30
+msgid ""
+"Please do not pay again. Contact support and quote the reference below so we "
+"can complete it."
+msgstr ""
+"يرجى عدم الدفع مرة أخرى. تواصل مع الدعم واذكر المرجع أدناه لنتمكن من إتمامه."
+
+#: templates/zeitlabs_payments/status_page.html:17
+msgid "Reference:"
+msgstr "المرجع:"
+
+#: templates/zeitlabs_payments/wait_feedback.html:32
+msgid "Processing Your Payment..."
+msgstr "جارٍ معالجة الدفع..."
+
+#: templates/zeitlabs_payments/wait_feedback.html:35
+msgid "Please wait while we confirm your payment. This may take a few moments."
+msgstr "يرجى الانتظار بينما نقوم بتأكيد الدفع. قد يستغرق هذا بضع لحظات."
+
+#: templates/zeitlabs_payments/wait_feedback.html:47
+msgid "Payment Submitted"
+msgstr "تم إرسال الدفع"
+
+#: templates/zeitlabs_payments/wait_feedback.html:56
+msgid "Verifying Payment"
+msgstr "جارٍ التحقق من الدفع"
+
+#: templates/zeitlabs_payments/wait_feedback.html:65
+msgid "Completing Order"
+msgstr "جارٍ إتمام الطلب"
+
+#: templates/zeitlabs_payments/wait_feedback.html:70
+msgid "Transaction ID:"
+msgstr "رقم المعاملة:"
+
+#: templates/zeitlabs_payments/wait_feedback.html:80
+msgid "Please do not close this page or press the back button."
+msgstr "يرجى عدم إغلاق هذه الصفحة أو الضغط على زر الرجوع."
+
+#: templates/zeitlabs_payments/wait_feedback.html:144
+msgid "Payment Confirmed! Redirecting..."
+msgstr "تم تأكيد الدفع! جارٍ التحويل..."
+
+#: views.py:98
+msgid ""
+"A payment for this course is still awaiting confirmation. Please contact "
+"support before paying again."
+msgstr ""
+"لا تزال عملية دفع لهذه الدورة بانتظار التأكيد. يرجى التواصل مع الدعم قبل "
+"الدفع مرة أخرى."
+
+#: views.py:122
+msgid ""
+"This product sells one item per purchase; please complete each purchase "
+"separately."
+msgstr ""
+"يبيع هذا المنتج عنصرًا واحدًا لكل عملية شراء؛ يُرجى إتمام كل عملية شراء على حدة."
+
+#: views.py:136
+msgid "This item is not available."
+msgstr "هذا العنصر غير متاح."
+
+#: views.py:148
+msgid "This item cannot be bought right now."
+msgstr "لا يمكن شراء هذا العنصر الآن."
+
+#~ msgid "Pending"
+#~ msgstr "قيد الانتظار"
+
+#~ msgid "Processing"
+#~ msgstr "قيد المعالجة"
+
+#~ msgid "Paid"
+#~ msgstr "مدفوع"
+
+#~ msgid "Cancelled"
+#~ msgstr "ملغى"
+
+#~ msgid "Payment Pending"
+#~ msgstr "الدفع قيد الانتظار"
+
+#~ msgid "Refund Requested"
+#~ msgstr "تم طلب الاسترداد"
+
+#~ msgid "Refunded"
+#~ msgstr "تم استرداده"
+
+#~ msgid ""
+#~ "Dummy text to generate a translation (.po) source file. It is safe to "
+#~ "delete this line. It is also safe to delete (load i18n) above if there "
+#~ "are no other (trans) tags in the file"
+#~ msgstr "نص تجريبي لإنشاء ملف مصدر الترجمة (.po). من الآمن حذف هذا السطر."
+
+#~ msgid "Have a coupon code?"
+#~ msgstr "هل لديك رمز قسيمة؟"
+
+#~ msgid "Enter coupon code"
+#~ msgstr "أدخل رمز القسيمة"
+
+#~ msgid "Apply"
+#~ msgstr "تطبيق"
+
+#~ msgid "Tax Number:"
+#~ msgstr "الرقم الضريبي:"
+
+#~ msgid "VAT"
+#~ msgstr "ضريبة القيمة المضافة"
+
+#~ msgid "Go to Course"
+#~ msgstr "الذهاب إلى الدورة"
+
+#~ msgid "Confirm Your Payment"
+#~ msgstr "تأكيد الدفع الخاص بك"
+
+#~ msgid "Please review your order details below and confirm your payment."
+#~ msgstr "يرجى مراجعة تفاصيل طلبك أدناه وتأكيد الدفع."
+
+#~ msgid "Confirm Payment"
+#~ msgstr "تأكيد الدفع"
+
+#~ msgid "Please contact us for further support."
+#~ msgstr "يرجى التواصل معنا للحصول على مزيد من الدعم."
+
+#~ msgid "Payment confirmation not received yet."
+#~ msgstr "لم يتم استلام تأكيد الدفع بعد."
+
+#~ msgid ""
+#~ "If payment was successful and you're still seeing this message, please "
+#~ "wait for a while. If your enrollment doesn't update after that, kindly "
+#~ "contact us."
+#~ msgstr ""
+#~ "إذا تم الدفع بنجاح وما زلت ترى هذه الرسالة، يرجى الانتظار قليلاً. إذا لم "
+#~ "يتم تحديث تسجيلك بعد ذلك، يرجى التواصل معنا."
+
+#~ msgid "Payment Successful!"
+#~ msgstr "تم الدفع بنجاح!"
+
+#~ msgid "Your payment was successful and your enrollment has been updated."
+#~ msgstr "تم الدفع بنجاح وتم تحديث تسجيلك."
+
+#~ msgid "Thank you for your purchase!"
+#~ msgstr "شكراً لك على الشراء!"
+
+#~ msgid "View Your Courses"
+#~ msgstr "عرض دوراتك"
+
+#~ msgid "Browse More Courses"
+#~ msgstr "تصفح المزيد من الدورات"
