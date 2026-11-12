@@ -1,7 +1,7 @@
 """Cart fullfillment."""
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from common.djangoapps.course_modes.models import CourseMode
 from common.djangoapps.student.models import (
@@ -83,6 +83,20 @@ class BaseCartHandler:
         Raise InvalidCartError if validation fails.
         """
         return
+
+    def holds_item(  # pylint: disable=unused-argument
+        self, user: get_user_model, catalogue_item: CatalogueItem, ignored_cart: Optional[Cart] = None,
+    ) -> bool:
+        """
+        Return whether the learner already holds everything the item sells, so buying it would give them nothing.
+
+        False here: an item type that does not say what holding it means is never counted as held.
+
+        :param user: The learner.
+        :param catalogue_item: The item being bought.
+        :param ignored_cart: A cart not to count as a purchase of the item: the one whose payment is settling.
+        """
+        return False
 
     def fulfill(self, item: CartItem, processor: Any) -> None:
         """
@@ -238,6 +252,20 @@ class PaidCourseCartHandler(BaseCartHandler):
                 f'{catalogue_item.item_ref_id} (sku {catalogue_item.sku}): {exc}',
             )
 
+    def holds_item(
+        self, user: get_user_model, catalogue_item: CatalogueItem, ignored_cart: Optional[Cart] = None,
+    ) -> bool:
+        """
+        Return whether the learner holds the course, see ``learner_holds_course``.
+
+        A course whose mode cannot be found is not held: its fulfilment fails on the missing mode, and records that.
+        """
+        try:
+            course_mode = CourseMode.objects.get(sku=catalogue_item.sku)
+        except CourseMode.DoesNotExist:
+            return False
+        return learner_holds_course(user, course_mode.course.id, ignored_cart=ignored_cart)
+
     def fulfill(self, item: CartItem, processor: Any) -> None:
         """
         Fulfill a paid course item by enrolling the user in the course, or upgrading them to its mode from a free one.
@@ -373,7 +401,6 @@ class ProgramBundleCartHandler(BaseCartHandler):
                 f'Cart {exc.cart_id} blocks buying bundle {catalogue_item.sku}: {exc}',
             )
 
-        courses_held = 0
         for link in bundle_courses:
             course_item = link.course_item
             try:
@@ -386,7 +413,6 @@ class ProgramBundleCartHandler(BaseCartHandler):
                         f'{course_mode.course.id}, not to catalogue item ref id {course_item.item_ref_id}.',
                     )
                 if learner_holds_course(user, course_mode.course.id):
-                    courses_held += 1
                     continue
                 check_user_enroll_conditions(user, course_mode)
             except CourseMode.DoesNotExist:
@@ -403,12 +429,31 @@ class ProgramBundleCartHandler(BaseCartHandler):
                     f'for course {course_item.item_ref_id} (sku {course_item.sku}): {exc}',
                 )
 
-        if courses_held == len(bundle_courses):
+        if self.holds_item(user, catalogue_item):
             _refuse(
                 user,
                 _('You already have all the courses in this bundle.'),
                 f'Bundle {catalogue_item.sku}: the learner already holds all {len(bundle_courses)} of its courses.',
             )
+
+    def holds_item(
+        self, user: get_user_model, catalogue_item: CatalogueItem, ignored_cart: Optional[Cart] = None,
+    ) -> bool:
+        """
+        Return whether the learner holds every course of the bundle, see ``learner_holds_course``.
+
+        A bundle holding only some of its courses is not held: its learner buys the rest, fulfilment skipping the ones
+        they hold. Nor is a bundle with no courses, or one whose course has no mode to tell it by.
+        """
+        course_skus = list(
+            BundleCourseItem.objects.filter(bundle=catalogue_item).values_list('course_item__sku', flat=True),
+        )
+        course_modes = CourseMode.objects.filter(sku__in=course_skus)
+        if not course_skus or len(course_modes) != len(course_skus):
+            return False
+        return all(
+            learner_holds_course(user, course_mode.course.id, ignored_cart=ignored_cart) for course_mode in course_modes
+        )
 
     def fulfill(self, item: CartItem, processor: Any) -> None:
         """

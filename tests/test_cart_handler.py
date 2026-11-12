@@ -47,6 +47,10 @@ class TestBaseCartHandler:
         with pytest.raises(NotImplementedError, match='Subclasses must implement this.'):
             self.strategy.fulfill(self.cart_item, DummyProcessor())
 
+    def test_holds_item_is_false_for_an_item_type_that_does_not_say(self):
+        """Verify that an item type whose handler does not say what holding it means is never counted as held."""
+        assert self.strategy.holds_item(MagicMock(), MagicMock()) is False, 'An unknown item type was counted as held'
+
     def test_validate_item_and_create_cart_opens_a_cart_holding_the_item(self):
         """
         Verify that a new pending cart is opened holding the catalogue item at its catalogue price.
@@ -120,6 +124,25 @@ class TestPaidCourseCartHandler:
         Should not raise when CourseMode exists and all course conditions pass.
         """
         self.fulfillment.validate_add_to_cart(self.learner_user, self.catalog_item)
+
+    def test_holds_item_follows_the_learners_enrolment(self):
+        """Verify that a course is held once its learner is enrolled in it in a paid mode, and not before."""
+        assert not self.fulfillment.holds_item(self.learner_user, self.catalog_item), 'Held before any enrolment'
+
+        CourseEnrollment.objects.create(
+            user=self.learner_user, course=self.course_mode.course, mode=self.course_mode.mode_slug, is_active=True,
+        )
+
+        assert self.fulfillment.holds_item(self.learner_user, self.catalog_item), 'Not held once enrolled'
+
+    def test_holds_item_is_false_for_a_course_without_a_mode(self):
+        """Verify that a course whose mode cannot be found is not held: its fulfilment fails on the missing mode."""
+        no_mode = CatalogueItem.objects.create(
+            sku='no-such-mode', type=CatalogueItem.ItemType.PAID_COURSE, title='No mode', item_ref_id='irrelevant',
+            price=100, currency='SAR',
+        )
+
+        assert not self.fulfillment.holds_item(self.learner_user, no_mode), 'A course without a mode was held'
 
     def test_validate_add_to_cart_refuses_a_course_bought_through_a_bundle_and_left(self):
         """
@@ -570,6 +593,28 @@ class TestProgramBundleCartHandler:
     def test_validate_add_to_cart_success(self):
         """Verify that validation passes when the bundle has valid courses and the user meets all checks."""
         self.handler.validate_add_to_cart(self.learner_user, self.bundle_item)
+
+    def test_holds_item_is_false_for_a_bundle_without_courses_or_a_mode_to_tell_one_by(self):
+        """
+        Verify that a bundle with no courses, or one of whose courses has no mode, is not held, even with every course
+        it does have held.
+        """
+        course_item = BundleCourseItem.objects.filter(bundle=self.bundle_item).first().course_item
+        course_mode = CourseMode.objects.get(sku=course_item.sku)
+        CourseEnrollment.objects.create(
+            user=self.learner_user, course=course_mode.course, mode=course_mode.mode_slug, is_active=True,
+        )
+        BundleCourseItem.objects.filter(bundle=self.bundle_item).exclude(course_item=course_item).delete()
+        assert self.handler.holds_item(self.learner_user, self.bundle_item), 'A bundle with its one course held is not'
+
+        no_mode = CatalogueItem.objects.create(
+            sku='no-such-mode', type=CatalogueItem.ItemType.PAID_COURSE, title='No mode', item_ref_id='irrelevant',
+            price=100, currency='SAR',
+        )
+        BundleCourseItem.objects.create(bundle=self.bundle_item, course_item=no_mode)
+
+        assert not self.handler.holds_item(self.learner_user, self.bundle_item), 'A course without a mode was held'
+        assert not self.handler.holds_item(self.learner_user, self.empty_bundle_item), 'An empty bundle was held'
 
     def test_validate_add_to_cart_empty_bundle(self):
         """Verify that an empty bundle is refused with one plain sentence, the bundle kept in the detail."""

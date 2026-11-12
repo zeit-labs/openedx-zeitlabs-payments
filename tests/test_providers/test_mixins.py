@@ -4,6 +4,8 @@ from unittest.mock import ANY, Mock, call, patch
 from urllib.parse import quote
 
 import pytest
+from common.djangoapps.course_modes.models import CourseMode
+from common.djangoapps.student.models import CourseEnrollment
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.sites.models import Site
@@ -817,6 +819,33 @@ class PaymentStatusViewMixinTest(TestCase):
         self.assertEqual(response.status_code, 200, 'a late payment on an expired cart was not settled')
         self.assert_cart_status(Cart.Status.PAID, 'the expired cart of a late payment was not paid')
         self.assertTrue(Invoice.objects.filter(cart=self.cart).exists(), 'the late payment was not invoiced')
+
+    def test_payment_for_a_course_its_learner_came_to_hold_is_left_for_staff(self):
+        """
+        Verify that a success for a course its learner was enrolled in by staff while it was at the gateway is recorded
+        but not settled, and the cart held unreconciled for a person to accept or refund.
+
+        Settling it would leave a sale with an invoice for nothing new, which staff are never shown.
+        """
+        course_mode = CourseMode.objects.get(sku=self.cart.items.first().catalogue_item.sku)
+        CourseEnrollment.objects.create(
+            user=self.user, course=course_mode.course, mode=course_mode.mode_slug, is_active=True,
+        )
+
+        response, _ = self.poll(
+            get_order_cart_reference=self.reference,
+            get_order_status=self.answer,
+            get_payment_status=PaymentStatus.SUCCESS,
+            verify_success_response=None,
+            get_transaction_details=self.details,
+        )
+
+        self.assert_outcome(response, Outcome.NOT_FULFILLED)
+        self.assert_cart_status(Cart.Status.UNRECONCILED, 'a payment for a course already held was not left for staff')
+        recorded = Transaction.objects.get(cart=self.cart)
+        self.assertEqual(recorded.status, DummyProcessor.TRANSACTION_STATUS_FAILED, 'the payment was settled')
+        self.assertIn('the learner already holds custom-sku-1', recorded.reason, 'the row does not say why')
+        self.assertFalse(Invoice.objects.filter(cart=self.cart).exists(), 'a payment that bought nothing was invoiced')
 
     def test_payment_completing_after_the_course_was_bought_again_is_held(self):
         """
