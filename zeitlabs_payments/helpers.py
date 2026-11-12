@@ -17,7 +17,7 @@ from common.djangoapps.student.models import (
     EnrollmentClosedError,
 )
 from django.contrib.auth import get_user_model
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 from django.utils.safestring import mark_safe
 from django.utils.timezone import now
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
@@ -378,33 +378,45 @@ def cancel_old_pending_carts(user: get_user_model) -> None:
             logger.info(f'Pending cart {cart.id} of user {user} left as it is: {exc}')
 
 
-def check_carts_holding_item(user: get_user_model, catalogue_item: CatalogueItem) -> None:
+def get_blocking_carts(user: get_user_model, catalogue_item: CatalogueItem) -> QuerySet:
     """
-    Refuse the item while another of the learner's carts holding it blocks buying it, or send them back to its payment.
+    Return the learner's carts that stop them buying the item again.
 
-    Every cart blocks except one whose status ``Cart.NON_BLOCKING_STATUSES`` lists. A cart holds the item when it holds
-    the same bundle or, for a course, any paid item of the same course: Open edX keeps one enrolment per learner and
-    course, so two paid modes of one course cannot both be fulfilled. A course and a bundle containing it never block
-    each other, since buying a course must never stop its learner buying a bundle that contains it.
-
-    A payment in flight -- processing or awaiting payment, with its gateway recorded -- is raised first, so the learner
-    can be sent back to it, told to wait, or let through once it expires. Any other blocking cart refuses the item.
+    Every cart blocks except one whose status ``Cart.NON_BLOCKING_STATUSES`` lists. For a course, a cart blocks when it
+    holds any paid item of the same course -- Open edX keeps one enrolment per learner and course, so two paid modes of
+    one course cannot both be fulfilled -- or a bundle containing the course, which pays for the course too. For a
+    bundle, only a cart holding the same bundle blocks: a bundle is sold as is while the learner holds only some of its
+    courses, so a cart for one of them does not stop it.
 
     :param user: The learner buying the item.
     :param catalogue_item: The course or bundle being bought.
-    :raises InFlightPaymentError: When a blocking cart holding the item has its payment in flight, carrying the latest.
-    :raises DuplicateCartError: When any other blocking cart holds the item: paid, unreconciled, awaiting a refund, or
-        handed off without its gateway recorded.
-    :return: None
     """
     if catalogue_item.type == CatalogueItem.ItemType.PAID_COURSE:
-        holding_item = {
-            'items__catalogue_item__type': CatalogueItem.ItemType.PAID_COURSE,
-            'items__catalogue_item__item_ref_id': catalogue_item.item_ref_id,
-        }
+        holding_item = Q(
+            items__catalogue_item__type=CatalogueItem.ItemType.PAID_COURSE,
+            items__catalogue_item__item_ref_id=catalogue_item.item_ref_id,
+        ) | Q(items__catalogue_item__bundle_courses__course_item__item_ref_id=catalogue_item.item_ref_id)
     else:
-        holding_item = {'items__catalogue_item': catalogue_item}
-    blocking_carts = Cart.objects.filter(user=user, **holding_item).exclude(status__in=Cart.NON_BLOCKING_STATUSES)
+        holding_item = Q(items__catalogue_item=catalogue_item)
+    return Cart.objects.filter(holding_item, user=user).exclude(status__in=Cart.NON_BLOCKING_STATUSES).distinct()
+
+
+def check_carts_holding_item(user: get_user_model, catalogue_item: CatalogueItem) -> None:
+    """
+    Refuse the item while another of the learner's carts blocks buying it, or send them back to that cart's payment.
+
+    See ``get_blocking_carts`` for which carts block. A payment in flight -- processing or awaiting payment, with its
+    gateway recorded -- is raised first, so the learner can be sent back to it, told to wait, or let through once it
+    expires. Any other blocking cart refuses the item.
+
+    :param user: The learner buying the item.
+    :param catalogue_item: The course or bundle being bought.
+    :raises InFlightPaymentError: When a blocking cart has its payment in flight, carrying the latest.
+    :raises DuplicateCartError: When any other blocking cart exists: paid, unreconciled, awaiting a refund, or handed
+        off without its gateway recorded.
+    :return: None
+    """
+    blocking_carts = get_blocking_carts(user, catalogue_item)
 
     inflight_cart = blocking_carts.filter(
         status__in=(Cart.Status.PROCESSING, Cart.Status.PAYMENT_PENDING), gateway__isnull=False,

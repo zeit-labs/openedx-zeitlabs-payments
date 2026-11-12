@@ -28,6 +28,7 @@ from zeitlabs_payments.exceptions import (
 from zeitlabs_payments.helpers import (
     describe_error,
     generate_invoice_number,
+    get_blocking_carts,
     get_currency,
     get_language,
     get_merchant_reference,
@@ -118,25 +119,24 @@ class BaseProcessor:
         return ISO_4217_NUMERIC_TO_ALPHA.get(value, value)
 
     @staticmethod
-    def find_cart_bought_instead(cart: Cart) -> Optional[Cart]:
+    def find_blocking_cart(cart: Cart) -> Optional[Cart]:
         """
-        Return a paid cart of the same learner holding any item of the given cart, or None.
+        Return another of the learner's carts that blocks buying any item of the given cart, or None.
 
-        Asked of a cart that expired: its learner was free to buy the course again, so a payment for it completing late
-        may be a second payment for something already bought. Settling it would charge the learner twice, so it is
-        recorded and held for a person to refund instead.
+        Asked before settling a payment its learner may have made again elsewhere: a cart that expired, whose learner
+        was free to buy its items again, or an unreconciled one staff are about to accept. Settling it while another
+        cart pays for, or is paying for, the same item would charge the learner twice, so the payment is held for a
+        person to refund instead. See ``get_blocking_carts`` for which carts block.
 
-        :param cart: The expired cart.
+        :param cart: The cart whose payment is about to settle.
         """
-        return (
-            Cart.objects.filter(
-                user=cart.user,
-                status=Cart.Status.PAID,
-                items__catalogue_item__in=cart.items.values('catalogue_item'),
+        for item in cart.items.select_related('catalogue_item'):
+            blocking_cart = (
+                get_blocking_carts(cart.user, item.catalogue_item).exclude(pk=cart.pk).order_by('-updated_at').first()
             )
-            .exclude(pk=cart.pk)
-            .first()
-        )
+            if blocking_cart is not None:
+                return blocking_cart
+        return None
 
     def reconcile_payment(self, response: Optional[dict], cart: Cart) -> None:
         """
@@ -435,7 +435,7 @@ class BaseProcessor:
         the cart is deliberately left un-paid. The raw currency value the gateway sent is what the row holds
         first; only a row that passes verification receives the canonical ISO 4217 form. Verification is the
         currency's translation by ``map_currency``, the processor's ``reconcile_payment``, for an expired cart that
-        its items were not bought again since, and the status the gateway reported.
+        no other cart blocks its items (``find_blocking_cart``), and the status the gateway reported.
 
         :param cart: The cart being paid for.
         :param user: The user making the payment.
@@ -480,10 +480,10 @@ class BaseProcessor:
                     # Like map_currency above: whatever the processor raises annotates the row, never stops it.
                     verification_error = exc
             if verification_error is None and cart.status == Cart.Status.EXPIRED:
-                bought_again = self.find_cart_bought_instead(cart)
-                if bought_again is not None:
+                blocking_cart = self.find_blocking_cart(cart)
+                if blocking_cart is not None:
                     verification_error = ValueError(
-                        f'cart {cart.id} expired and its items were bought again in cart {bought_again.id}',
+                        f'cart {cart.id} expired and cart {blocking_cart.id} ({blocking_cart.status}) holds its items',
                     )
             if verification_error is None and transaction_status.lower() != self.TRANSACTION_STATUS_SUCCESS:
                 verification_error = ValueError(

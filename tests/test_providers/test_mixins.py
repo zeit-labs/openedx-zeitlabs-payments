@@ -843,7 +843,7 @@ class PaymentStatusViewMixinTest(TestCase):
         recorded = Transaction.objects.get(cart=self.cart)
         self.assertEqual(recorded.status, DummyProcessor.TRANSACTION_STATUS_FAILED, 'the second payment was settled')
         self.assertIn(
-            f'items were bought again in cart {bought_again.id}',
+            f'cart {bought_again.id} (paid) holds its items',
             recorded.reason,
             'the row does not say why it was held',
         )

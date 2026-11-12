@@ -126,8 +126,8 @@ class Cart(TimeStampedModel):
     # The statuses of a cart that do not stop its learner buying what it holds again. Every other status blocks, so a
     # status added later blocks until it is listed here. Pending is listed although it is not finished: making the new
     # cart cancels the learner's pending ones. The others are finished without the learner keeping what the cart held:
-    # ended unpaid, given up on, or refunded. An expired cart whose payment completes late after its course was bought
-    # again is held as unreconciled rather than settled, see BaseProcessor.find_cart_bought_instead.
+    # ended unpaid, given up on, or refunded. An expired cart whose payment completes late while another cart blocks
+    # its course is held as unreconciled rather than settled, see BaseProcessor.find_blocking_cart.
     NON_BLOCKING_STATUSES = (Status.PENDING, Status.CANCELLED, Status.CLOSED, Status.EXPIRED, Status.REFUNDED)
 
     # Cascade on purpose. A cart with no payment on record -- abandoned before checkout, or at the gateway's page with
