@@ -36,7 +36,7 @@ from zeitlabs_payments.helpers import (
 )
 from zeitlabs_payments.helpers import get_settings as get_plugin_settings
 from zeitlabs_payments.invoice_info import collect_info, get_learner_info, get_organization_info
-from zeitlabs_payments.models import AuditLog, Cart, Invoice, InvoiceItem, Transaction
+from zeitlabs_payments.models import AuditLog, Cart, CatalogueItem, Invoice, InvoiceItem, Transaction
 from zeitlabs_payments.redaction import mask_unmasked_card_numbers
 from zeitlabs_payments.validators import canonical_currency
 
@@ -136,6 +136,24 @@ class BaseProcessor:
             )
             if blocking_cart is not None:
                 return blocking_cart
+        return None
+
+    @staticmethod
+    def find_held_item(cart: Cart) -> Optional[CatalogueItem]:
+        """
+        Return an item of the cart its learner already holds, so its payment would buy nothing new, or None.
+
+        Asked before settling a payment, since the learner can come to hold the item while the payment is at the
+        gateway: staff enrol them by hand, say, or every course of a bundle becomes held. Checkout refuses such an item,
+        so settling it would sell nothing; the payment is held for a person to accept or refund instead. The cart
+        itself is left out, as the purchase being settled. Each item type's handler says what holding it means.
+
+        :param cart: The cart whose payment is about to settle.
+        """
+        for item in cart.items.select_related('catalogue_item'):
+            handler = CART_HANDLER.get(item.catalogue_item.type)
+            if handler is not None and handler.holds_item(cart.user, item.catalogue_item, ignored_cart=cart):
+                return item.catalogue_item
         return None
 
     def reconcile_payment(self, response: Optional[dict], cart: Cart) -> None:
@@ -490,6 +508,12 @@ class BaseProcessor:
                     f'Gateway reported transaction status {transaction_status!r}, expected '
                     f'{self.TRANSACTION_STATUS_SUCCESS!r}'
                 )
+            if verification_error is None:
+                held_item = self.find_held_item(cart)
+                if held_item is not None:
+                    verification_error = ValueError(
+                        f'the learner already holds {held_item.sku}, so the payment would buy nothing new',
+                    )
 
             response = mask_unmasked_card_numbers(response)
             reason = mask_unmasked_card_numbers(reason)

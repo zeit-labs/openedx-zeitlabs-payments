@@ -1005,6 +1005,107 @@ def test_handle_payment_refuses_to_mark_cart_paid_on_non_success_status(  # pyli
     assert cart.status == Cart.Status.PROCESSING
 
 
+def enrol(user, sku, mode=None):
+    """Enrol the learner, actively, in the course of the catalogue item, in the given mode or the item's own."""
+    course_mode = CourseMode.objects.get(sku=sku)
+    CourseEnrollment.objects.create(
+        user=user, course=course_mode.course, mode=mode or course_mode.mode_slug, is_active=True,
+    )
+
+
+def buy_in_another_cart(user, sku):
+    """Have the learner buy the catalogue item in another, paid, cart."""
+    item = CatalogueItem.objects.get(sku=sku)
+    bought = Cart.objects.create(user=user, status=Cart.Status.PAID)
+    bought.items.create(catalogue_item=item, original_price=item.price, final_price=item.price)
+
+
+def settle(cart, transaction_status='success'):  # pylint: disable=redefined-outer-name
+    """Record a payment of the cart's total for the cart through the dummy processor, and return the row."""
+    processor = DummyProcessor()
+    return processor.handle_payment(
+        cart, cart.user, transaction_status, f'TX-{cart.id}', processor.SLUG, str(cart.total), get_currency(cart),
+        'gateway reason', {'id': f'TX-{cart.id}'},
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('come_to_hold, usecase', [
+    (lambda user: enrol(user, 'custom-sku-1'), 'enrolled by staff in the mode bought'),
+    (lambda user: enrol(user, 'custom-sku-1', mode=CourseMode.VERIFIED), 'enrolled by staff in another paid mode'),
+    (lambda user: buy_in_another_cart(user, 'custom-sku-1'), 'bought in another cart'),
+])
+def test_handle_payment_holds_a_payment_for_a_course_its_learner_came_to_hold(  # pylint: disable=redefined-outer-name
+    cart, come_to_hold, usecase,
+):
+    """
+    Verify that a payment for a course its learner came to hold while it was at the gateway is recorded, marked failed
+    saying why, and not settled.
+
+    Checkout would refuse the course now, so settling it would sell nothing new; the payment waits for a person to
+    accept or refund it.
+    """
+    come_to_hold(cart.user)
+
+    record = settle(cart)
+
+    assert record.status == DummyProcessor.TRANSACTION_STATUS_FAILED, f'Settled: {usecase}'
+    assert 'not reconciled: the learner already holds custom-sku-1' in record.reason, f'No reason: {usecase}'
+    assert AuditLog.objects.filter(cart=cart, action=AuditLog.AuditActions.TRANSACTION_NOT_RECONCILED).exists(), \
+        f'Not on the audit trail: {usecase}'
+    cart.refresh_from_db()
+    assert cart.status == Cart.Status.PROCESSING, f'Marked paid: {usecase}'
+
+
+@pytest.mark.django_db
+def test_handle_payment_settles_a_course_its_learner_only_audits(cart):  # pylint: disable=redefined-outer-name
+    """Verify that a payment for a course its learner only audits settles: buying it upgrades them."""
+    enrol(cart.user, 'custom-sku-1', mode=CourseMode.AUDIT)
+
+    record = settle(cart)
+
+    assert record.status == DummyProcessor.TRANSACTION_STATUS_SUCCESS, 'A payment upgrading an audit was not settled'
+    cart.refresh_from_db()
+    assert cart.status == Cart.Status.PAID, 'A payment upgrading an audit did not mark the cart paid'
+
+
+@pytest.mark.django_db
+def test_handle_payment_keeps_the_gateways_reason_for_a_held_course(cart):  # pylint: disable=redefined-outer-name
+    """
+    Verify that a payment the gateway did not report a success for keeps that as its reason, even for a course its
+    learner holds: what the gateway said comes first.
+    """
+    enrol(cart.user, 'custom-sku-1')
+
+    record = settle(cart, transaction_status=DummyProcessor.TRANSACTION_STATUS_PENDING)
+
+    assert 'Gateway reported transaction status' in record.reason, 'The gateway\'s answer is not the reason'
+    assert 'already holds' not in record.reason, 'The held course was given as the reason over the gateway\'s answer'
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('held_skus, settled, usecase', [
+    (('custom-sku-1', 'course1-org2-no-id-professional'), False, 'every course held'),
+    (('custom-sku-1',), True, 'only some courses held'),
+])
+def test_handle_payment_holds_a_bundle_only_when_every_course_is_held(  # pylint: disable=redefined-outer-name
+    cart, held_skus, settled, usecase,
+):
+    """
+    Verify that a payment for a bundle is held when its learner came to hold every one of its courses, and settled
+    when they hold only some: the bundle is sold as checkout sells it, fulfilment skipping the courses held.
+    """
+    bundle = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
+    cart.items.update(catalogue_item=bundle, original_price=bundle.price, final_price=bundle.price)
+    for sku in held_skus:
+        enrol(cart.user, sku)
+
+    record = settle(cart)
+
+    assert (record.status == DummyProcessor.TRANSACTION_STATUS_SUCCESS) == settled, f'Failed usecase: {usecase}'
+    assert ('already holds BUNDLE-PRO-CERT' in record.reason) != settled, f'Failed usecase: {usecase}'
+
+
 @pytest.mark.django_db
 def test_handle_payment_keeps_raw_evidence_on_failure(cart, caplog):  # pylint: disable=redefined-outer-name
     """
