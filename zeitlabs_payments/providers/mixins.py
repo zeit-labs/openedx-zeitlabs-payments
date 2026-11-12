@@ -139,7 +139,8 @@ class PaymentStatusViewMixin(LoginRequiredMixin):
     unreconciled. Declines, cancellations and refusals carry the answer as evidence. Settling the payment is recorded
     by ``process_payment_and_update_records``. A poll that learns nothing about the cart -- no cart found, no answer,
     still pending, a payment that already settled or is already held unreconciled -- writes nothing, since the trail is
-    read one cart at a time and a pending payment is polled repeatedly.
+    read one cart at a time and a pending payment is polled repeatedly. Nor does a poll by anyone but the cart's
+    learner, which is answered as an order naming no cart before the gateway is asked about the payment.
     """
 
     class Outcome:
@@ -361,6 +362,15 @@ class PaymentStatusViewMixin(LoginRequiredMixin):
             logger.error(
                 f'{slug}: invalid merchant reference {reference!r} for gateway order {gateway_order_id}: '
                 'no cart or site.',
+            )
+            return self.outcome_response(self.Outcome.INVALID_REFERENCE)
+
+        if cart.user_id != request.user.id:
+            # Answered as an order that names no cart, so an order id seen elsewhere neither settles another learner's
+            # payment nor tells the poller anything about it.
+            logger.warning(
+                f'{slug}: user {request.user.id} polled gateway order {gateway_order_id} of cart {cart.id}, '
+                f'which is user {cart.user_id}\'s.',
             )
             return self.outcome_response(self.Outcome.INVALID_REFERENCE)
 

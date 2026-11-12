@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: openedx-zeitlabs-payments 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-12 04:34+0300\n"
+"POT-Creation-Date: 2026-11-12 06:09+0300\n"
 "PO-Revision-Date: 2026-01-01 00:00+0000\n"
 "Last-Translator: Zeitlabs <support@zeitlabs.com>\n"
 "Language-Team: Arabic <ar@li.org>\n"
@@ -220,6 +220,7 @@ msgstr "سلة التسوق فارغة. يرجى إضافة عناصر للمت�
 #: templates/zeitlabs_payments/invalid_cart.html:27
 #: templates/zeitlabs_payments/payment_decline.html:43
 #: templates/zeitlabs_payments/payment_error.html:33
+#: templates/zeitlabs_payments/payment_refused.html:35
 msgid "Browse Courses"
 msgstr "تصفح الدورات"
 
@@ -493,6 +494,18 @@ msgid ""
 msgstr ""
 "يرجى عدم الدفع مرة أخرى. تواصل مع الدعم واذكر المرجع أدناه لنتمكن من إتمامه."
 
+#: templates/zeitlabs_payments/payment_refused.html:14
+msgid "Payment Not Started"
+msgstr "لم يبدأ الدفع"
+
+#: templates/zeitlabs_payments/payment_refused.html:27
+msgid "View Invoice"
+msgstr "عرض الفاتورة"
+
+#: templates/zeitlabs_payments/payment_refused.html:31
+msgid "Back to Checkout"
+msgstr "العودة إلى إتمام الشراء"
+
 #: templates/zeitlabs_payments/status_page.html:17
 msgid "Reference:"
 msgstr "المرجع:"
@@ -551,6 +564,26 @@ msgstr "هذا العنصر غير متاح."
 #: views.py:148
 msgid "This item cannot be bought right now."
 msgstr "لا يمكن شراء هذا العنصر الآن."
+
+#: views.py:295
+msgid "This payment cannot be found."
+msgstr "تعذّر العثور على عملية الدفع هذه."
+
+#: views.py:302 views.py:311
+msgid "This payment method is not available."
+msgstr "طريقة الدفع هذه غير متاحة."
+
+#: views.py:318
+msgid "Payments cannot be made on this site right now."
+msgstr "لا يمكن الدفع على هذا الموقع الآن."
+
+#: views.py:329
+msgid "This purchase is already paid."
+msgstr "تم دفع ثمن هذا الشراء مسبقًا."
+
+#: views.py:330
+msgid "This payment link is no longer valid."
+msgstr "رابط الدفع هذا لم يعد صالحًا."
 
 #~ msgid "Pending"
 #~ msgstr "قيد الانتظار"

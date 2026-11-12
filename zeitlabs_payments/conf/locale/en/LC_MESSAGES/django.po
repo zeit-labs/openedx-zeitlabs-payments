@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: openedx-zeitlabs-payments 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-12 04:34+0300\n"
+"POT-Creation-Date: 2026-11-12 06:09+0300\n"
 "PO-Revision-Date: 2026-01-01 00:00+0000\n"
 "Last-Translator: Zeitlabs <support@zeitlabs.com>\n"
 "Language-Team: English\n"
@@ -211,6 +211,7 @@ msgstr ""
 #: templates/zeitlabs_payments/invalid_cart.html:27
 #: templates/zeitlabs_payments/payment_decline.html:43
 #: templates/zeitlabs_payments/payment_error.html:33
+#: templates/zeitlabs_payments/payment_refused.html:35
 msgid "Browse Courses"
 msgstr ""
 
@@ -446,6 +447,18 @@ msgid ""
 "can complete it."
 msgstr ""
 
+#: templates/zeitlabs_payments/payment_refused.html:14
+msgid "Payment Not Started"
+msgstr ""
+
+#: templates/zeitlabs_payments/payment_refused.html:27
+msgid "View Invoice"
+msgstr ""
+
+#: templates/zeitlabs_payments/payment_refused.html:31
+msgid "Back to Checkout"
+msgstr ""
+
 #: templates/zeitlabs_payments/status_page.html:17
 msgid "Reference:"
 msgstr ""
@@ -500,4 +513,24 @@ msgstr ""
 
 #: views.py:148
 msgid "This item cannot be bought right now."
+msgstr ""
+
+#: views.py:295
+msgid "This payment cannot be found."
+msgstr ""
+
+#: views.py:302 views.py:311
+msgid "This payment method is not available."
+msgstr ""
+
+#: views.py:318
+msgid "Payments cannot be made on this site right now."
+msgstr ""
+
+#: views.py:329
+msgid "This purchase is already paid."
+msgstr ""
+
+#: views.py:330
+msgid "This payment link is no longer valid."
 msgstr ""

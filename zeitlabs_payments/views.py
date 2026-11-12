@@ -9,7 +9,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.sites.shortcuts import get_current_site
 from django.core.exceptions import ValidationError
 from django.db import transaction as db_transaction
-from django.http import Http404, HttpResponse, HttpResponseBadRequest
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
@@ -213,9 +213,63 @@ class InitiatePaymentView(LoginRequiredMixin, View):
     Only accessible by authenticated users.
     """
 
+    template_name = 'zeitlabs_payments/payment_refused.html'
+
+    def refuse(self, request: Any, message: str, cart: Optional[models.Cart] = None) -> HttpResponse:
+        """
+        Answer a refused hand-off with a page saying why in one plain sentence, and where the learner goes next.
+
+        The sentence names no cart, user, provider or status; the caller logs what actually went wrong. A paid cart
+        leads to its invoice, any other cart of the learner's own back to checkout for its item, and a refusal naming
+        no cart of theirs to the courses.
+
+        :param request: Django request object
+        :param message: The translated sentence the learner reads.
+        :param cart: The learner's own cart the refusal is about, or None when the address names no cart of theirs.
+        """
+        invoice_url = checkout_url = None
+        if cart is not None and cart.status == models.Cart.Status.PAID:
+            invoice = cart.invoices.filter(status=models.Invoice.InvoiceStatus.PAID).first()
+            if invoice is not None:
+                invoice_url = reverse('zeitlabs_payments:invoice', args=[invoice.invoice_number])
+        elif cart is not None:
+            checkout_url = retry_url_for(cart)
+        return render(
+            request,
+            self.template_name,
+            {'error_message': message, 'invoice_url': invoice_url, 'checkout_url': checkout_url},
+            status=404 if cart is None else 400,
+        )
+
+    def get_learner_cart(self, request: Any, cart_id: str) -> Optional[models.Cart]:
+        """
+        Return the requesting learner's cart with the id, or None when the id is malformed, missing or not theirs.
+
+        The three are answered alike, so walking the sequential cart ids tells a learner nothing about whose each one
+        is. The log tells them apart.
+
+        :param request: Django request object
+        :param cart_id: The cart id, as the address gives it.
+        """
+        try:
+            cart = models.Cart.objects.filter(id=int(cart_id)).first()
+        except ValueError:
+            logger.warning(f'User {request.user.id} asked to pay for a malformed cart id {cart_id!r}.')
+            return None
+        if cart is None:
+            logger.warning(f'User {request.user.id} asked to pay for cart {cart_id}, which does not exist.')
+            return None
+        if cart.user_id != request.user.id:
+            logger.warning(f'User {request.user.id} asked to pay for cart {cart.id}, which is user {cart.user_id}\'s.')
+            return None
+        return cart
+
     def get(self, request: Any, provider: str, cart_id: str) -> Any:
         """
         Initiate the payment by calling the appropriate processor.
+
+        Every refusal answers with a page, see ``refuse``. A cart id that is malformed, names no cart, or names another
+        learner's cart is refused first, all three alike.
 
         A processor hidden for the request is refused as an unknown one is, before the cart is touched: hiding is how a
         processor limits who may pay with it, and typing its address must not get round that. One that raises while
@@ -236,12 +290,16 @@ class InitiatePaymentView(LoginRequiredMixin, View):
         :param cart_id: UUID of the cart
         :return: Rendered payment page or error response
         """
+        cart = self.get_learner_cart(request, cart_id)
+        if cart is None:
+            return self.refuse(request, _('This payment cannot be found.'))
+
         try:
             processor = get_processor(provider)
             logger.debug(f'Processor found for provider: {provider}')
         except ValueError as exc:
             logger.error(f'Invalid payment provider: {provider} - {exc}')
-            return HttpResponseBadRequest(f'Error: {str(exc)}')
+            return self.refuse(request, _('This payment method is not available.'), cart)
 
         try:
             hidden = processor.is_hidden_for(request)
@@ -250,26 +308,14 @@ class InitiatePaymentView(LoginRequiredMixin, View):
             hidden = True
         if hidden:
             logger.error(f'Payment provider {provider} is not offered to user {request.user}; refusing it.')
-            return HttpResponseBadRequest(f'Error: Unsupported payment provider: {provider}')
-
-        try:
-            cart = processor.get_cart(cart_id)
-        except InvalidCartError as exc:
-            logger.error(f'Cart not found with id: {cart_id} - {exc}')
-            return HttpResponseBadRequest(f'Error: {str(exc)}')
-
-        if request.user != cart.user:
-            logger.warning(f'User {request.user} attempted to access cart {cart.id} belonging to {cart.user}')
-            return HttpResponseBadRequest(
-                f'Error: User {request.user} attempted to access cart belonging to {cart.user}.'
-            )
+            return self.refuse(request, _('This payment method is not available.'), cart)
 
         payment_origin = f'{request.scheme}://{request.site.domain}'
         try:
             validate_payment_origin(payment_origin)
         except ValidationError as exc:
             logger.error(f'Cart {cart.id} not handed off to {provider}: {exc.message}')
-            return HttpResponseBadRequest(f'Error: Cart {cart.id} cannot be paid on this site.')
+            return self.refuse(request, _('Payments cannot be made on this site right now.'), cart)
 
         try:
             cart.change_status(
@@ -279,7 +325,9 @@ class InitiatePaymentView(LoginRequiredMixin, View):
             )
         except CartStatusError as exc:
             logger.warning(f'Cart {cart.id} not handed off to {provider}: {exc}')
-            return HttpResponseBadRequest(f'Error: Cart {cart.id} is {cart.status}; only a pending cart can be paid.')
+            if cart.status == models.Cart.Status.PAID:
+                return self.refuse(request, _('This purchase is already paid.'), cart)
+            return self.refuse(request, _('This payment link is no longer valid.'), cart)
         logger.info(f'Cart {cart.id} status updated to {models.Cart.Status.PROCESSING}')
 
         try:
