@@ -71,15 +71,11 @@ class Cart(TimeStampedModel):
         # Ended without payment: replaced by a newer cart before it was handed off, or declined by the gateway.
         CANCELLED = 'cancelled'
         # Ended without payment because the hand-off itself failed on our side -- the call to the gateway raised before
-        # the learner was sent anywhere. Final rather than pending again: a cart that has left pending is never handed
-        # off twice, since a call that timed out may still have opened an order at the gateway. Not cancelled either,
-        # which reads as a decline. The learner starts a new cart instead.
+        # the learner was sent anywhere, or no gateway order was recorded within the hand-off's grace. Final rather than
+        # pending again: a cart that has left pending is never handed off twice, since a call that timed out may still
+        # have opened an order at the gateway. Not cancelled either, which reads as a decline. The learner starts a new
+        # cart instead.
         CLOSED = 'closed'
-        # Handed to a gateway and given up on: the learner came back to buy the course again, no order could be found
-        # for the cart, and its payment session had lapsed. Unlike a cancelled cart it can still be paid, since a
-        # payment that completes late settles it -- or leaves it unreconciled, when the course was bought again
-        # meanwhile.
-        EXPIRED = 'expired'
         # The gateway has answered about the payment at least once, and it has not settled yet.
         PAYMENT_PENDING = 'payment_pending'
         # Charged, not reconciled: the gateway reports the payment taken, but our checks refused it or it could not be
@@ -102,13 +98,8 @@ class Cart(TimeStampedModel):
         (Status.PENDING, Status.CANCELLED): StatusTransition(),
         (Status.PROCESSING, Status.PAYMENT_PENDING): StatusTransition(),
         (Status.PROCESSING, Status.PAID): StatusTransition(),
-        # Only a hand-off that failed on our side closes a cart.
+        # Only a hand-off that failed on our side, or recorded no gateway order within its grace, closes a cart.
         (Status.PROCESSING, Status.CLOSED): StatusTransition(action='payment_handoff_failed'),
-        # Only a payment session given up on expires a cart.
-        (Status.PROCESSING, Status.EXPIRED): StatusTransition(action='payment_expired'),
-        # A payment completing after its cart expired still settles it, unless the course was bought again meanwhile.
-        (Status.EXPIRED, Status.PAID): StatusTransition(),
-        (Status.EXPIRED, Status.UNRECONCILED): StatusTransition(action='payment_unreconciled'),
         (Status.PAYMENT_PENDING, Status.PAID): StatusTransition(),
         (Status.PAYMENT_PENDING, Status.CANCELLED): StatusTransition(),
         # Only money the gateway reports taken, and the plugin could not reconcile, makes a cart unreconciled.
@@ -126,9 +117,8 @@ class Cart(TimeStampedModel):
     # The statuses of a cart that do not stop its learner buying what it holds again. Every other status blocks, so a
     # status added later blocks until it is listed here. Pending is listed although it is not finished: making the new
     # cart cancels the learner's pending ones. The others are finished without the learner keeping what the cart held:
-    # ended unpaid, given up on, or refunded. An expired cart whose payment completes late while another cart blocks
-    # its course is held as unreconciled rather than settled, see BaseProcessor.find_blocking_cart.
-    NON_BLOCKING_STATUSES = (Status.PENDING, Status.CANCELLED, Status.CLOSED, Status.EXPIRED, Status.REFUNDED)
+    # ended unpaid, given up on, or refunded.
+    NON_BLOCKING_STATUSES = (Status.PENDING, Status.CANCELLED, Status.CLOSED, Status.REFUNDED)
 
     # Cascade on purpose. A cart with no payment on record -- abandoned before checkout, or at the gateway's page with
     # nothing reported back -- is only the learner's working state, and goes with their account. A cart with a payment
@@ -410,6 +400,7 @@ class AuditLog(TimeStampedModel):
         PAYMENT_ACCEPTED = 'payment_accepted'
         PAYMENT_CANCELLED = 'payment_cancelled'
         PAYMENT_DECLINED = 'payment_declined'
+        # Nothing writes it since carts stopped expiring; kept for the entries already carrying it.
         PAYMENT_EXPIRED = 'payment_expired'
         PAYMENT_HANDOFF_FAILED = 'payment_handoff_failed'
         PAYMENT_UNRECONCILED = 'payment_unreconciled'
@@ -514,6 +505,8 @@ class AuditLog(TimeStampedModel):
             'template': (
                 'Hand-off to the gateway failed: {error}. Status updated from: {old_status} to: {new_status}.'
             ),
+            # A cart handed off before carts recorded their gateway names no processor to attribute its failure to.
+            'optional_args': ['processor'],
         },
         AuditActions.PAYMENT_UNRECONCILED: {
             'template': (

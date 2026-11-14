@@ -8,7 +8,7 @@ from django.utils.timezone import now
 
 from test_utils.dummy_processor import DummyProcessor
 from zeitlabs_payments.cart_handler import CART_HANDLER
-from zeitlabs_payments.constants import DEFAULT_PAYMENT_SESSION_DURATION
+from zeitlabs_payments.constants import HANDOFF_GRACE_PERIOD, UNRECORDED_GATEWAY_GRACE_PERIOD
 from zeitlabs_payments.exceptions import CartStatusError
 from zeitlabs_payments.inflight_payment import (
     InFlightPayment,
@@ -36,14 +36,25 @@ def inflight_cart(status=Cart.Status.PROCESSING, gateway='dummy', gateway_order_
     return cart
 
 
+def test_the_grace_periods_are_ten_minutes_and_a_day():
+    """
+    Verify that a hand-off is given ten minutes to record its order, and one from before carts recorded their gateway
+    a day.
+
+    Ten minutes outlasts any hand-off request still running; a day outlasts any gateway's payment session.
+    """
+    assert HANDOFF_GRACE_PERIOD == timedelta(minutes=10), 'The hand-off grace is not ten minutes'
+    assert UNRECORDED_GATEWAY_GRACE_PERIOD == timedelta(hours=24), 'The grace of a cart with no gateway is not a day'
+
+
 def test_a_payment_whose_order_is_known_resumes_on_its_waiting_page():
     """
-    Verify that a cart whose order is known is resumed on the processor's waiting page for that order.
+    Verify that a cart whose order is known is resumed on the processor's waiting page for that order, however old.
 
     The waiting page is the processor's return view, with the order id where its gateway's redirect puts it, so the
     status view settles, declines or keeps waiting on the payment exactly as on the learner's first return.
     """
-    cart = inflight_cart(gateway_order_id='ORDER 1')
+    cart = inflight_cart(gateway_order_id='ORDER 1', age=timedelta(days=30))
 
     resolved = resolve_inflight_payment(cart)
 
@@ -52,142 +63,60 @@ def test_a_payment_whose_order_is_known_resumes_on_its_waiting_page():
     ), 'A payment whose order is known was not resumed on its waiting page'
 
 
-def test_a_processor_naming_no_return_view_cannot_resume():
-    """
-    Verify that a processor naming no return view, or no parameter for the order id, has no waiting page to resume on.
-    """
-    cart = inflight_cart(gateway_order_id='ORDER-1')
-
-    for attribute in ('RETURN_VIEW', 'GATEWAY_ORDER_ID_PARAM'):
-        with patch.object(DummyProcessor, attribute, None):
-            resolved = resolve_inflight_payment(cart)
-
-        assert resolved.resolution == Resolution.IN_PROGRESS, f'A processor naming no {attribute} resumed'
-
-
-def test_an_order_found_at_the_gateway_is_recorded_and_resumed():
-    """
-    Verify that the order of a cart that had none recorded is looked for at the gateway, recorded, and resumed.
-
-    A gateway that opens its order only when the learner pays never named it at hand-off.
-    """
-    cart = inflight_cart()
-
-    with patch.object(DummyProcessor, 'find_gateway_order_id', return_value='ORDER-9'):
-        resolved = resolve_inflight_payment(cart)
-
-    assert resolved.resolution == Resolution.RESUME, 'An order found at the gateway was not resumed'
-    assert Cart.objects.get(pk=cart.pk).gateway_order_id == 'ORDER-9', 'The order found was not recorded'
-
-
-def test_an_order_found_but_already_given_to_another_cart_is_not_recorded():
-    """
-    Verify that an order id the gateway gave another cart is not recorded here, and the cart is judged by its age.
-    """
-    inflight_cart(gateway_order_id='ORDER-9')
-    cart = inflight_cart()
-
-    with patch.object(DummyProcessor, 'find_gateway_order_id', return_value='ORDER-9'):
-        resolved = resolve_inflight_payment(cart)
-
-    assert Cart.objects.get(pk=cart.pk).gateway_order_id is None, 'An id belonging to another cart was recorded'
-    assert resolved.resolution == Resolution.IN_PROGRESS, 'The cart was not judged by its age'
-
-
-@pytest.mark.parametrize('gateway_order_id, usecase', [
-    (None, 'no order recorded, and none found at the gateway'),
-    ('ORDER-1', 'an order recorded, but no waiting page to resume it on'),
+@pytest.mark.parametrize('gateway, grace, usecase', [
+    ('dummy', HANDOFF_GRACE_PERIOD, 'a hand-off that has not recorded its order yet'),
+    (None, UNRECORDED_GATEWAY_GRACE_PERIOD, 'a hand-off from before carts recorded their gateway'),
 ])
-def test_a_payment_that_cannot_be_resumed_is_in_progress_while_its_session_runs(gateway_order_id, usecase):
+def test_a_hand_off_with_no_order_is_in_progress_within_its_grace(gateway, grace, usecase):
     """
-    Verify that a payment that cannot be resumed, handed off within its session, is reported in progress until then.
-
-    The learner is asked to wait rather than pay again, since the payment may still go through.
+    Verify that a processing cart with no order recorded is reported in progress until its grace ends, and left as it
+    is: its hand-off may still be running.
     """
-    cart = inflight_cart(gateway_order_id=gateway_order_id, age=timedelta(minutes=10))
-
-    with patch.object(DummyProcessor, 'RETURN_VIEW', None):
-        resolved = resolve_inflight_payment(cart)
-
-    assert resolved.resolution == Resolution.IN_PROGRESS, f'Failed usecase: {usecase}'
-    assert resolved.retry_after == cart.updated_at + DEFAULT_PAYMENT_SESSION_DURATION, \
-        f'The time to retry is not the end of the session; usecase: {usecase}'
-    assert Cart.objects.get(pk=cart.pk).status == Cart.Status.PROCESSING, f'The cart moved; usecase: {usecase}'
-
-
-def test_the_processor_tells_when_its_session_ends():
-    """
-    Verify that a processor saying its session ended -- by time or by a status its gateway reports -- is believed.
-    """
-    cart = inflight_cart(age=timedelta(minutes=10))
-
-    with patch.object(DummyProcessor, 'get_session_end', return_value=now()) as session_end:
-        resolved = resolve_inflight_payment(cart)
-
-    assert resolved.resolution == Resolution.EXPIRED, 'A cart whose session the processor says ended did not expire'
-    session_end.assert_called_once_with(cart)
-
-
-def test_a_session_whose_end_cannot_be_told_is_never_expired():
-    """
-    Verify that a payment whose session end cannot be told is in progress, with no time to retry, however old.
-
-    Not knowing is not the same as over: expiring it could let the learner pay twice.
-    """
-    cart = inflight_cart(age=timedelta(days=30))
-
-    with patch.object(DummyProcessor, 'get_session_end', return_value=None):
-        resolved = resolve_inflight_payment(cart)
-
-    assert resolved == InFlightPayment(Resolution.IN_PROGRESS, cart), 'A session of unknown end was given up on'
-    assert Cart.objects.get(pk=cart.pk).status == Cart.Status.PROCESSING, 'A session of unknown end expired its cart'
-
-
-def test_the_default_session_is_long():
-    """
-    Verify that a processor not telling its session end gives the cart a day, not minutes, before it can expire.
-
-    Expiring too soon risks a second charge; waiting too long only delays the learner.
-    """
-    cart = inflight_cart(age=timedelta(hours=2))
-
-    assert DEFAULT_PAYMENT_SESSION_DURATION == timedelta(hours=24), 'The default session is not a day'
-    assert resolve_inflight_payment(cart).resolution == Resolution.IN_PROGRESS, 'A two-hour-old cart already expired'
-
-
-def test_an_abandoned_payment_past_its_session_expires():
-    """
-    Verify that a processing cart that cannot be resumed, past its payment session, expires and says so in its trail.
-
-    The gateway no longer takes a payment for it, so the learner is free to buy the course again.
-    """
-    cart = inflight_cart(age=DEFAULT_PAYMENT_SESSION_DURATION + timedelta(minutes=1))
+    cart = inflight_cart(gateway=gateway, age=grace - timedelta(minutes=1))
 
     resolved = resolve_inflight_payment(cart)
 
-    assert resolved.resolution == Resolution.EXPIRED, 'An abandoned payment did not expire'
-    assert Cart.objects.get(pk=cart.pk).status == Cart.Status.EXPIRED, 'The cart of an abandoned payment did not expire'
-    assert AuditLog.objects.filter(cart=cart, action=AuditLog.AuditActions.PAYMENT_EXPIRED).exists(), \
-        'The expiry is not on the record'
+    assert resolved == InFlightPayment(Resolution.IN_PROGRESS, cart, retry_after=cart.updated_at + grace), \
+        f'Not in progress until its grace ends: {usecase}'
+    assert Cart.objects.get(pk=cart.pk).status == Cart.Status.PROCESSING, f'The cart moved: {usecase}'
 
 
-def test_a_payment_the_gateway_answered_about_is_never_expired_unasked():
+@pytest.mark.parametrize('gateway, grace, usecase', [
+    ('dummy', HANDOFF_GRACE_PERIOD, 'a hand-off that never recorded its order'),
+    (None, UNRECORDED_GATEWAY_GRACE_PERIOD, 'a hand-off from before carts recorded their gateway'),
+])
+def test_a_hand_off_with_no_order_past_its_grace_is_closed_as_failed(gateway, grace, usecase):
     """
-    Verify that a cart awaiting payment, past its session and not resumable, is refused rather than expired.
+    Verify that a processing cart with no order recorded, past its grace, is closed as a failed hand-off and frees its
+    item: its learner never reached the gateway, so no payment can complete for it.
+    """
+    cart = inflight_cart(gateway=gateway, age=grace + timedelta(minutes=1))
+
+    resolved = resolve_inflight_payment(cart)
+
+    assert resolved == InFlightPayment(Resolution.CLOSED, cart), f'Not closed past its grace: {usecase}'
+    assert Cart.objects.get(pk=cart.pk).status == Cart.Status.CLOSED, f'The cart was not closed: {usecase}'
+    assert AuditLog.objects.filter(cart=cart, action=AuditLog.AuditActions.PAYMENT_HANDOFF_FAILED).exists(), \
+        f'The failed hand-off is not on the record: {usecase}'
+
+
+def test_a_payment_the_gateway_answered_about_is_never_closed_unasked():
+    """
+    Verify that a cart awaiting payment with no order recorded is refused however old, rather than closed.
 
     The gateway answered about it at least once, so money may have moved: only asking again can tell.
     """
-    cart = inflight_cart(status=Cart.Status.PAYMENT_PENDING, age=DEFAULT_PAYMENT_SESSION_DURATION * 2)
+    cart = inflight_cart(status=Cart.Status.PAYMENT_PENDING, age=timedelta(days=30))
 
     resolved = resolve_inflight_payment(cart)
 
-    assert resolved.resolution == Resolution.BLOCKED, 'A payment the gateway answered about was not refused'
+    assert resolved == InFlightPayment(Resolution.BLOCKED, cart), 'A payment the gateway answered about was not refused'
     assert Cart.objects.get(pk=cart.pk).status == Cart.Status.PAYMENT_PENDING, 'It was given up on unasked'
 
 
-def test_a_cart_another_request_moved_while_expiring_it_is_in_progress():
-    """Verify that a cart another request moved just as it was being expired is reported in progress, not expired."""
-    cart = inflight_cart(age=DEFAULT_PAYMENT_SESSION_DURATION * 2)
+def test_a_cart_another_request_moved_while_closing_it_is_in_progress():
+    """Verify that a cart another request moved just as it was being closed is reported in progress, not closed."""
+    cart = inflight_cart(age=HANDOFF_GRACE_PERIOD * 2)
 
     with patch.object(Cart, 'change_status', side_effect=CartStatusError('moved by another request')):
         resolved = resolve_inflight_payment(cart)
@@ -197,25 +126,38 @@ def test_a_cart_another_request_moved_while_expiring_it_is_in_progress():
 
 def test_a_payment_to_a_processor_no_longer_registered_is_refused():
     """Verify that a cart handed to a processor no longer registered is refused, since nothing can be asked of it."""
-    cart = inflight_cart(gateway='retired-gateway')
+    cart = inflight_cart(gateway='retired-gateway', gateway_order_id='ORDER-1')
 
     resolved = resolve_inflight_payment(cart)
 
     assert resolved.resolution == Resolution.BLOCKED, 'A payment nobody can ask about went through'
 
 
-def test_creating_a_cart_after_an_expired_payment_makes_the_cart():
-    """
-    Verify that buying a course again past an abandoned payment's session expires it and makes the new cart.
-    """
-    abandoned = inflight_cart(age=DEFAULT_PAYMENT_SESSION_DURATION * 2)
+def test_creating_a_cart_after_a_failed_hand_off_makes_the_cart():
+    """Verify that buying a course again past a failed hand-off's grace closes it and makes the new cart."""
+    failed = inflight_cart(age=HANDOFF_GRACE_PERIOD * 2)
     item = CatalogueItem.objects.get(sku='custom-sku-1')
 
-    cart, inflight_payment = create_cart_resolving_inflight_payments(CART_HANDLER[item.type], abandoned.user, item)
+    cart, inflight_payment = create_cart_resolving_inflight_payments(CART_HANDLER[item.type], failed.user, item)
 
-    assert inflight_payment is None, 'An expired payment was still reported open'
-    assert cart is not None and cart.pk != abandoned.pk, 'No new cart was made'
-    assert Cart.objects.get(pk=abandoned.pk).status == Cart.Status.EXPIRED, 'The abandoned cart did not expire'
+    assert inflight_payment is None, 'A failed hand-off was still reported open'
+    assert cart is not None and cart.pk != failed.pk, 'No new cart was made'
+    assert Cart.objects.get(pk=failed.pk).status == Cart.Status.CLOSED, 'The failed hand-off was not closed'
+
+
+def test_creating_a_cart_after_a_hand_off_from_before_carts_recorded_their_gateway_makes_the_cart():
+    """
+    Verify that buying a course again a day after a hand-off that recorded no gateway closes it and makes the new
+    cart, rather than refusing the learner for good.
+    """
+    stale = inflight_cart(gateway=None, age=UNRECORDED_GATEWAY_GRACE_PERIOD * 2)
+    item = CatalogueItem.objects.get(sku='custom-sku-1')
+
+    cart, inflight_payment = create_cart_resolving_inflight_payments(CART_HANDLER[item.type], stale.user, item)
+
+    assert inflight_payment is None, 'A hand-off with no gateway was still reported open'
+    assert cart is not None and cart.pk != stale.pk, 'No new cart was made'
+    assert Cart.objects.get(pk=stale.pk).status == Cart.Status.CLOSED, 'The hand-off with no gateway was not closed'
 
 
 def test_creating_a_cart_while_a_payment_is_open_makes_none():

@@ -70,7 +70,10 @@ def test_payment_view_renders_template_with_correct_context(
     mock_get_transaction_parameters.return_value = {'test': 'test_123'}
     fake_request = MagicMock(spec=HttpRequest)
     base_processor.TEMPLATE_NAME = 'dummy-template.html'
-    base_processor.payment_view(cart=cart, request=fake_request)
+    base_processor.SLUG = 'base'
+    with patch.object(BaseProcessor, 'get_gateway_order_id', return_value='GW-1'), \
+            patch.object(Cart, 'record_gateway_order'):
+        base_processor.payment_view(cart=cart, request=fake_request)
     mock_get_transaction_parameters.assert_called_once_with(
         cart=cart,
         request=fake_request,
@@ -90,26 +93,30 @@ def test_payment_view_records_the_order_the_processor_names(
     _, mock_render, cart, base_processor   # pylint: disable=redefined-outer-name
 ):
     """
-    Verify that the order a processor names at hand-off is recorded on the cart, and that none is by default.
+    Verify that the order a processor names at hand-off is recorded on the cart, and that a hand-off naming none raises
+    with nothing recorded or rendered.
 
     The id is how the payment can be found again without the learner's browser, so it is kept as soon as the gateway
-    has opened the order.
+    has opened the order. A hand-off without it would send the learner to pay for an order nothing could look for
+    again; raising closes the cart as a failed hand-off instead.
     """
     base_processor.TEMPLATE_NAME = 'dummy-template.html'
     base_processor.SLUG = 'base'
     Cart.objects.filter(pk=cart.pk).update(gateway='base')
     cart.refresh_from_db()
 
-    base_processor.payment_view(cart=cart, request=MagicMock(spec=HttpRequest))
+    with pytest.raises(GatewayError, match='named no gateway order'):
+        base_processor.payment_view(cart=cart, request=MagicMock(spec=HttpRequest))
     cart.refresh_from_db()
     assert cart.gateway_order_id is None, 'An order was recorded although the processor names none'
+    assert not mock_render.called, 'The hand-off page was rendered without an order'
 
     with patch.object(BaseProcessor, 'get_gateway_order_id', side_effect=lambda parameters: parameters['order']):
         base_processor.payment_view(cart=cart, request=MagicMock(spec=HttpRequest))
 
     cart.refresh_from_db()
     assert cart.gateway_order_id == 'GW-1', 'The named order was not recorded'
-    assert mock_render.call_count == 2, 'The hand-off page was not rendered each time'
+    assert mock_render.call_count == 1, 'The hand-off page was not rendered once its order was recorded'
 
 
 def test_is_hidden_for_default_returns_false(base_processor):  # pylint: disable=redefined-outer-name
@@ -606,7 +613,7 @@ def test_process_payment_invalid_cart_status(cart):  # pylint: disable=redefined
     )[0]
     assert audit_log.details == (
         'Invalid cart state found. Cart is in state: '
-        'pending instead of processing, payment_pending or expired.'
+        'pending instead of processing or payment_pending.'
     )
 
 

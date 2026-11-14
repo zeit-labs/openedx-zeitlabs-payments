@@ -454,7 +454,6 @@ def test_valid_statuses_returns_all_choices():
         Cart.Status.PAID,
         Cart.Status.CANCELLED,
         Cart.Status.CLOSED,
-        Cart.Status.EXPIRED,
         Cart.Status.UNRECONCILED,
         Cart.Status.REFUND_REQUESTED,
         Cart.Status.REFUNDED,

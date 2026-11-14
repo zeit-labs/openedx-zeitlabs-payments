@@ -18,7 +18,7 @@ from rest_framework.test import APITestCase
 from waffle.testutils import override_switch
 
 from test_utils.dummy_processor import DummyProcessor
-from zeitlabs_payments.constants import DEFAULT_PAYMENT_SESSION_DURATION
+from zeitlabs_payments.constants import HANDOFF_GRACE_PERIOD, UNRECORDED_GATEWAY_GRACE_PERIOD
 from zeitlabs_payments.exceptions import CartStatusError
 from zeitlabs_payments.models import (
     AuditLog,
@@ -594,11 +594,11 @@ class InitiatePaymentViewTest(TestCase):
         """
         self.client.force_login(self.user)
 
-        def expire_then_fail(**kwargs):
-            Cart.objects.filter(pk=self.cart.pk).update(status=Cart.Status.EXPIRED)
+        def move_then_fail(**kwargs):
+            Cart.objects.filter(pk=self.cart.pk).update(status=Cart.Status.PAYMENT_PENDING)
             raise TimeoutError('no answer')
 
-        with patch('test_utils.dummy_processor.DummyProcessor.payment_view', side_effect=expire_then_fail):
+        with patch('test_utils.dummy_processor.DummyProcessor.payment_view', side_effect=move_then_fail):
             with self.assertLogs('zeitlabs_payments.views', level='WARNING') as logs:
                 response = self.client.get(self.url)
 
@@ -608,7 +608,9 @@ class InitiatePaymentViewTest(TestCase):
             'the refused close is not logged',
         )
         self.cart.refresh_from_db()
-        self.assertEqual(self.cart.status, Cart.Status.EXPIRED, 'the cart was not left as the other request left it')
+        self.assertEqual(
+            self.cart.status, Cart.Status.PAYMENT_PENDING, 'the cart was not left as the other request left it',
+        )
         self.assertFalse(
             AuditLog.objects.filter(cart=self.cart, action=AuditLog.AuditActions.PAYMENT_HANDOFF_FAILED).exists(),
             'a close that did not happen is on the trail',
@@ -721,10 +723,10 @@ class InFlightPaymentOnBuyingAgainTest(TestCase):
         self.cart_url = reverse('zeitlabs_payments:cart-add')
         self.client.force_login(self.user)
 
-    def inflight_cart(self, status=Cart.Status.PROCESSING, gateway_order_id=None, age=timedelta(0)):
-        """Return the learner's cart for the course, handed to the dummy gateway the given time ago."""
+    def inflight_cart(self, status=Cart.Status.PROCESSING, gateway_order_id=None, age=timedelta(0), gateway='dummy'):
+        """Return the learner's cart for the course, handed to the given gateway the given time ago."""
         cart = Cart.objects.create(
-            user=self.user, status=status, gateway='dummy', gateway_order_id=gateway_order_id,
+            user=self.user, status=status, gateway=gateway, gateway_order_id=gateway_order_id,
         )
         cart.items.create(catalogue_item=self.item, original_price=self.item.price, final_price=self.item.price)
         Cart.objects.filter(pk=cart.pk).update(updated_at=now() - age)
@@ -741,45 +743,40 @@ class InFlightPaymentOnBuyingAgainTest(TestCase):
         )
         self.assertEqual(Cart.objects.filter(user=self.user).count(), 1, 'a second cart was made')
 
-    def test_checkout_asks_the_learner_to_wait_for_a_payment_in_progress(self):
+    def test_checkout_asks_the_learner_to_wait_for_a_hand_off_in_progress(self):
         """
-        Verify that checkout tells the learner a payment is in progress, and roughly when they may try again.
-
-        The wait is worded in hours from an hour up, in minutes below it, and as later when the session's end is not
-        known.
+        Verify that checkout tells the learner a payment is in progress, and roughly when they may try again: the end
+        of the grace a hand-off with no order recorded is given, worded in minutes below an hour.
         """
-        cart = self.inflight_cart(gateway_order_id='ORDER-1')
-        no_waiting_page = patch.object(DummyProcessor, 'RETURN_VIEW', None)
-        no_waiting_page.start()
-        self.addCleanup(no_waiting_page.stop)
-        cases = [
-            (timedelta(minutes=25), 'try again in about 24 hours'),
-            (DEFAULT_PAYMENT_SESSION_DURATION - timedelta(minutes=5), 'try again in about 5 minutes'),
-        ]
-        for age, wording in cases:
-            with self.subTest(age=age):
-                Cart.objects.filter(pk=cart.pk).update(updated_at=now() - age)
+        self.inflight_cart(age=HANDOFF_GRACE_PERIOD - timedelta(minutes=5))
 
-                response = self.client.get(self.checkout_url)
+        response = self.client.get(self.checkout_url)
 
-                self.assertTemplateUsed(response, 'zeitlabs_payments/payment_in_progress.html')
-                self.assertContains(response, wording, msg_prefix='the time to wait is not given')
-                self.assertContains(response, 'ORDER-1', msg_prefix='the payment in progress has no reference')
+        self.assertTemplateUsed(response, 'zeitlabs_payments/payment_in_progress.html')
+        self.assertContains(response, 'try again in about 5 minutes', msg_prefix='the time to wait is not given')
 
-        with patch.object(DummyProcessor, 'get_session_end', return_value=None):
-            response = self.client.get(self.checkout_url)
-        self.assertContains(response, 'try again later', msg_prefix='an unknown wait is not worded as later')
+    def test_checkout_asks_the_learner_to_wait_for_a_hand_off_that_recorded_no_gateway(self):
+        """
+        Verify that checkout tells the learner whose cart was handed off before carts recorded their gateway to wait
+        out a day from the hand-off, worded in hours from an hour up, rather than refusing them for good.
+        """
+        self.inflight_cart(gateway=None, age=UNRECORDED_GATEWAY_GRACE_PERIOD - timedelta(hours=3, minutes=30))
 
-    def test_checkout_makes_the_cart_once_an_abandoned_payment_expired(self):
-        """Verify that checkout expires an abandoned payment past its session and goes on to the new cart."""
-        abandoned = self.inflight_cart(age=timedelta(hours=25))
+        response = self.client.get(self.checkout_url)
+
+        self.assertTemplateUsed(response, 'zeitlabs_payments/payment_in_progress.html')
+        self.assertContains(response, 'try again in about 4 hours', msg_prefix='the time to wait is not given')
+
+    def test_checkout_makes_the_cart_once_a_failed_hand_off_is_closed(self):
+        """Verify that checkout closes a hand-off with no order past its grace and goes on to the new cart."""
+        failed = self.inflight_cart(age=HANDOFF_GRACE_PERIOD + timedelta(minutes=1))
 
         response = self.client.get(self.checkout_url)
 
         self.assertTemplateUsed(response, 'zeitlabs_payments/checkout.html')
-        self.assertNotEqual(response.context['cart']['id'], abandoned.id, 'the abandoned cart was offered again')
-        abandoned.refresh_from_db()
-        self.assertEqual(abandoned.status, Cart.Status.EXPIRED, 'the abandoned cart did not expire')
+        self.assertNotEqual(response.context['cart']['id'], failed.id, 'the failed hand-off was offered again')
+        failed.refresh_from_db()
+        self.assertEqual(failed.status, Cart.Status.CLOSED, 'the failed hand-off was not closed')
 
     def test_checkout_refuses_while_nothing_can_be_concluded_about_a_payment(self):
         """Verify that checkout refuses a learner whose earlier payment was answered about but cannot be asked again."""
@@ -812,7 +809,7 @@ class InFlightPaymentOnBuyingAgainTest(TestCase):
 
     def test_api_names_when_to_retry_a_payment_in_progress(self):
         """Verify that the cart API answers 409 with the time after which buying again is allowed."""
-        cart = self.inflight_cart(age=timedelta(minutes=10))
+        cart = self.inflight_cart(age=timedelta(minutes=1))
         cart.refresh_from_db()
 
         response = self.client.post(self.cart_url, data={'sku': self.item.sku})
@@ -821,7 +818,7 @@ class InFlightPaymentOnBuyingAgainTest(TestCase):
             (response.status_code, response.json()),
             (409, {
                 'outcome': 'payment_in_progress',
-                'retry_after': (cart.updated_at + DEFAULT_PAYMENT_SESSION_DURATION).isoformat(),
+                'retry_after': (cart.updated_at + HANDOFF_GRACE_PERIOD).isoformat(),
             }),
             'the payment in progress was not named with the time to retry',
         )
@@ -952,7 +949,7 @@ class EmptyBundleOnCheckoutTest(TestCase):
         An abandoned payment would have been expired and a new cart made; the bundle's configuration is reported
         instead, and nothing of the learner's is moved or made.
         """
-        inflight = self.inflight_cart(gateway_order_id=None, age=DEFAULT_PAYMENT_SESSION_DURATION * 2)
+        inflight = self.inflight_cart(gateway_order_id=None, age=HANDOFF_GRACE_PERIOD * 2)
 
         response = self.client.get(self.checkout_url)
 
