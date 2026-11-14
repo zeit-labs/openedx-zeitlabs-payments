@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: openedx-zeitlabs-payments 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-12 06:09+0300\n"
+"POT-Creation-Date: 2026-11-14 04:48+0300\n"
 "PO-Revision-Date: 2026-01-01 00:00+0000\n"
 "Last-Translator: Zeitlabs <support@zeitlabs.com>\n"
 "Language-Team: English\n"
@@ -62,15 +62,15 @@ msgstr ""
 msgid "You can't buy this course right now."
 msgstr ""
 
-#: cart_handler.py:214 cart_handler.py:223
+#: cart_handler.py:228 cart_handler.py:237
 msgid "This course is not available to buy right now."
 msgstr ""
 
-#: cart_handler.py:363 cart_handler.py:384 cart_handler.py:395
+#: cart_handler.py:391 cart_handler.py:411 cart_handler.py:421
 msgid "This bundle is not available to buy right now."
 msgstr ""
 
-#: cart_handler.py:409
+#: cart_handler.py:435
 msgid "You already have all the courses in this bundle."
 msgstr ""
 
@@ -279,8 +279,8 @@ msgid "Unit Price"
 msgstr ""
 
 #: templates/zeitlabs_payments/invoice.html:133
-#: templates/zeitlabs_payments/payment_in_progress.html:41
-#: templates/zeitlabs_payments/payment_reconciliation.html:38
+#: templates/zeitlabs_payments/payment_in_progress.html:45
+#: templates/zeitlabs_payments/payment_reconciliation.html:42
 msgid "Go to Dashboard"
 msgstr ""
 
@@ -386,11 +386,15 @@ msgstr ""
 msgid "Payment In Progress"
 msgstr ""
 
-#: templates/zeitlabs_payments/payment_in_progress.html:17
+#: templates/zeitlabs_payments/payment_in_progress.html:18
+msgid "A payment for this bundle is already in progress."
+msgstr ""
+
+#: templates/zeitlabs_payments/payment_in_progress.html:20
 msgid "A payment for this course is already in progress."
 msgstr ""
 
-#: templates/zeitlabs_payments/payment_in_progress.html:21
+#: templates/zeitlabs_payments/payment_in_progress.html:25
 #, python-format
 msgid ""
 "Please do not pay again. If it does not go through, you can try again in "
@@ -401,7 +405,7 @@ msgid_plural ""
 msgstr[0] ""
 msgstr[1] ""
 
-#: templates/zeitlabs_payments/payment_in_progress.html:27
+#: templates/zeitlabs_payments/payment_in_progress.html:31
 #, python-format
 msgid ""
 "Please do not pay again. If it does not go through, you can try again in "
@@ -412,7 +416,7 @@ msgid_plural ""
 msgstr[0] ""
 msgstr[1] ""
 
-#: templates/zeitlabs_payments/payment_in_progress.html:33
+#: templates/zeitlabs_payments/payment_in_progress.html:37
 msgid ""
 "Please do not pay again. If it does not go through, you can try again later."
 msgstr ""
@@ -429,19 +433,26 @@ msgstr ""
 msgid "Your bank or the payment provider has not confirmed your payment yet."
 msgstr ""
 
-#: templates/zeitlabs_payments/payment_reconciliation.html:23
+#: templates/zeitlabs_payments/payment_reconciliation.html:24
+msgid ""
+"Please do not pay again. If your card was charged and the bundle's courses "
+"do not appear in your dashboard, contact support and quote the reference "
+"below."
+msgstr ""
+
+#: templates/zeitlabs_payments/payment_reconciliation.html:26
 msgid ""
 "Please do not pay again. If your card was charged and the course does not "
 "appear in your dashboard, contact support and quote the reference below."
 msgstr ""
 
-#: templates/zeitlabs_payments/payment_reconciliation.html:27
+#: templates/zeitlabs_payments/payment_reconciliation.html:31
 msgid ""
 "Your payment was received, but we could not complete your enrolment "
 "automatically."
 msgstr ""
 
-#: templates/zeitlabs_payments/payment_reconciliation.html:30
+#: templates/zeitlabs_payments/payment_reconciliation.html:34
 msgid ""
 "Please do not pay again. Contact support and quote the reference below so we "
 "can complete it."
@@ -497,40 +508,46 @@ msgstr ""
 
 #: views.py:98
 msgid ""
+"A payment for this bundle is still awaiting confirmation. Please contact "
+"support before paying again."
+msgstr ""
+
+#: views.py:102
+msgid ""
 "A payment for this course is still awaiting confirmation. Please contact "
 "support before paying again."
 msgstr ""
 
-#: views.py:122
+#: views.py:125
 msgid ""
 "This product sells one item per purchase; please complete each purchase "
 "separately."
 msgstr ""
 
-#: views.py:136
+#: views.py:139
 msgid "This item is not available."
 msgstr ""
 
-#: views.py:148
+#: views.py:151
 msgid "This item cannot be bought right now."
 msgstr ""
 
-#: views.py:295
+#: views.py:298
 msgid "This payment cannot be found."
 msgstr ""
 
-#: views.py:302 views.py:311
+#: views.py:305 views.py:314
 msgid "This payment method is not available."
 msgstr ""
 
-#: views.py:318
+#: views.py:321
 msgid "Payments cannot be made on this site right now."
 msgstr ""
 
-#: views.py:329
+#: views.py:332
 msgid "This purchase is already paid."
 msgstr ""
 
-#: views.py:330
+#: views.py:333
 msgid "This payment link is no longer valid."
 msgstr ""
