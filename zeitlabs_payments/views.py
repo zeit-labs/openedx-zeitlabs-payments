@@ -82,23 +82,26 @@ class CheckoutView(LoginRequiredMixin, TemplateView):
         """
         if inflight_payment.resolution == Resolution.RESUME:
             return redirect(inflight_payment.waiting_page_url)
+        bundle = sells_a_bundle(inflight_payment.cart)
         if inflight_payment.resolution == Resolution.IN_PROGRESS:
             return render(
                 request,
                 'zeitlabs_payments/payment_in_progress.html',
                 {
                     'merchant_reference': inflight_payment.cart.gateway_order_id,
+                    'bundle': bundle,
                     **waiting_time(inflight_payment.retry_after),
                 },
             )
-        return render(
-            request,
-            'zeitlabs_payments/invalid_cart.html',
-            {'error_message': _(
+        if bundle:
+            message = _(
+                'A payment for this bundle is still awaiting confirmation. Please contact support before paying again.'
+            )
+        else:
+            message = _(
                 'A payment for this course is still awaiting confirmation. Please contact support before paying again.'
-            )},
-            status=400,
-        )
+            )
+        return render(request, 'zeitlabs_payments/invalid_cart.html', {'error_message': message}, status=400)
 
     def get(self, request: Any, *args: Any, **kwargs: Any) -> None:
         """
@@ -490,10 +493,11 @@ def inflight_payment_json_response(inflight_payment: InFlightPayment) -> Respons
             {'outcome': 'payment_in_progress', 'retry_after': retry_after},
             status=status.HTTP_409_CONFLICT,
         )
+    item_type = 'bundle' if sells_a_bundle(inflight_payment.cart) else 'course'
     return Response(
         {
             'error': 'Given SKU item does not match add to cart requirements',
-            'details': 'A payment for this course is still awaiting confirmation.',
+            'details': f'A payment for this {item_type} is still awaiting confirmation.',
         },
         status=status.HTTP_400_BAD_REQUEST,
     )
@@ -510,6 +514,13 @@ class PaymentErrorView(TemplateView):
             'merchant_reference': args[0],
         }
         return render(request, self.template_name, context)
+
+
+def sells_a_bundle(cart: Optional[models.Cart]) -> bool:
+    """Return whether the cart sells a bundle, so what is said about it names a bundle rather than a course."""
+    return cart is not None and cart.items.filter(
+        catalogue_item__type=models.CatalogueItem.ItemType.PROGRAM_BUNDLE,
+    ).exists()
 
 
 def retry_url_for(cart: Optional[models.Cart]) -> Optional[str]:
@@ -561,15 +572,23 @@ class PaymentReconciliationView(TemplateView):
     yet and may still go through. Either way a retry could charge the learner twice, so the page offers none. The
     ``unconfirmed`` query parameter picks the second wording; it only changes what the page says. The merchant reference
     is required by the route because it is the only thing the learner can quote to support.
+
+    The page names a bundle's courses rather than a course only for a bundle cart of the learner's own that the
+    reference names, so a reference seen elsewhere tells nothing about what someone else bought.
     """
 
     template_name = 'zeitlabs_payments/payment_reconciliation.html'
 
     def get(self, request: Any, *args: Any, **kwargs: Any) -> Any:
         """Handle the GET request."""
+        gateway_order_id = args[0]
+        cart = None
+        if request.user.is_authenticated:
+            cart = models.Cart.objects.filter(user=request.user, gateway_order_id=gateway_order_id).first()
         context = {
-            'merchant_reference': args[0],
+            'merchant_reference': gateway_order_id,
             'unconfirmed': bool(request.GET.get('unconfirmed')),
+            'bundle': sells_a_bundle(cart),
         }
         return render(request, self.template_name, context)
 

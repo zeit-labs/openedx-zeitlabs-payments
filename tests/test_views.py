@@ -1772,3 +1772,126 @@ class PaymentReconciliationViewTest(BaseTestViewMixin):
         self.assertContains(response, 'Payment Not Yet Confirmed', msg_prefix='the unconfirmed wording is not shown')
         self.assertContains(response, 'Please do not pay again', msg_prefix='the learner is invited to pay again')
         self.assertNotContains(response, 'Payment Received', msg_prefix='an unconfirmed payment is called received')
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures('base_data')
+class BundleWordingTest(TestCase):
+    """The pages and refusals a learner reaches while a payment is open, worded for a bundle as for a course."""
+
+    def setUp(self):
+        self.user = User.objects.get(id=3)
+        self.bundle = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
+        self.course = CatalogueItem.objects.get(sku='custom-sku-1')
+        self.client.force_login(self.user)
+
+    def open_cart(self, item, status=Cart.Status.PROCESSING, gateway_order_id=None, user=None):
+        """Return a cart of the learner for the item, handed to the dummy gateway a minute ago."""
+        cart = Cart.objects.create(
+            user=user or self.user, status=status, gateway='dummy', gateway_order_id=gateway_order_id,
+        )
+        cart.items.create(catalogue_item=item, original_price=item.price, final_price=item.price)
+        Cart.objects.filter(pk=cart.pk).update(updated_at=now() - timedelta(minutes=1))
+        return cart
+
+    def checkout(self, item):
+        """Open checkout for the item."""
+        return self.client.get(f"{reverse('zeitlabs_payments:checkout')}?sku={item.sku}")
+
+    def reconciliation(self, gateway_order_id):
+        """Open the not-confirmed-yet reconciliation page for the order."""
+        return self.client.get(
+            f"{reverse('zeitlabs_payments:payment-reconciliation', args=[gateway_order_id])}?unconfirmed=1",
+        )
+
+    def test_the_in_progress_page_names_a_bundle(self):
+        """Verify that the in-progress page says a payment for this bundle is in progress, not one for this course."""
+        self.open_cart(self.bundle)
+
+        response = self.checkout(self.bundle)
+
+        self.assertContains(
+            response, 'A payment for this bundle is already in progress.', msg_prefix='not worded for a bundle',
+        )
+        self.assertNotContains(response, 'this course', msg_prefix='a bundle is called a course')
+
+    def test_the_in_progress_page_still_names_a_course(self):
+        """Verify that the in-progress page still says a payment for this course is in progress, for a course."""
+        self.open_cart(self.course)
+
+        response = self.checkout(self.course)
+
+        self.assertContains(response, 'A payment for this course is already in progress.', msg_prefix='not a course')
+
+    def test_the_checkout_refusal_names_a_bundle(self):
+        """Verify that checkout refuses a bundle whose payment awaits confirmation in a sentence naming a bundle."""
+        self.open_cart(self.bundle, status=Cart.Status.PAYMENT_PENDING)
+
+        response = self.checkout(self.bundle)
+
+        self.assertContains(
+            response,
+            'A payment for this bundle is still awaiting confirmation. Please contact support before paying again.',
+            status_code=400,
+            msg_prefix='the refusal does not name a bundle',
+        )
+
+    def test_the_checkout_refusal_still_names_a_course(self):
+        """Verify that checkout still refuses a course whose payment is awaiting confirmation naming a course."""
+        self.open_cart(self.course, status=Cart.Status.PAYMENT_PENDING)
+
+        response = self.checkout(self.course)
+
+        self.assertContains(
+            response, 'A payment for this course is still awaiting confirmation.', status_code=400,
+            msg_prefix='the refusal does not name a course',
+        )
+
+    def test_the_api_detail_names_a_bundle_or_a_course(self):
+        """Verify that the add-to-cart API's detail for a payment awaiting confirmation names the item's type."""
+        for item, word in ((self.bundle, 'bundle'), (self.course, 'course')):
+            self.open_cart(item, status=Cart.Status.PAYMENT_PENDING)
+
+        responses = {
+            word: self.client.post(reverse('zeitlabs_payments:cart-add'), data={'sku': item.sku})
+            for item, word in ((self.bundle, 'bundle'), (self.course, 'course'))
+        }
+
+        for word, response in responses.items():
+            self.assertEqual(response.status_code, 400, f'the {word} was not refused')
+            self.assertEqual(
+                response.json()['details'], f'A payment for this {word} is still awaiting confirmation.',
+                f'the API detail does not name a {word}',
+            )
+
+    def test_the_reconciliation_page_names_the_courses_of_a_bundle(self):
+        """
+        Verify that the reconciliation page tells a learner whose bundle is unconfirmed to contact support if its
+        courses do not appear in their dashboard.
+        """
+        self.open_cart(self.bundle, status=Cart.Status.PAYMENT_PENDING, gateway_order_id='ORDER-B')
+
+        response = self.reconciliation('ORDER-B')
+
+        self.assertContains(
+            response, "the bundle's courses do not appear in your dashboard", msg_prefix='not worded for a bundle',
+        )
+
+    def test_the_reconciliation_page_keeps_the_course_wording_for_a_course_or_another_learner(self):
+        """
+        Verify that the reconciliation page says "the course" for a course, and for an order of another learner's,
+        so the page never tells anyone what someone else bought.
+        """
+        self.open_cart(self.course, status=Cart.Status.PAYMENT_PENDING, gateway_order_id='ORDER-C')
+        self.open_cart(
+            self.bundle, status=Cart.Status.PAYMENT_PENDING, gateway_order_id='ORDER-OTHER',
+            user=User.objects.get(id=4),
+        )
+
+        for gateway_order_id in ('ORDER-C', 'ORDER-OTHER'):
+            response = self.reconciliation(gateway_order_id)
+
+            self.assertContains(
+                response, 'the course does not appear in your dashboard',
+                msg_prefix=f'{gateway_order_id} is not worded for a course',
+            )
