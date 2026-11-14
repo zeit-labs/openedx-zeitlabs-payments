@@ -679,7 +679,6 @@ BUYING_AGAIN_BESIDE = {
     Cart.Status.PENDING: None,
     Cart.Status.CANCELLED: None,
     Cart.Status.CLOSED: None,
-    Cart.Status.EXPIRED: None,
     Cart.Status.REFUNDED: None,
     Cart.Status.PROCESSING: InFlightPaymentError,
     Cart.Status.PAYMENT_PENDING: InFlightPaymentError,
@@ -741,8 +740,8 @@ def test_a_payment_in_flight_is_raised_with_its_cart_before_any_other():
     (Cart.Status.PAID, True, 'It was already bought in cart {id}.', 'a completed sale'),
     (Cart.Status.PAID, False, 'A payment for it in cart {id} is still being resolved.', 'paid, not invoiced'),
     (
-        Cart.Status.PROCESSING, False, 'A payment for it in cart {id} is still being resolved.',
-        'handed off without its gateway recorded, which cannot be asked about again',
+        Cart.Status.PAYMENT_PENDING, False, 'A payment for it in cart {id} is still being resolved.',
+        'answered about by a gateway that was not recorded, which cannot be asked again',
     ),
 ])
 def test_a_blocking_cart_not_in_flight_refuses_saying_why(status, invoiced, refusal, usecase):
@@ -759,6 +758,22 @@ def test_a_blocking_cart_not_in_flight_refuses_saying_why(status, invoiced, refu
         check_carts_holding_item(User.objects.get(id=3), item)
 
     assert str(raised.value) == refusal.format(id=cart.id), f'Failed usecase: {usecase}'
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures('base_data')
+def test_a_hand_off_that_recorded_no_gateway_is_raised_as_in_flight():
+    """
+    Verify that a processing cart handed off before carts recorded their gateway is raised as a payment in flight,
+    carrying its cart, so its age can decide it rather than refusing the learner for good.
+    """
+    item = CatalogueItem.objects.get(sku='custom-sku-1')
+    stale = cart_holding(item, Cart.Status.PROCESSING, gateway=None)
+
+    with pytest.raises(InFlightPaymentError) as raised:
+        check_carts_holding_item(User.objects.get(id=3), item)
+
+    assert raised.value.cart == stale, 'The hand-off with no gateway is not the cart raised'
 
 
 @pytest.mark.django_db

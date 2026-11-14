@@ -405,21 +405,21 @@ def check_carts_holding_item(user: get_user_model, catalogue_item: CatalogueItem
     """
     Refuse the item while another of the learner's carts blocks buying it, or send them back to that cart's payment.
 
-    See ``get_blocking_carts`` for which carts block. A payment in flight -- processing or awaiting payment, with its
-    gateway recorded -- is raised first, so the learner can be sent back to it, told to wait, or let through once it
-    expires. Any other blocking cart refuses the item.
+    See ``get_blocking_carts`` for which carts block. A payment in flight -- processing, or awaiting payment with its
+    gateway recorded -- is raised first, so the learner can be sent back to it, told to wait, or let through once its
+    hand-off is closed as failed. Any other blocking cart refuses the item.
 
     :param user: The learner buying the item.
     :param catalogue_item: The course or bundle being bought.
     :raises InFlightPaymentError: When a blocking cart has its payment in flight, carrying the latest.
-    :raises DuplicateCartError: When any other blocking cart exists: paid, unreconciled, awaiting a refund, or handed
-        off without its gateway recorded.
+    :raises DuplicateCartError: When any other blocking cart exists: paid, unreconciled, awaiting a refund, or
+        answered about by a gateway that was not recorded.
     :return: None
     """
     blocking_carts = get_blocking_carts(user, catalogue_item)
 
     inflight_cart = blocking_carts.filter(
-        status__in=(Cart.Status.PROCESSING, Cart.Status.PAYMENT_PENDING), gateway__isnull=False,
+        Q(status=Cart.Status.PROCESSING) | Q(status=Cart.Status.PAYMENT_PENDING, gateway__isnull=False),
     ).order_by('-updated_at').first()
     if inflight_cart:
         raise InFlightPaymentError(

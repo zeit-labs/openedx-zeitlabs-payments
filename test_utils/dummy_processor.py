@@ -32,6 +32,10 @@ class DummyProcessor(BaseProcessor):
         """Fake: every payment is for the money the cart expected."""
         return None
 
+    def get_gateway_order_id(self, transaction_parameters):
+        """Fake: the order the hand-off parameters name."""
+        return transaction_parameters.get('gateway_order_id')
+
 
 class DummyReturnView(PaymentReturnViewMixin, View):
     """Return view of the dummy processor, configured the way a processor package configures its own."""

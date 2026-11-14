@@ -872,26 +872,6 @@ class PaymentStatusViewMixinTest(TestCase):
             'the trail does not show the payment recorded unreconciled and the cart held',
         )
 
-    def test_payment_completing_after_its_cart_expired_still_settles_it(self):
-        """
-        Verify that a payment completing after its cart expired is settled as any other, invoicing and paying the cart.
-
-        Expiry is a judgement that the session lapsed; a gateway that took the money all the same proves it wrong.
-        """
-        Cart.objects.filter(pk=self.cart.pk).update(status=Cart.Status.EXPIRED)
-
-        response, _ = self.poll(
-            get_order_cart_reference=self.reference,
-            get_order_status=self.answer,
-            get_payment_status=PaymentStatus.SUCCESS,
-            verify_success_response=None,
-            get_transaction_details=self.details,
-        )
-
-        self.assertEqual(response.status_code, 200, 'a late payment on an expired cart was not settled')
-        self.assert_cart_status(Cart.Status.PAID, 'the expired cart of a late payment was not paid')
-        self.assertTrue(Invoice.objects.filter(cart=self.cart).exists(), 'the late payment was not invoiced')
-
     def test_payment_for_a_course_its_learner_came_to_hold_is_left_for_staff(self):
         """
         Verify that a success for a course its learner was enrolled in by staff while it was at the gateway is recorded
@@ -918,36 +898,6 @@ class PaymentStatusViewMixinTest(TestCase):
         self.assertEqual(recorded.status, DummyProcessor.TRANSACTION_STATUS_FAILED, 'the payment was settled')
         self.assertIn('the learner already holds custom-sku-1', recorded.reason, 'the row does not say why')
         self.assertFalse(Invoice.objects.filter(cart=self.cart).exists(), 'a payment that bought nothing was invoiced')
-
-    def test_payment_completing_after_the_course_was_bought_again_is_held(self):
-        """
-        Verify that a late payment on an expired cart whose course was bought again is recorded but not settled.
-
-        Settling it would charge the learner twice for one course, so the payment goes on the ledger marked failed and
-        the cart is held unreconciled for a person to refund.
-        """
-        Cart.objects.filter(pk=self.cart.pk).update(status=Cart.Status.EXPIRED)
-        bought_again = Cart.objects.create(user=self.user, status=Cart.Status.PAID)
-        item = self.cart.items.first().catalogue_item
-        bought_again.items.create(catalogue_item=item, original_price=item.price, final_price=item.price)
-
-        response, _ = self.poll(
-            get_order_cart_reference=self.reference,
-            get_order_status=self.answer,
-            get_payment_status=PaymentStatus.SUCCESS,
-            verify_success_response=None,
-            get_transaction_details=self.details,
-        )
-
-        self.assert_outcome(response, Outcome.NOT_FULFILLED)
-        self.assert_cart_status(Cart.Status.UNRECONCILED, 'a second payment for one course was not held')
-        recorded = Transaction.objects.get(cart=self.cart)
-        self.assertEqual(recorded.status, DummyProcessor.TRANSACTION_STATUS_FAILED, 'the second payment was settled')
-        self.assertIn(
-            f'cart {bought_again.id} (paid) holds its items',
-            recorded.reason,
-            'the row does not say why it was held',
-        )
 
     def test_repeat_poll_of_an_unreconciled_cart_answers_without_asking_the_gateway(self):
         """

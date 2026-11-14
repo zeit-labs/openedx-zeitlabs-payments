@@ -107,13 +107,20 @@ class PaymentReturnViewMixin:
 
 
 class PaymentStatus(Enum):
-    """Where a gateway says a payment stands, in the terms the status view acts on."""
+    """
+    Where a gateway says a payment stands, in the terms the status view acts on.
+
+    DECLINED and CANCELLED end the cart for good, so a processor reports them only for an answer its gateway treats as
+    final. An answer that can still change -- a payment held for review, or one the gateway may yet complete -- is
+    PENDING, however long it lasts.
+    """
 
     SUCCESS = 'success'
+    # Not decided yet, or decided in a way the gateway may still change.
     PENDING = 'pending'
-    # Refused by the bank or the gateway. Nothing was charged.
+    # Refused by the bank or the gateway, for good. Nothing was charged.
     DECLINED = 'declined'
-    # Cancelled by the learner on the gateway's page. Nothing was charged.
+    # Cancelled by the learner on the gateway's page, for good. Nothing was charged.
     CANCELLED = 'cancelled'
 
 
@@ -253,7 +260,13 @@ class PaymentStatusViewMixin(LoginRequiredMixin):
         return None
 
     def get_payment_status(self, data: dict) -> Optional[PaymentStatus]:  # pylint: disable=unused-argument
-        """Return where the gateway's answer says the payment stands, or None when the answer cannot be read."""
+        """
+        Return where the gateway's answer says the payment stands, or None when the answer cannot be read.
+
+        A declined or cancelled payment cancels its cart, which nothing moves on from, so a success the gateway reports
+        later for it is refused and never settled. Report DECLINED or CANCELLED only for an answer the gateway treats as
+        final, and PENDING for any it may still change.
+        """
         return None
 
     def verify_success_response(self, data: dict, cart: Cart) -> None:
@@ -498,7 +511,7 @@ class PaymentStatusViewMixin(LoginRequiredMixin):
 
     def hold_unreconciled(self, cart: Cart) -> None:
         """
-        Move a cart awaiting payment, or expired, to unreconciled after a success the view could not settle.
+        Move a cart awaiting payment to unreconciled after a success the view could not settle.
 
         The money has been taken, so the cart is neither paid nor cancelled: it waits for a person to enrol or refund
         the learner, and keeps blocking the course meanwhile. A cart that is no longer awaiting payment keeps its
@@ -506,7 +519,7 @@ class PaymentStatusViewMixin(LoginRequiredMixin):
 
         :param cart: The cart the reported success was for.
         """
-        if cart.status not in (Cart.Status.PAYMENT_PENDING, Cart.Status.EXPIRED):
+        if cart.status != Cart.Status.PAYMENT_PENDING:
             return
         try:
             cart.change_status(

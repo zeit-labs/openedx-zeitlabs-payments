@@ -54,7 +54,7 @@ class InFlightPaymentError(Exception):
     Raised when a cart cannot be created because a payment for the same item is still open.
 
     It carries the in-flight cart, so the caller can send the learner back to that payment, tell them it is in progress,
-    or expire it and create the cart after all.
+    or close it as a failed hand-off and create the cart after all.
     """
 
     def __init__(self, message: str, cart: Any = None) -> None:
