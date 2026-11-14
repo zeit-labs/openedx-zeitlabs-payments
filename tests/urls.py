@@ -11,6 +11,7 @@ urlpatterns = [
     # so a bare View stands in for each: there is no response body to write, and none for coverage to miss.
     path('dashboard/', View.as_view(), name='dashboard'),
     path('courses/', View.as_view(), name='courses'),
+    path('courses/<str:course_id>/about', View.as_view(), name='about_course'),
 
     # Plugin urls
     path('', include('zeitlabs_payments.urls')),
