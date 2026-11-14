@@ -129,6 +129,10 @@ class PaymentStatusViewMixin(LoginRequiredMixin):
     ``verify_success_response``, which refuses: every other default leaves the payment unsettled, and a default that
     accepted would settle payments nobody checked.
 
+    A payment is its cart's gateway order, which a processor opens to take one payment only; see
+    ``BaseProcessor.get_gateway_order_id``. The transaction id a processor reads from an answer is kept on the
+    transaction as a detail, and never decides whether two answers are the same payment.
+
     The poll is answered in JSON on every path, because the waiting page reads every answer as JSON. That includes a
     poll whose session has expired, which gets a 401 rather than the redirect to log in ``LoginRequiredMixin`` gives.
     Every answer names its outcome under ``outcome``, which is what the page routes on; the HTTP status says the same
@@ -400,7 +404,7 @@ class PaymentStatusViewMixin(LoginRequiredMixin):
 
         payment_status = self.get_payment_status(data)  # pylint: disable=assignment-from-none
         if payment_status == PaymentStatus.SUCCESS:
-            return self.settle_payment(cart, site.id, data)
+            return self.settle_payment(cart, site.id, data, gateway_order_id)
         if payment_status == PaymentStatus.PENDING:
             return self.outcome_response(self.Outcome.PENDING)
         if payment_status in self.UNPAID_ENDINGS:
@@ -442,20 +446,55 @@ class PaymentStatusViewMixin(LoginRequiredMixin):
 
         The waiting page is polled again after the payment settled whenever the learner reloads it or comes back to it,
         and the gateway still answers success. Settling again would be refused, the cart being paid, and the learner
-        told their enrolment failed; the invoice issued the first time is the answer instead. Only the invoice of the
-        same gateway transaction counts: a success under another transaction on a paid cart is a second charge, not a
-        repeat.
+        told their enrolment failed; the invoice issued the first time is the answer instead.
 
-        :param cart: The cart the answer pays for.
+        A payment is its cart's gateway order: a processor hands each cart off to one order, which takes one payment.
+        So a success under the cart's order is the payment already settled, whatever transaction id it is reported
+        under -- an authorisation's id and then its capture's, say. Only a cart handed off before carts recorded their
+        order is matched on the transaction id instead.
+
+        :param cart: The cart the answer pays for, polled under its own order.
         :param gateway_transaction_id: The gateway's id for the payment, the ``transaction_id`` that
             ``get_transaction_details`` read from its answer.
         """
-        return Invoice.objects.filter(
+        invoices = Invoice.objects.filter(cart=cart, status=Invoice.InvoiceStatus.PAID)
+        if not cart.gateway_order_id:
+            invoices = invoices.filter(
+                related_transaction__gateway=self.payment_processor.SLUG,
+                related_transaction__gateway_transaction_id=gateway_transaction_id,
+            )
+        return invoices.first()
+
+    def record_foreign_order(self, cart: Cart, site_id: int, data: dict, gateway_order_id: str, details: dict) -> None:
+        """
+        Record a success reported for the cart under an order that is not the one it was handed off to.
+
+        A processor hands each cart off to one order that takes one payment, so a second order paying for the cart is
+        a gateway breaking that rule: money may have been taken twice. The payment is recorded as a failed transaction
+        saying why, for a person to refund, and the gateway's answer kept on the audit trail too, in case the row
+        cannot be written. The cart is left as it is: its own order still decides it.
+
+        :param cart: The cart the gateway says the order pays for.
+        :param site_id: The site the payment was made on, as the merchant reference names it.
+        :param data: The gateway's answer, already read as a success.
+        :param gateway_order_id: The order the poll names.
+        :param details: What ``get_transaction_details`` read from the answer.
+        """
+        error = (
+            f'order {gateway_order_id} is not the order {cart.gateway_order_id} the cart was handed off to, so it may '
+            'be a second payment'
+        )
+        logger.error(f'{self.payment_processor.SLUG}: a success for cart {cart.id} was reported under {error}.')
+        self.log_rejected_response(cart, data, error)
+        self.payment_processor.process_payment_and_update_records(
             cart=cart,
-            status=Invoice.InvoiceStatus.PAID,
-            related_transaction__gateway=self.payment_processor.SLUG,
-            related_transaction__gateway_transaction_id=gateway_transaction_id,
-        ).first()
+            data=data,
+            request=self.request,
+            transaction_status=self.payment_processor.TRANSACTION_STATUS_SUCCESS,
+            site_id=site_id,
+            refusal=error,
+            **details,
+        )
 
     def hold_unreconciled(self, cart: Cart) -> None:
         """
@@ -478,17 +517,20 @@ class PaymentStatusViewMixin(LoginRequiredMixin):
         except CartStatusError as exc:
             logger.warning(f'{self.payment_processor.SLUG}: cart {cart.id} was not held as unreconciled: {exc}')
 
-    def settle_payment(self, cart: Cart, site_id: int, data: dict) -> JsonResponse:
+    def settle_payment(self, cart: Cart, site_id: int, data: dict, gateway_order_id: str) -> JsonResponse:
         """
         Verify a success answer, then record the payment, issue the invoice and fulfil the cart.
 
         A success that cannot be settled leaves the cart unreconciled, see ``hold_unreconciled``. A poll arriving after
-        the payment settled is answered with the invoice it was issued, rather than as not fulfilled. A poll running
-        alongside the one settling it is not covered: it finds no invoice yet, and its own settlement is refused.
+        the payment settled is answered with the invoice it was issued, rather than as not fulfilled, see
+        ``get_settled_invoice``. A poll running alongside the one settling it is not covered: it finds no invoice yet,
+        and its own settlement is refused. A success under an order the cart was not handed off to is recorded but
+        never settled, see ``record_foreign_order``.
 
         :param cart: The cart the answer pays for.
         :param site_id: The site the payment was made on, as the merchant reference names it.
         :param data: The gateway's answer, already read as a success.
+        :param gateway_order_id: The order the poll names.
         """
         slug = self.payment_processor.SLUG
         try:
@@ -504,6 +546,9 @@ class PaymentStatusViewMixin(LoginRequiredMixin):
         if details is None:
             logger.error(f'{slug}: no transaction details could be read from the success response for cart {cart.id}.')
             self.log_rejected_response(cart, data, 'no transaction details could be read from it')
+        elif cart.gateway_order_id and cart.gateway_order_id != gateway_order_id:
+            self.record_foreign_order(cart, site_id, data, gateway_order_id, details)
+            return self.outcome_response(self.Outcome.NOT_FULFILLED)
         else:
             invoice = self.get_settled_invoice(cart, details['transaction_id'])
             if invoice is None:

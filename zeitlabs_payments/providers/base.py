@@ -267,6 +267,13 @@ class BaseProcessor:
         A gateway that opens its order only when the learner pays has none yet; its id is recorded when the learner
         comes back. None here, so a processor that does not override it is treated as one of those.
 
+        The order is the payment: the plugin knows a success it was told about before by its order, whatever
+        transaction id the gateway reports it under. So a processor hands each cart off to one order, and the order
+        must be single-use -- it stops taking payment once paid. A gateway that cannot issue one, a reusable payment
+        link or an invoice payable more than once, is not supported: a second payment on the order would be taken for
+        the first one reported again. A success under an order the cart was not handed off to is recorded but never
+        settled.
+
         :param transaction_parameters: What ``get_transaction_parameters`` returned for the hand-off.
         """
         return None
@@ -443,6 +450,7 @@ class BaseProcessor:
         currency: str,
         reason: str,
         response: dict = None,
+        refusal: Optional[str] = None,
     ) -> Transaction:
         """
         Persist the payment record first, verify second, and never write less on failure.
@@ -477,20 +485,23 @@ class BaseProcessor:
             for card numbers: any unmasked number found anywhere in it is replaced by its masked form before the
             row is written, while the masked block the gateways already send is kept as-is. The settled columns
             are derived from it via the mapping above, not read back from it.
+        :param refusal: Why the caller already decided the payment is not settled, when it has. It is recorded as the
+            verification failure, in place of every check above.
         :return: Transaction instance. A row whose status is not ``TRANSACTION_STATUS_SUCCESS`` (either the gateway
             reported a non-success status or verification failed) is returned as recorded, annotated, with the cart
             left in its pre-payment state.
         :raises DuplicateTransactionError: If transaction with same ID already exists.
         """
         with db_transaction.atomic():
-            verification_error = None
-            try:
-                canonical_currency_code = canonical_currency(self.map_currency(currency))
-            except Exception as exc:  # pylint: disable=broad-exception-caught
-                # Anything a processor's map_currency or the plugin's canonical_currency raises is a verification
-                # outcome, never a write failure; it annotates the row below.
-                verification_error = exc
-                canonical_currency_code = None
+            verification_error: Optional[Exception] = ValueError(refusal) if refusal else None
+            canonical_currency_code = None
+            if verification_error is None:
+                try:
+                    canonical_currency_code = canonical_currency(self.map_currency(currency))
+                except Exception as exc:  # pylint: disable=broad-exception-caught
+                    # Anything a processor's map_currency or the plugin's canonical_currency raises is a verification
+                    # outcome, never a write failure; it annotates the row below.
+                    verification_error = exc
             if verification_error is None:
                 try:
                     self.reconcile_payment(response, cart)
@@ -611,6 +622,7 @@ class BaseProcessor:
         currency: str,
         reason: str,
         site_id: Optional[int] = None,
+        refusal: Optional[str] = None,
     ) -> Optional[Invoice]:
         """
         Record the payment first, settle second, and never roll the record back.
@@ -630,9 +642,12 @@ class BaseProcessor:
         :param currency: Currency code
         :param reason: Gateway-provided reason/description
         :param site_id: Optional site ID for context logging
+        :param refusal: Why the caller already decided the payment is not settled, when it has: the payment is recorded
+            as failing verification for that reason, whatever the cart's status, and nothing is settled.
         :return: Created Invoice instance or None
         """
-        if cart.status not in [Cart.Status.PROCESSING, Cart.Status.PAYMENT_PENDING, Cart.Status.EXPIRED]:
+        settleable = (Cart.Status.PROCESSING, Cart.Status.PAYMENT_PENDING, Cart.Status.EXPIRED)
+        if refusal is None and cart.status not in settleable:
             AuditLog.log(
                 action=AuditLog.AuditActions.RESPONSE_INVALID_CART,
                 cart=cart,
@@ -671,6 +686,7 @@ class BaseProcessor:
                 currency=currency,
                 reason=reason,
                 response=data,
+                refusal=refusal,
             )
 
         except DuplicateTransactionError:
