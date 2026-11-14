@@ -15,9 +15,6 @@ import os
 import re
 import sys
 from datetime import datetime
-from subprocess import check_call
-
-from django import setup as django_setup
 
 
 def get_version(*file_paths):
@@ -40,9 +37,6 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(REPO_ROOT)
 
 VERSION = get_version('../zeitlabs_payments', '__init__.py')
-# Configure Django for autodoc usage
-os.environ['DJANGO_SETTINGS_MODULE'] = 'test_settings'
-django_setup()
 
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here. If the directory is relative to the
@@ -62,12 +56,11 @@ django_setup()
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
-    'sphinx.ext.autodoc',
-    'sphinx.ext.doctest',
-    'sphinx.ext.intersphinx',
-    'sphinx.ext.ifconfig',
-    'sphinx.ext.napoleon'
+    'sphinxcontrib.mermaid',
 ]
+
+# Size each chart to its own shape. The fixed 500px default shrinks a chart to fit, leaving its labels unreadable.
+mermaid_height = 'auto'
 
 # A list of warning types to suppress arbitrary warning messages.
 suppress_warnings = [
@@ -514,34 +507,3 @@ epub_exclude_files = ['search.html']
 #
 # epub_use_index = True
 
-
-# Example configuration for intersphinx: refer to the Python standard library.
-intersphinx_mapping = {
-    'python': ('https://docs.python.org/3.11', None),
-    'django': ('https://docs.djangoproject.com/en/4.2/', 'https://docs.djangoproject.com/en/3.2/_objects/'),
-    'model_utils': ('https://django-model-utils.readthedocs.io/en/latest/', None),
-}
-
-
-def on_init(app):  # pylint: disable=unused-argument
-    """
-    Run sphinx-apidoc after Sphinx initialization.
-
-    Read the Docs won't run tox or custom shell commands, so we need this to
-    avoid checking in the generated reStructuredText files.
-    """
-    docs_path = os.path.abspath(os.path.dirname(__file__))
-    root_path = os.path.abspath(os.path.join(docs_path, '..'))
-    apidoc_path = 'sphinx-apidoc'
-    if hasattr(sys, 'real_prefix'):  # Check to see if we are in a virtualenv
-        # If we are, assemble the path manually
-        bin_path = os.path.abspath(os.path.join(sys.prefix, 'bin'))
-        apidoc_path = os.path.join(bin_path, apidoc_path)
-    check_call([apidoc_path, '-o', docs_path, os.path.join(root_path, 'zeitlabs_payments'),
-                os.path.join(root_path, 'zeitlabs_payments/migrations')])
-
-
-def setup(app):
-    """Sphinx extension: run sphinx-apidoc."""
-    event = 'builder-inited'
-    app.connect(event, on_init)

@@ -1,7 +1,7 @@
 .. _chapter-theme-override:
 
-Styling payment pages
-#####################
+Customize the theme
+###################
 
 Payment pages use Paragon ``--pgn-*`` CSS variables, with fallback values when
 Paragon is not loaded. To style them, override these variables in your theme
@@ -17,6 +17,7 @@ These learner pages share ``zeitlabs_payments/base.html``:
 
 * Checkout - ``zeitlabs_payments/checkout.html``
 * Invalid cart - ``zeitlabs_payments/invalid_cart.html``
+* Payment not started - ``zeitlabs_payments/payment_refused.html``
 * Payment in progress - ``zeitlabs_payments/payment_in_progress.html``
 * Payment error - ``zeitlabs_payments/payment_error.html``
 * Payment decline - ``zeitlabs_payments/payment_decline.html``
@@ -24,13 +25,15 @@ These learner pages share ``zeitlabs_payments/base.html``:
 * Invoice / receipt - ``zeitlabs_payments/invoice.html`` (private and public
   routes)
 * Invoice gone (410) - ``zeitlabs_payments/invoice_private.html``
+* Payment history - ``zeitlabs_payments/order_history.html``
 
 Shared page skeleton: ``zeitlabs_payments/base.html``; shared status-page
 layout: ``zeitlabs_payments/status_page.html``; shared stylesheet include:
 ``zeitlabs_payments/styles.html``.
 
-This reference does not cover ``wait_feedback.html``, ``order_history.html``,
-Django admin templates, or gateway pages owned by processor packages.
+This reference does not cover ``wait_feedback.html``, Django admin templates,
+or gateway pages owned by processor packages. To change what the invoice says
+rather than how it looks, see :doc:`customize-the-invoice`.
 
 How theming works
 *****************
@@ -41,8 +44,8 @@ How theming works
 2. Payment components read those variables directly, with local fallbacks.
    Derived values use ``calc()`` or ``color-mix()`` at the consuming element.
 3. For payment-only overrides, scope Paragon variables to ``.basket``,
-   ``.status-page``, or ``.receipt-wrapper``, or restyle a documented component
-   class. Variables inherit into each wrapper's descendants.
+   ``.status-page``, ``.receipt-wrapper`` or ``.order-history``, or restyle a
+   documented component class. Variables inherit into each wrapper's descendants.
 4. Keep overrides in your theme stylesheet rather than editing the plugin's
    shared stylesheet.
 
@@ -92,7 +95,8 @@ Region blocks provided by ``zeitlabs_payments/base.html``:
      - Role
    * - ``page_class``
      - Root wrapper class: ``basket`` (checkout), ``status-page`` (status
-       pages), ``receipt-wrapper`` (invoice). The wrapper also carries the
+       pages), ``receipt-wrapper`` (invoice), ``order-history`` (payment
+       history). The wrapper also carries the
        ``dir`` attribute (``rtl``/``ltr``), computed once from
        ``LANGUAGE_BIDI``.
    * - ``page_head``
@@ -111,8 +115,8 @@ Region blocks provided by ``zeitlabs_payments/base.html``:
      - Inline scripts, outside the ``dir`` wrapper
 
 Additional blocks provided by ``zeitlabs_payments/status_page.html`` (invalid
-cart, payment in progress, payment error, payment decline, payment
-reconciliation):
+cart, payment not started, payment in progress, payment error, payment decline,
+payment reconciliation):
 
 .. list-table::
    :header-rows: 1
@@ -354,8 +358,8 @@ changing similarly named elements elsewhere in the LMS.
 Shared skeleton
 ===============
 
-* Page wrapper class from ``page_class``: ``.basket``, ``.status-page``, or
-  ``.receipt-wrapper``; carries ``dir="rtl"`` / ``dir="ltr"`` — target
+* Page wrapper class from ``page_class``: ``.basket``, ``.status-page``,
+  ``.receipt-wrapper`` or ``.order-history``; carries ``dir="rtl"`` / ``dir="ltr"`` — target
   ``[dir="rtl"]`` descendants for RTL-specific overrides (the sheet itself
   uses logical properties)
 * ``.help-section`` — the shared support region rendered by ``page_support``
@@ -378,8 +382,8 @@ Root: ``.basket`` → ``.container`` → ``.basket-card``.
 
 Status pages (``.status-page``)
 ===============================
-Used by invalid cart, payment in progress, payment error, payment decline, and
-payment reconciliation. The invoice-gone (410) page (``invoice_private.html``)
+Used by invalid cart, payment not started, payment in progress, payment error,
+payment decline, and payment reconciliation. The invoice-gone (410) page (``invoice_private.html``)
 extends ``base.html`` directly and renders only a subset: ``.status-page``,
 ``.status-card``, ``.status-title``, ``.status-message`` — no icon, reference,
 or actions.
@@ -407,6 +411,23 @@ Root: ``.receipt-wrapper`` → ``.receipt`` → ``.receipt-card``.
 * ``.print-receipt-button``, ``.go-to-course-button``,
   ``.go-to-dashboard-button``
 * Shared buttons: ``.btn``, ``.btn-primary``
+
+Payment history (``.order-history``)
+====================================
+
+Root: ``.order-history`` → ``.oh-hero`` (banner) and ``.oh-card``.
+
+* ``.oh-card-title``
+* ``.oh-table``, one row per order: a table on wide screens, a stacked card
+  at ``768px`` and below
+* ``.oh-col-date``, ``.oh-col-item``, ``.oh-col-amount``, ``.oh-col-status``,
+  ``.oh-col-invoice``
+* ``.oh-item-type`` (the *Program* label of a bundle)
+* ``.oh-status``, with ``data-status`` set to ``paid``, ``confirming`` or
+  ``refunded``. A ``refund_requested`` style is also defined, for refund
+  requests: a future feature, not implemented yet, so no row carries it today
+* ``.oh-pager``
+* Empty history: ``.oh-empty``, ``.oh-empty-icon``
 
 Examples
 ********
