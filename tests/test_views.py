@@ -10,7 +10,9 @@ from common.djangoapps.course_modes.models import CourseMode
 from common.djangoapps.student.models import CourseEnrollment
 from django.contrib.auth import get_user_model
 from django.contrib.sites.models import Site
+from django.db import connection
 from django.test import RequestFactory, TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils.timezone import now
 from rest_framework import status as http_status
@@ -1895,3 +1897,328 @@ class BundleWordingTest(TestCase):
                 response, 'the course does not appear in your dashboard',
                 msg_prefix=f'{gateway_order_id} is not worded for a course',
             )
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures('base_data')
+class OrderHistoryViewTest(TestCase):
+    """The learner's payment history page."""
+
+    def setUp(self):
+        self.user = User.objects.get(id=3)
+        self.course = CatalogueItem.objects.get(sku='custom-sku-1')
+        self.bundle = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
+        self.url = reverse('zeitlabs_payments:order-history')
+        self.client.force_login(self.user)
+
+    def order(self, status, item=None, user=None, gateway_order_id=None, age=timedelta(0)):
+        """Return an order of the learner, in the given status, for the item, created the given time ago."""
+        item = item or self.course
+        cart = Cart.objects.create(
+            user=user or self.user, status=status, gateway='dummy', gateway_order_id=gateway_order_id,
+        )
+        cart.items.create(catalogue_item=item, original_price=item.price, final_price=item.price)
+        Cart.objects.filter(pk=cart.pk).update(created_at=now() - age)
+        return cart
+
+    def invoice(self, cart, invoice_number, total=Decimal('45')):
+        """Issue the cart its paid invoice for the total."""
+        payment = Transaction.objects.create(
+            cart=cart, amount=total, gateway='dummy', gateway_transaction_id=f'TX-{invoice_number}',
+        )
+        return Invoice.objects.create(
+            status=Invoice.InvoiceStatus.PAID, cart=cart, invoice_number=invoice_number, total=total,
+            gross_total=total, currency='SAR', related_transaction=payment,
+        )
+
+    def test_the_page_needs_a_login(self):
+        """Verify that the history page sends a visitor who is not logged in to log in."""
+        self.client.logout()
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 302, 'the history was shown without a login')
+
+    def test_the_page_lists_the_learners_orders_that_reached_the_gateway(self):
+        """
+        Verify that the page lists the learner's own orders that reached the gateway, and none that never charged
+        anyone -- pending, cancelled or closed -- nor any other learner's.
+        """
+        listed = {
+            status: self.order(status)
+            for status in (
+                Cart.Status.PROCESSING, Cart.Status.PAYMENT_PENDING, Cart.Status.PAID, Cart.Status.UNRECONCILED,
+                Cart.Status.REFUND_REQUESTED, Cart.Status.REFUNDED,
+            )
+        }
+        for status in (Cart.Status.PENDING, Cart.Status.CANCELLED, Cart.Status.CLOSED):
+            self.order(status)
+        self.order(Cart.Status.PAID, user=User.objects.get(id=4))
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200, 'the history was not shown')
+        self.assertEqual(
+            {row.cart for row in response.context['orders']}, set(listed.values()),
+            'the history does not list exactly the learner\'s orders that reached the gateway',
+        )
+
+    def test_a_paid_order_links_its_invoice_and_shows_its_amount(self):
+        """Verify that a paid order is labelled paid, shows its invoice's amount, and links to its invoice."""
+        cart = self.order(Cart.Status.PAID)
+        self.invoice(cart, 'INV-100', total=Decimal('45'))
+
+        response = self.client.get(self.url)
+
+        row = response.context['orders'][0]
+        self.assertEqual((row.amount, row.currency), (Decimal('45'), 'SAR'), 'the amount is not the invoice\'s')
+        self.assertContains(response, reverse('zeitlabs_payments:invoice', args=['INV-100']))
+        self.assertContains(response, 'data-status="paid"', msg_prefix='the order is not labelled paid')
+
+    def test_an_order_being_confirmed_shows_its_reference_and_no_invoice(self):
+        """
+        Verify that an order still being confirmed -- awaiting the gateway, unreconciled, or paid without an invoice --
+        is labelled so and shows the reference to quote to support, with no invoice link.
+        """
+        confirming = (
+            (Cart.Status.PAYMENT_PENDING, 'ORDER-1'),
+            (Cart.Status.UNRECONCILED, 'ORDER-2'),
+            (Cart.Status.PAID, 'ORDER-3'),
+        )
+        for status, reference in confirming:
+            self.order(status, gateway_order_id=reference)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(
+            [row.state for row in response.context['orders']], ['confirming'] * 3,
+            'an order still being confirmed is not labelled so',
+        )
+        for reference in ('ORDER-1', 'ORDER-2', 'ORDER-3'):
+            self.assertContains(response, reference, msg_prefix=f'the reference {reference} is not shown')
+        self.assertContains(response, 'Being confirmed', msg_prefix='the label is not shown')
+        self.assertNotContains(response, '/payment/v1/invoice/', msg_prefix='an order with no invoice links one')
+
+    def test_a_refund_is_labelled_as_one(self):
+        """Verify that an order awaiting its refund, and one refunded, are labelled as such."""
+        self.order(Cart.Status.REFUND_REQUESTED, age=timedelta(minutes=1))
+        self.order(Cart.Status.REFUNDED)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(
+            [row.state for row in response.context['orders']], ['refunded', 'refund_requested'],
+            'the refunds are not labelled as such',
+        )
+        self.assertContains(response, 'Refund requested', msg_prefix='a refund requested is not labelled')
+        self.assertContains(response, 'Refunded', msg_prefix='a refund is not labelled')
+
+    def test_a_course_links_its_page_and_a_bundle_is_marked_a_program(self):
+        """Verify that a course order links to the course's page, and a bundle order shows its title as a program."""
+        self.order(Cart.Status.PAID, item=self.course)
+        self.order(Cart.Status.PAID, item=self.bundle)
+
+        response = self.client.get(self.url)
+
+        self.assertContains(response, reverse('about_course', args=[self.course.item_ref_id]))
+        self.assertContains(response, self.bundle.title, msg_prefix='the bundle is not named')
+        self.assertContains(response, 'Program', msg_prefix='the bundle is not marked a program')
+
+    def test_orders_are_listed_newest_first_twenty_to_a_page(self):
+        """Verify that the newest order comes first, and the history is split into pages of twenty."""
+        orders = [self.order(Cart.Status.REFUNDED, age=timedelta(days=day)) for day in range(21)]
+
+        first = self.client.get(self.url)
+        second = self.client.get(self.url, {'page': 2})
+
+        self.assertEqual(
+            [row.cart for row in first.context['orders']], orders[:20], 'the first page is not the newest twenty',
+        )
+        self.assertEqual([row.cart for row in second.context['orders']], orders[20:], 'the oldest is not on page 2')
+        self.assertContains(first, 'Page 1 of 2', msg_prefix='the page is not numbered')
+        self.assertContains(first, 'Next', msg_prefix='no way to the next page')
+        self.assertContains(second, 'Previous', msg_prefix='no way back to the previous page')
+
+    def test_the_query_count_does_not_grow_with_the_history(self):
+        """
+        Verify that listing many orders takes no more queries than listing one, so the page does not slow down.
+
+        The page is requested once before counting, so the site lookup the first request caches is not counted.
+        """
+        def queries_for_history():
+            with CaptureQueriesContext(connection) as captured:
+                self.client.get(self.url)
+            return len(captured)
+
+        self.invoice(self.order(Cart.Status.PAID), 'INV-1')
+        self.client.get(self.url)
+        one = queries_for_history()
+        for number in range(2, 6):
+            self.invoice(self.order(Cart.Status.PAID, item=self.bundle if number % 2 else self.course), f'INV-{number}')
+        self.order(Cart.Status.UNRECONCILED, gateway_order_id='ORDER-9')
+
+        self.assertEqual(queries_for_history(), one, 'the query count grows with the history')
+
+    def test_an_empty_history_says_so(self):
+        """Verify that a learner with no orders that reached the gateway is told they have made no payments."""
+        self.order(Cart.Status.PENDING)
+
+        response = self.client.get(self.url)
+
+        self.assertContains(response, 'You have not made any payments yet.', msg_prefix='the empty history is blank')
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures('base_data')
+class OrderHistoryApiTest(APITestCase):
+    """The history API staff read any learner's payment history from."""
+
+    def setUp(self):
+        self.learner = User.objects.get(id=3)
+        self.staff = User.objects.get(id=2)
+        self.course = CatalogueItem.objects.get(sku='custom-sku-1')
+        self.client.force_login(self.staff)
+
+    def url(self, user_id=None):
+        """Return the history API's address for the learner, or for the given user id."""
+        return reverse('zeitlabs_payments:order-history-api', args=[user_id or self.learner.id])
+
+    def order(self, status, user=None, gateway_order_id=None, age=timedelta(0)):
+        """Return an order of the learner for the course, in the given status, created the given time ago."""
+        cart = Cart.objects.create(
+            user=user or self.learner, status=status, gateway='dummy', gateway_order_id=gateway_order_id,
+        )
+        cart.items.create(catalogue_item=self.course, original_price=self.course.price, final_price=self.course.price)
+        Cart.objects.filter(pk=cart.pk).update(created_at=now() - age)
+        cart.refresh_from_db()
+        return cart
+
+    def invoice(self, cart, invoice_number):
+        """Issue the cart its paid invoice for 45 SAR."""
+        payment = Transaction.objects.create(
+            cart=cart, amount=45, gateway='dummy', gateway_transaction_id=f'TX-{invoice_number}',
+        )
+        return Invoice.objects.create(
+            status=Invoice.InvoiceStatus.PAID, cart=cart, invoice_number=invoice_number, total=45, gross_total=45,
+            currency='SAR', related_transaction=payment,
+        )
+
+    def test_staff_read_a_learners_orders_as_the_learner_sees_them(self):
+        """
+        Verify that a staff member reads the learner's orders that reached the gateway, as the learner's own page lists
+        them, each with its date, item, amount, status and invoice or reference, and nothing of anyone else's.
+        """
+        paid = self.order(Cart.Status.PAID)
+        self.invoice(paid, 'INV-1')
+        confirming = self.order(Cart.Status.UNRECONCILED, gateway_order_id='ORDER-9', age=timedelta(days=1))
+        self.order(Cart.Status.CANCELLED)
+        self.order(Cart.Status.PAID, user=User.objects.get(id=4))
+
+        response = self.client.get(self.url())
+
+        self.assertEqual(response.status_code, 200, 'staff could not read the learner\'s history')
+        self.assertEqual(
+            response.json()['results'],
+            [
+                {
+                    'cart_id': paid.id,
+                    'created_at': paid.created_at.isoformat().replace('+00:00', 'Z'),
+                    'status': 'paid',
+                    'state': 'paid',
+                    'item': {
+                        'type': 'paid_course', 'sku': 'custom-sku-1', 'title': self.course.title,
+                        'item_ref_id': self.course.item_ref_id,
+                    },
+                    'amount': '45.00',
+                    'currency': 'SAR',
+                    'invoice_number': 'INV-1',
+                    'gateway_order_id': None,
+                },
+                {
+                    'cart_id': confirming.id,
+                    'created_at': confirming.created_at.isoformat().replace('+00:00', 'Z'),
+                    'status': 'unreconciled',
+                    'state': 'confirming',
+                    'item': {
+                        'type': 'paid_course', 'sku': 'custom-sku-1', 'title': self.course.title,
+                        'item_ref_id': self.course.item_ref_id,
+                    },
+                    'amount': '50.00',
+                    'currency': 'SAR',
+                    'invoice_number': None,
+                    'gateway_order_id': 'ORDER-9',
+                },
+            ],
+            'the learner\'s orders were not read as their page lists them',
+        )
+
+    def test_a_superuser_who_is_not_staff_reads_it_too(self):
+        """Verify that a superuser reads any learner's history even without the staff flag."""
+        superuser = User.objects.get(id=1)
+        User.objects.filter(pk=superuser.pk).update(is_staff=False)
+        self.client.force_login(User.objects.get(pk=superuser.pk))
+
+        response = self.client.get(self.url())
+
+        self.assertEqual(response.status_code, 200, 'a superuser could not read the history')
+
+    def test_a_learner_cannot_read_any_history_through_it(self):
+        """
+        Verify that a learner who is neither staff nor superuser is refused, for another learner's history and their
+        own alike: the API is for staff, and the learner has their own page.
+        """
+        self.client.force_login(User.objects.get(id=4))
+
+        for user_id in (self.learner.id, 4):
+            response = self.client.get(self.url(user_id))
+
+            self.assertEqual(response.status_code, 403, f'a learner read the history of user {user_id}')
+
+    def test_a_visitor_who_is_not_logged_in_is_refused(self):
+        """Verify that a visitor who is not logged in is refused."""
+        self.client.logout()
+
+        response = self.client.get(self.url())
+
+        self.assertEqual(response.status_code, 403, 'an anonymous visitor read a history')
+
+    def test_an_unknown_user_is_not_found(self):
+        """Verify that a user id naming nobody is answered as not found, rather than as an empty history."""
+        response = self.client.get(self.url(999999))
+
+        self.assertEqual(response.status_code, 404, 'an unknown user was answered with a history')
+
+    def test_the_history_is_paged_twenty_to_a_page_newest_first(self):
+        """Verify that the history comes twenty orders to a page, newest first, with the total and the next page."""
+        orders = [self.order(Cart.Status.REFUNDED, age=timedelta(days=day)) for day in range(21)]
+
+        first = self.client.get(self.url()).json()
+        second = self.client.get(self.url(), {'page': 2}).json()
+
+        self.assertEqual(first['count'], 21, 'the total is not given')
+        self.assertEqual(
+            [row['cart_id'] for row in first['results']], [order.id for order in orders[:20]],
+            'the first page is not the newest twenty',
+        )
+        self.assertIsNotNone(first['next'], 'no link to the next page')
+        self.assertEqual([row['cart_id'] for row in second['results']], [orders[20].id], 'the oldest is not on page 2')
+
+    def test_the_query_count_does_not_grow_with_the_history(self):
+        """
+        Verify that reading many orders takes no more queries than reading one.
+
+        The API is read once before counting, so the site lookup the first request caches is not counted.
+        """
+        def queries_for_history():
+            with CaptureQueriesContext(connection) as captured:
+                self.client.get(self.url())
+            return len(captured)
+
+        self.invoice(self.order(Cart.Status.PAID), 'INV-1')
+        self.client.get(self.url())
+        one = queries_for_history()
+        for number in range(2, 6):
+            self.invoice(self.order(Cart.Status.PAID), f'INV-{number}')
+        self.order(Cart.Status.UNRECONCILED, gateway_order_id='ORDER-9')
+
+        self.assertEqual(queries_for_history(), one, 'the query count grows with the history')

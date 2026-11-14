@@ -7,6 +7,7 @@ from rest_framework import serializers
 
 from zeitlabs_payments.helpers import get_currency, relative_url_to_absolute_url
 from zeitlabs_payments.models import Cart, CartItem, Invoice
+from zeitlabs_payments.templatetags.zeitlab_payment_tags import format_price
 
 logger = logging.getLogger(__name__)
 
@@ -247,3 +248,34 @@ class CartSerializer(serializers.ModelSerializer):
             'email': user.email,
             'full_name': user.get_full_name(),
         }
+
+
+class OrderHistoryItemSerializer(serializers.Serializer):  # pylint: disable=abstract-method
+    """The course or bundle an order of the history bought."""
+
+    type = serializers.CharField()
+    sku = serializers.CharField()
+    title = serializers.CharField()
+    item_ref_id = serializers.CharField()
+
+
+class OrderHistorySerializer(serializers.Serializer):  # pylint: disable=abstract-method
+    """
+    One order of a learner's payment history, as the history page shows it; see ``views.describe_order``.
+
+    The amount is a string with exactly its currency's decimal places, as the page prints it.
+    """
+
+    cart_id = serializers.IntegerField(source='cart.id')
+    created_at = serializers.DateTimeField(source='cart.created_at')
+    status = serializers.CharField(source='cart.status')
+    state = serializers.CharField()
+    item = OrderHistoryItemSerializer(allow_null=True)
+    amount = serializers.SerializerMethodField()
+    currency = serializers.CharField()
+    invoice_number = serializers.CharField(allow_null=True)
+    gateway_order_id = serializers.CharField(source='cart.gateway_order_id', allow_null=True)
+
+    def get_amount(self, row: Any) -> str:
+        """Return the amount with exactly its currency's decimal places."""
+        return format_price(row.amount, row.currency)

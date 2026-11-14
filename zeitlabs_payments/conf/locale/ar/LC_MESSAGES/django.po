@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: openedx-zeitlabs-payments 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-14 04:48+0300\n"
+"POT-Creation-Date: 2026-11-14 05:17+0300\n"
 "PO-Revision-Date: 2026-01-01 00:00+0000\n"
 "Last-Translator: Zeitlabs <support@zeitlabs.com>\n"
 "Language-Team: Arabic <ar@li.org>\n"
@@ -189,7 +189,7 @@ msgid "Checkout"
 msgstr "إتمام الشراء"
 
 #: templates/zeitlabs_payments/checkout.html:31
-#: templates/zeitlabs_payments/order_history.html:50
+#: templates/zeitlabs_payments/order_history.html:47
 msgid "Program"
 msgstr "برنامج"
 
@@ -238,7 +238,7 @@ msgid "Receipt for %(order_number)s"
 msgstr "إيصال للطلب رقم %(order_number)s"
 
 #: templates/zeitlabs_payments/invoice.html:22
-#: templates/zeitlabs_payments/order_history.html:33
+#: templates/zeitlabs_payments/order_history.html:36
 msgid "Invoice"
 msgstr "فاتورة"
 
@@ -327,26 +327,64 @@ msgid "Track and manage your academic investments"
 msgstr "تابع استثماراتك التعليمية وأدرها"
 
 #: templates/zeitlabs_payments/order_history.html:25
-msgid "Your Invoices"
-msgstr "فواتيرك"
+msgid "Your Orders"
+msgstr "طلباتك"
 
 #: templates/zeitlabs_payments/order_history.html:32
 msgid "Date"
 msgstr "التاريخ"
 
-#: templates/zeitlabs_payments/order_history.html:34
+#: templates/zeitlabs_payments/order_history.html:33
 msgid "Item"
 msgstr "العنصر"
 
-#: templates/zeitlabs_payments/order_history.html:35
+#: templates/zeitlabs_payments/order_history.html:34
 msgid "Amount"
 msgstr "المبلغ"
 
-#: templates/zeitlabs_payments/order_history.html:36
+#: templates/zeitlabs_payments/order_history.html:35
 msgid "Status"
 msgstr "الحالة"
 
-#: templates/zeitlabs_payments/order_history.html:85
+#: templates/zeitlabs_payments/order_history.html:58
+msgid "Paid"
+msgstr "مدفوع"
+
+#: templates/zeitlabs_payments/order_history.html:59
+msgid "Refund requested"
+msgstr "تم طلب الاسترداد"
+
+#: templates/zeitlabs_payments/order_history.html:60
+msgid "Refunded"
+msgstr "تم استرداده"
+
+#: templates/zeitlabs_payments/order_history.html:61
+msgid "Being confirmed"
+msgstr "قيد التأكيد"
+
+#: templates/zeitlabs_payments/order_history.html:68
+#, python-format
+msgid "Reference: %(reference)s"
+msgstr "المرجع: %(reference)s"
+
+#: templates/zeitlabs_payments/order_history.html:79
+msgid "Payment history pages"
+msgstr "صفحات سجل المدفوعات"
+
+#: templates/zeitlabs_payments/order_history.html:81
+msgid "Previous"
+msgstr "السابق"
+
+#: templates/zeitlabs_payments/order_history.html:84
+#, python-format
+msgid "Page %(number)s of %(total)s"
+msgstr "الصفحة %(number)s من %(total)s"
+
+#: templates/zeitlabs_payments/order_history.html:89
+msgid "Next"
+msgstr "التالي"
+
+#: templates/zeitlabs_payments/order_history.html:111
 msgid "You have not made any payments yet."
 msgstr "لم تقم بأي عمليات دفع بعد."
 
@@ -555,7 +593,7 @@ msgstr "يرجى عدم إغلاق هذه الصفحة أو الضغط على ز
 msgid "Payment Confirmed! Redirecting..."
 msgstr "تم تأكيد الدفع! جارٍ التحويل..."
 
-#: views.py:98
+#: views.py:100
 msgid ""
 "A payment for this bundle is still awaiting confirmation. Please contact "
 "support before paying again."
@@ -563,7 +601,7 @@ msgstr ""
 "لا تزال عملية دفع لهذه الحزمة بانتظار التأكيد. يرجى التواصل مع الدعم قبل "
 "الدفع مرة أخرى."
 
-#: views.py:102
+#: views.py:104
 msgid ""
 "A payment for this course is still awaiting confirmation. Please contact "
 "support before paying again."
@@ -571,40 +609,43 @@ msgstr ""
 "لا تزال عملية دفع لهذه الدورة بانتظار التأكيد. يرجى التواصل مع الدعم قبل "
 "الدفع مرة أخرى."
 
-#: views.py:125
+#: views.py:127
 msgid ""
 "This product sells one item per purchase; please complete each purchase "
 "separately."
 msgstr ""
 "يبيع هذا المنتج عنصرًا واحدًا لكل عملية شراء؛ يُرجى إتمام كل عملية شراء على حدة."
 
-#: views.py:139
+#: views.py:141
 msgid "This item is not available."
 msgstr "هذا العنصر غير متاح."
 
-#: views.py:151
+#: views.py:153
 msgid "This item cannot be bought right now."
 msgstr "لا يمكن شراء هذا العنصر الآن."
 
-#: views.py:298
+#: views.py:300
 msgid "This payment cannot be found."
 msgstr "تعذّر العثور على عملية الدفع هذه."
 
-#: views.py:305 views.py:314
+#: views.py:307 views.py:316
 msgid "This payment method is not available."
 msgstr "طريقة الدفع هذه غير متاحة."
 
-#: views.py:321
+#: views.py:323
 msgid "Payments cannot be made on this site right now."
 msgstr "لا يمكن الدفع على هذا الموقع الآن."
 
-#: views.py:332
+#: views.py:334
 msgid "This purchase is already paid."
 msgstr "تم دفع ثمن هذا الشراء مسبقًا."
 
-#: views.py:333
+#: views.py:335
 msgid "This payment link is no longer valid."
 msgstr "رابط الدفع هذا لم يعد صالحًا."
+
+#~ msgid "Your Invoices"
+#~ msgstr "فواتيرك"
 
 #~ msgid "Pending"
 #~ msgstr "قيد الانتظار"
@@ -612,20 +653,11 @@ msgstr "رابط الدفع هذا لم يعد صالحًا."
 #~ msgid "Processing"
 #~ msgstr "قيد المعالجة"
 
-#~ msgid "Paid"
-#~ msgstr "مدفوع"
-
 #~ msgid "Cancelled"
 #~ msgstr "ملغى"
 
 #~ msgid "Payment Pending"
 #~ msgstr "الدفع قيد الانتظار"
-
-#~ msgid "Refund Requested"
-#~ msgstr "تم طلب الاسترداد"
-
-#~ msgid "Refunded"
-#~ msgstr "تم استرداده"
 
 #~ msgid ""
 #~ "Dummy text to generate a translation (.po) source file. It is safe to "
