@@ -741,25 +741,97 @@ class PaymentStatusViewMixinTest(TestCase):
         self.assertEqual(Transaction.objects.filter(cart=self.cart).count(), 1, 'the repeat poll recorded another row')
         self.assertEqual(self.audit_trail(), trail_after_settling, 'the repeat poll wrote to the trail')
 
-    def test_success_under_another_transaction_on_a_paid_cart_is_not_a_repeat(self):
-        """
-        Verify that a success naming another gateway transaction on a paid cart is not answered with the cart's invoice.
-
-        The cart was paid once already, so a second transaction is a second charge. Showing the learner the first
-        invoice would hide it; the poll is answered as not fulfilled, as before.
-        """
-        methods = {
+    def success(self, **overrides):
+        """Return the gateway methods answering a poll with a verified success, each overridable."""
+        return {
             'get_order_cart_reference': self.reference,
             'get_order_status': self.answer,
             'get_payment_status': PaymentStatus.SUCCESS,
             'verify_success_response': None,
+            'get_transaction_details': self.details,
+            **overrides,
         }
-        self.poll(get_transaction_details=self.details, **methods)
 
-        response, _ = self.poll(get_transaction_details={**self.details, 'transaction_id': 'TX-2'}, **methods)
+    def test_success_under_another_transaction_on_the_cart_order_is_the_same_payment(self):
+        """
+        Verify that a success reported under another transaction id, on the order the cart was paid under, is answered
+        with the cart's invoice, recording nothing.
+
+        A processor hands each cart off to one order, which takes one payment, so the order is the payment: a gateway
+        may report it under an authorisation's id and later its capture's, or under its latest operation's.
+        """
+        first, _ = self.poll(**self.success())
+        trail_after_settling = self.audit_trail()
+
+        repeat, _ = self.poll(**self.success(get_transaction_details={**self.details, 'transaction_id': 'TX-2'}))
+
+        self.assertEqual(repeat.status_code, 200, 'the same payment under another id was not answered as settled')
+        self.assertEqual(repeat.json(), first.json(), 'the same payment does not lead to its invoice')
+        self.assertEqual(Transaction.objects.filter(cart=self.cart).count(), 1, 'the same payment was recorded again')
+        self.assertEqual(self.audit_trail(), trail_after_settling, 'the same payment wrote to the trail')
+
+    def test_success_under_an_order_the_cart_was_not_handed_off_to_is_recorded_but_not_settled(self):
+        """
+        Verify that a success for a paid cart under another order is recorded as a failed transaction saying why, kept
+        on the trail with the gateway's answer, and leaves the cart and its invoice as they were.
+
+        A second order paying for the cart is a gateway breaking the single-use rule, so money may have been taken
+        twice: a person refunds it.
+        """
+        self.poll(**self.success())
+        other_order = f"{reverse('zeitlabs_payments:processor-status', args=['dummy'])}?gateway_order_id=ORDER-2"
+
+        with self.assertLogs('zeitlabs_payments.providers.mixins', level='ERROR') as logs:
+            response, _ = self.poll(
+                url=other_order, **self.success(get_transaction_details={**self.details, 'transaction_id': 'TX-2'}),
+            )
+
+        error = 'order ORDER-2 is not the order ORDER-1 the cart was handed off to, so it may be a second payment'
+        self.assert_outcome(response, Outcome.NOT_FULFILLED)
+        self.assert_cart_status(Cart.Status.PAID, 'a success under another order moved the cart')
+        self.assertEqual(Invoice.objects.filter(cart=self.cart).count(), 1, 'the other order was invoiced')
+        recorded = Transaction.objects.filter(cart=self.cart, gateway_transaction_id='TX-2').first()
+        self.assertIsNotNone(recorded, 'the other order\'s payment was not recorded')
+        self.assertEqual(recorded.status, DummyProcessor.TRANSACTION_STATUS_FAILED, 'the other order was settled')
+        self.assertIn(f'not reconciled: {error}', recorded.reason, 'the row does not say why it was not settled')
+        self.assertIn(self.rejected(error), self.audit_trail(), 'the gateway\'s answer is not on the trail')
+        self.assertIn(error, '\n'.join(logs.output), 'the breach was not logged as an error')
+
+    def test_success_under_another_order_keeps_the_answer_when_its_row_cannot_be_written(self):
+        """
+        Verify that a success under another order reporting the transaction id already settled keeps the gateway's
+        answer on the trail, though no second row can be written under the same id.
+        """
+        self.poll(**self.success())
+        other_order = f"{reverse('zeitlabs_payments:processor-status', args=['dummy'])}?gateway_order_id=ORDER-2"
+
+        response, _ = self.poll(url=other_order, **self.success())
 
         self.assert_outcome(response, Outcome.NOT_FULFILLED)
-        self.assertEqual(Invoice.objects.filter(cart=self.cart).count(), 1, 'the second charge issued an invoice')
+        self.assertEqual(Transaction.objects.filter(cart=self.cart).count(), 1, 'a row was written under a taken id')
+        self.assertIn(
+            self.rejected(
+                'order ORDER-2 is not the order ORDER-1 the cart was handed off to, so it may be a second payment',
+            ),
+            self.audit_trail(),
+            'the gateway\'s answer is lost',
+        )
+
+    def test_cart_without_an_order_recorded_is_matched_on_the_transaction_id(self):
+        """
+        Verify that a paid cart handed off before carts recorded their order answers a repeat of its own transaction
+        with its invoice, and a success under another transaction as not fulfilled.
+
+        Without an order to know the payment by, only the transaction id tells a repeat from a second charge.
+        """
+        first, _ = self.poll(**self.success())
+        Cart.objects.filter(pk=self.cart.pk).update(gateway_order_id=None)
+
+        repeat, _ = self.poll(**self.success())
+        other, _ = self.poll(**self.success(get_transaction_details={**self.details, 'transaction_id': 'TX-2'}))
+
+        self.assertEqual(repeat.json(), first.json(), 'a repeat of the cart\'s own transaction is not its invoice')
+        self.assert_outcome(other, Outcome.NOT_FULFILLED)
 
     def test_payment_for_other_money_is_recorded_but_not_settled(self):
         """

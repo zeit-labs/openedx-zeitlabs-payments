@@ -1107,6 +1107,26 @@ def test_handle_payment_holds_a_bundle_only_when_every_course_is_held(  # pylint
 
 
 @pytest.mark.django_db
+def test_handle_payment_records_the_callers_refusal_as_the_reason(cart):  # pylint: disable=redefined-outer-name
+    """
+    Verify that a payment the caller already refused is recorded as failed for the caller's reason, in place of every
+    other check, and leaves the cart as it was.
+    """
+    processor = DummyProcessor()
+
+    record = processor.handle_payment(
+        cart, cart.user, 'success', 'refused-1', processor.SLUG, str(cart.total), '999', 'gateway reason',
+        {'id': 'refused-1'}, refusal='a second order paid for the cart',
+    )
+
+    assert record.status == processor.TRANSACTION_STATUS_FAILED, 'A refused payment was recorded as settled'
+    assert record.reason == 'gateway reason | not reconciled: a second order paid for the cart', \
+        'The row does not carry the caller\'s reason alone'
+    cart.refresh_from_db()
+    assert cart.status == Cart.Status.PROCESSING, 'A refused payment moved the cart'
+
+
+@pytest.mark.django_db
 def test_handle_payment_keeps_raw_evidence_on_failure(cart, caplog):  # pylint: disable=redefined-outer-name
     """
     Verify that a verification failure never writes less than a success: the row keeps the raw response, the
