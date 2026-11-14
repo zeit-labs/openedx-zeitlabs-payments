@@ -55,6 +55,13 @@ urlpatterns: list = [
         name='public-invoice',
     ),
 
+    re_path(r'^payment/v1/history/$', views.OrderHistoryView.as_view(), name='order-history'),
+    re_path(
+        r'^api/payment/v1/history/(?P<user_id>[0-9]+)/$',
+        views.OrderHistoryApiView.as_view(),
+        name='order-history-api',
+    ),
+
     re_path(r'^api/cart/v1/cart/$', views.CartView.as_view(), name='cart-add'),
 
     # Every processor's return and status views, mounted on one pattern by its slug, so no processor registers routes

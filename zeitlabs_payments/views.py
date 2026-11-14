@@ -1,7 +1,8 @@
 """Zeilabs payments views."""
 import logging
+from decimal import Decimal
 from functools import lru_cache
-from typing import Any, Optional
+from typing import Any, NamedTuple, Optional
 from urllib.parse import urlencode, urljoin, urlsplit
 
 from django.contrib.auth import get_user_model
@@ -9,6 +10,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.sites.shortcuts import get_current_site
 from django.core.exceptions import ValidationError
 from django.db import transaction as db_transaction
+from django.db.models import Prefetch
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -17,9 +19,11 @@ from django.utils.module_loading import import_string
 from django.utils.translation import gettext as _
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
-from django.views.generic import TemplateView
+from django.views.generic import ListView, TemplateView
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.generics import ListAPIView
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -34,7 +38,7 @@ from zeitlabs_payments.inflight_payment import (
 )
 from zeitlabs_payments.invoice_info import get_invoice_info_context
 from zeitlabs_payments.providers.registry import PROCESSORS, available_processors, get_processor
-from zeitlabs_payments.serializers import CartSerializer
+from zeitlabs_payments.serializers import CartSerializer, OrderHistorySerializer
 from zeitlabs_payments.validators import validate_payment_origin
 
 logger = logging.getLogger(__name__)
@@ -703,3 +707,141 @@ class PublicInvoiceView(TemplateView):
         # The token addresses the invoice, so it must not ride a Referer header out to whatever this page links to.
         response['Referrer-Policy'] = 'no-referrer'
         return response
+
+
+class OrderRow(NamedTuple):
+    """One order of a learner's payment history, as the history page and the history API show it."""
+
+    cart: models.Cart
+    # The course or bundle the order bought; None for a cart with no item, which no checkout makes.
+    item: Optional[models.CatalogueItem]
+    # The invoice's total once invoiced, otherwise what the learner was asked to pay.
+    amount: Decimal
+    currency: str
+    # 'paid', 'confirming', 'refund_requested' or 'refunded'.
+    state: str
+    # The paid invoice to link to, or None while the order has none.
+    invoice_number: Optional[str]
+
+
+# The statuses of an order that may have charged its learner: one handed off, whatever came of it. A cart never handed
+# off, or ended without a charge, is left out of the history -- a declined payment had its own page.
+HISTORY_STATUSES = (
+    models.Cart.Status.PROCESSING,
+    models.Cart.Status.PAYMENT_PENDING,
+    models.Cart.Status.PAID,
+    models.Cart.Status.UNRECONCILED,
+    models.Cart.Status.REFUND_REQUESTED,
+    models.Cart.Status.REFUNDED,
+)
+HISTORY_PAGE_SIZE = 20
+REFUND_STATES = {
+    models.Cart.Status.REFUND_REQUESTED: 'refund_requested',
+    models.Cart.Status.REFUNDED: 'refunded',
+}
+
+
+def get_order_history(user: Any) -> Any:
+    """
+    Return the learner's orders that may have charged them, newest first, with their items and paid invoices loaded.
+
+    Read in a fixed number of queries however long the history, so neither the page nor the API slows down with it.
+    """
+    return models.Cart.objects.filter(user=user, status__in=HISTORY_STATUSES).order_by(
+        '-created_at', '-id',
+    ).prefetch_related(
+        Prefetch('items', queryset=models.CartItem.objects.select_related('catalogue_item')),
+        Prefetch(
+            'invoices',
+            queryset=models.Invoice.objects.filter(status=models.Invoice.InvoiceStatus.PAID).order_by('id'),
+            to_attr='paid_invoices',
+        ),
+    )
+
+
+def describe_order(cart: models.Cart) -> OrderRow:
+    """
+    Describe an order of ``get_order_history`` as its history row.
+
+    Paid with its invoice; still being confirmed -- awaiting the gateway, unreconciled, or paid with no invoice yet --
+    with the reference the learner quotes to support; or refunded.
+    """
+    items = list(cart.items.all())
+    item = items[0].catalogue_item if items else None
+    invoice = cart.paid_invoices[0] if cart.paid_invoices else None
+    if invoice is not None:
+        amount, currency = invoice.total, invoice.currency
+    else:
+        amount, currency = cart.total, (item.currency if item else None) or ''
+    if cart.status in REFUND_STATES:
+        state = REFUND_STATES[cart.status]
+    elif cart.status == models.Cart.Status.PAID and invoice is not None:
+        state = 'paid'
+    else:
+        state = 'confirming'
+    return OrderRow(
+        cart=cart,
+        item=item,
+        amount=amount,
+        currency=currency,
+        state=state,
+        invoice_number=invoice.invoice_number if invoice else None,
+    )
+
+
+class OrderHistoryView(LoginRequiredMixin, ListView):
+    """
+    Show the learner their own payment history, a page at a time; see ``get_order_history`` and ``describe_order``.
+    """
+
+    template_name = 'zeitlabs_payments/order_history.html'
+    context_object_name = 'orders'
+    paginate_by = HISTORY_PAGE_SIZE
+
+    def get_queryset(self) -> Any:
+        """Return the learner's own history."""
+        return get_order_history(self.request.user)
+
+    def get_context_data(self, **kwargs: Any) -> dict:
+        """Return the page's context, each order on it described as a row."""
+        context = super().get_context_data(**kwargs)
+        context['orders'] = [describe_order(cart) for cart in context['orders']]
+        return context
+
+
+class IsStaffOrSuperuser(BasePermission):
+    """Allow a logged-in staff member or superuser only."""
+
+    def has_permission(self, request: Any, view: Any) -> bool:
+        """Return whether the requesting user is staff or a superuser."""
+        user = request.user
+        return bool(user and user.is_authenticated and (user.is_staff or user.is_superuser))
+
+
+class OrderHistoryPagination(PageNumberPagination):
+    """Pages of the history API, as many orders to a page as the learner's own page shows."""
+
+    page_size = HISTORY_PAGE_SIZE
+
+
+class OrderHistoryApiView(ListAPIView):
+    """
+    Read any learner's payment history, for staff and superusers: the orders their own page lists, as JSON.
+
+    The learner is named by user id in the address; an id naming nobody is answered 404, rather than as an empty
+    history. A learner reads their own history on their page, not here.
+    """
+
+    permission_classes = [IsStaffOrSuperuser]
+    serializer_class = OrderHistorySerializer
+    pagination_class = OrderHistoryPagination
+
+    def get_queryset(self) -> Any:
+        """Return the named learner's history."""
+        return get_order_history(get_object_or_404(User, pk=self.kwargs['user_id']))
+
+    def list(self, request: Any, *args: Any, **kwargs: Any) -> Response:
+        """Answer one page of the history, each order on it described as a row."""
+        page = self.paginate_queryset(self.get_queryset())
+        rows = [describe_order(cart) for cart in page]
+        return self.get_paginated_response(self.get_serializer(rows, many=True).data)

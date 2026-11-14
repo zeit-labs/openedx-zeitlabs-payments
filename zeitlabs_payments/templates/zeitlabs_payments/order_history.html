@@ -22,48 +22,74 @@
 {% block page_content %}
     {# ── Content Card ── #}
     <div class="oh-card">
-        <h2 class="oh-card-title">{% trans "Your Invoices" %}</h2>
+        <h2 class="oh-card-title">{% trans "Your Orders" %}</h2>
 
-        {% if records %}
-        {# One row per invoice: a table on wide screens, a stacked card below 768px, styled by CSS alone. #}
+        {% if orders %}
+        {# One row per order: a table on wide screens, a stacked card below 768px, styled by CSS alone. #}
         <table class="oh-table">
             <thead>
                 <tr>
                     <th scope="col">{% trans "Date" %}</th>
-                    <th scope="col">{% trans "Invoice" %}</th>
                     <th scope="col">{% trans "Item" %}</th>
                     <th scope="col">{% trans "Amount" %}</th>
                     <th scope="col">{% trans "Status" %}</th>
+                    <th scope="col">{% trans "Invoice" %}</th>
                 </tr>
             </thead>
             <tbody>
-                {% for cart in records %} {% for inv in cart.invoices.all %}
+                {% for order in orders %}
                 <tr>
                     <td class="oh-col-date">
-                        {% localize off %}{{ inv.created_at|date:"j M Y" }}{% endlocalize %}
-                    </td>
-                    <td class="oh-col-invoice">
-                        <a href="{{ inv.invoice_number|invoice_url }}">{{ inv.invoice_number }}</a>
+                        {% localize off %}{{ order.cart.created_at|date:"j M Y" }}{% endlocalize %}
                     </td>
                     <td class="oh-col-item">
-                        {% with item=cart.items.first %} {% if item and item.catalogue_item.type == 'program_bundle' %}
+                        {% if order.item.type == 'program_bundle' %}
                         <span class="oh-item-type">{% trans "Program" %}</span><br />
-                        {{ item.catalogue_item.title }} {% elif item and item.catalogue_item.type == 'paid_course' and item.catalogue_item.item_ref_id %}
-                        <a href="{% url 'about_course' item.catalogue_item.item_ref_id %}">
-                            {{ item.catalogue_item.title }}
-                        </a>
-                        {% elif item %} {{ item.catalogue_item.title }} {% endif %} {% endwith %}
+                        {{ order.item.title }}
+                        {% elif order.item %}
+                        <a href="{% url 'about_course' order.item.item_ref_id %}">{{ order.item.title }}</a>
+                        {% endif %}
                     </td>
-                    <td class="oh-col-amount">{{ inv.total|format_price:inv.currency }} {{ inv.currency|currency_symbol }}</td>
+                    <td class="oh-col-amount">
+                        {{ order.amount|format_price:order.currency }} {{ order.currency|currency_symbol }}
+                    </td>
                     <td class="oh-col-status">
-                        <span class="oh-status" data-status="{{ inv.status }}">
-                            {{ inv.status|payment_status_display }}
+                        <span class="oh-status" data-status="{{ order.state }}">
+                            {% if order.state == 'paid' %}{% trans "Paid" %}
+                            {% elif order.state == 'refund_requested' %}{% trans "Refund requested" %}
+                            {% elif order.state == 'refunded' %}{% trans "Refunded" %}
+                            {% else %}{% trans "Being confirmed" %}{% endif %}
                         </span>
                     </td>
+                    <td class="oh-col-invoice">
+                        {% if order.invoice_number %}
+                        <a href="{{ order.invoice_number|invoice_url }}">{{ order.invoice_number }}</a>
+                        {% elif order.cart.gateway_order_id %}
+                        {% blocktrans with reference=order.cart.gateway_order_id trimmed %}
+                            Reference: {{ reference }}
+                        {% endblocktrans %}
+                        {% endif %}
+                    </td>
                 </tr>
-                {% endfor %} {% endfor %}
+                {% endfor %}
             </tbody>
         </table>
+
+        {% if is_paginated %}
+        <nav class="oh-pager" aria-label="{% trans 'Payment history pages' %}">
+            {% if page_obj.has_previous %}
+            <a href="?page={{ page_obj.previous_page_number }}">{% trans "Previous" %}</a>
+            {% endif %}
+            <span>
+                {% blocktrans with number=page_obj.number total=page_obj.paginator.num_pages trimmed %}
+                    Page {{ number }} of {{ total }}
+                {% endblocktrans %}
+            </span>
+            {% if page_obj.has_next %}
+            <a href="?page={{ page_obj.next_page_number }}">{% trans "Next" %}</a>
+            {% endif %}
+        </nav>
+        {% endif %}
 
         {% else %} {# ── Empty state ── #}
         <div class="oh-empty">

@@ -25,6 +25,8 @@ ROUTES = [
         'public-invoice', {'token': INVOICE_TOKEN}, (),
         f'/payment/v2/invoice/{INVOICE_TOKEN}/', views.PublicInvoiceView,
     ),
+    ('order-history', {}, (), '/payment/v1/history/', views.OrderHistoryView),
+    ('order-history-api', {}, ('3',), '/api/payment/v1/history/3/', views.OrderHistoryApiView),
     ('cart-add', {}, (), '/api/cart/v1/cart/', views.CartView),
     (
         'processor-return', {}, ('dummy',), '/payment/v1/processor/dummy/return/', views.processor_return_view,

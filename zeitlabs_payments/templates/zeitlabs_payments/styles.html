@@ -1172,7 +1172,8 @@
 
       &[data-status="pending"],
       &[data-status="payment_pending"],
-      &[data-status="processing"] {
+      &[data-status="processing"],
+      &[data-status="confirming"] {
         background-color: var(--pgn-color-warning-100, #fffdf0);
         color: var(--pgn-color-warning-500, #ffd900);
       }
@@ -1183,6 +1184,15 @@
         background-color: var(--pgn-color-danger-100, #fbf2f3);
         color: var(--pgn-color-danger-500, #c32d3a);
       }
+    }
+
+    /* ---------- Pager ---------- */
+    .oh-pager {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 16px;
+      margin-top: 24px;
     }
 
     /* ---------- Empty state ---------- */
