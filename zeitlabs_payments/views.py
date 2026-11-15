@@ -669,6 +669,28 @@ def redirect_to_issuing_site(invoice: models.Invoice, request: Any) -> Optional[
     return redirect(urljoin(payment_origin, request.get_full_path()))
 
 
+def may_see_invoice(invoice: models.Invoice, request: Any) -> bool:
+    """
+    Return whether the signed-in caller may see the invoice: its learner, a superuser, or an employee of its site.
+
+    An employee holds the history flag on the site served, and sees only an invoice paid on that site's host: one
+    paid on another site, or before sites were recorded, is refused rather than redirected, as anyone's is who may not
+    see it. The host is compared as ``redirect_to_issuing_site`` compares it.
+
+    :param invoice: The invoice asked for.
+    :param request: The request asking, its user signed in.
+    """
+    user = request.user
+    if user.is_superuser or invoice.cart.user_id == user.id:
+        return True
+    payment_origin = invoice.cart.payment_origin
+    return bool(
+        payment_origin and
+        _host_key(urlsplit(payment_origin).netloc) == _host_key(request.get_host()) and
+        models.PaymentSitePermission.holds(user, get_current_site(request), 'users_order_history')
+    )
+
+
 class InvoiceView(TemplateView):
     """
     Render an invoice to its owner, addressed by invoice number.
@@ -689,10 +711,9 @@ class InvoiceView(TemplateView):
         """Handle the GET request."""
         invoice = None
         if request.user.is_authenticated:
-            filters = {'invoice_number': args[0]}
-            if not request.user.is_superuser:
-                filters['cart__user'] = request.user
-            invoice = models.Invoice.objects.filter(**filters).first()
+            invoice = models.Invoice.objects.filter(invoice_number=args[0]).select_related('cart').first()
+            if invoice is not None and not may_see_invoice(invoice, request):
+                invoice = None
 
         if invoice is None:
             response = render(request, self.private_template_name, status=410)
@@ -839,13 +860,22 @@ class OrderHistoryView(LoginRequiredMixin, ListView):
         return context
 
 
-class IsStaffOrSuperuser(BasePermission):
-    """Allow a logged-in staff member or superuser only."""
+def is_staff_or_superuser(user: Any) -> bool:
+    """Return whether the user is the platform's own staff: a staff member or a superuser."""
+    return bool(user.is_staff or user.is_superuser)
+
+
+class CanReadOrderHistory(BasePermission):
+    """Allow a signed-in staff member or superuser, or an employee holding the history flag on the site served."""
 
     def has_permission(self, request: Any, view: Any) -> bool:
-        """Return whether the requesting user is staff or a superuser."""
+        """Return whether the requesting user may read learners' payment history on the site served."""
         user = request.user
-        return bool(user and user.is_authenticated and (user.is_staff or user.is_superuser))
+        if not (user and user.is_authenticated):
+            return False
+        return is_staff_or_superuser(user) or models.PaymentSitePermission.holds(
+            user, get_current_site(request), 'users_order_history',
+        )
 
 
 class OrderHistoryPagination(PageNumberPagination):
@@ -856,20 +886,28 @@ class OrderHistoryPagination(PageNumberPagination):
 
 class OrderHistoryApiView(ListAPIView):
     """
-    Read any learner's payment history, for staff and superusers: the orders their own page lists, as JSON.
+    Read any learner's payment history as JSON, for staff, superusers and the site's employees.
 
-    The learner is named by user id in the address; an id naming nobody is answered 404, rather than as an empty
-    history. Only the orders paid on the site served are read, so staff read another site's on its own address. A
-    learner reads their own history on their page, not here.
+    It lists the orders the learner's own page lists. The learner is named by user id in the address. To staff and
+    superusers an id naming nobody is answered 404, rather than as an empty history; to an employee it is an empty
+    history, as a learner with no orders is, so walking the sequential ids tells them nothing. Only the orders paid on
+    the site served are read, so staff read another site's on its own address. A learner reads their own history on
+    their page, not here.
     """
 
-    permission_classes = [IsStaffOrSuperuser]
+    permission_classes = [CanReadOrderHistory]
     serializer_class = OrderHistorySerializer
     pagination_class = OrderHistoryPagination
 
     def get_queryset(self) -> Any:
-        """Return the named learner's history on the site served."""
-        return get_order_history(get_object_or_404(User, pk=self.kwargs['user_id']), self.request.get_host())
+        """Return the named learner's history on the site served, or none for an employee naming nobody."""
+        if is_staff_or_superuser(self.request.user):
+            learner = get_object_or_404(User, pk=self.kwargs['user_id'])
+        else:
+            learner = User.objects.filter(pk=self.kwargs['user_id']).first()
+            if learner is None:
+                return models.Cart.objects.none()
+        return get_order_history(learner, self.request.get_host())
 
     def list(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         """Answer one page of the history, each order on it described as a row."""

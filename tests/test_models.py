@@ -9,8 +9,9 @@ from types import SimpleNamespace
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.contrib.sites.models import Site
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import ProtectedError
 from django.test import override_settings
 
@@ -24,6 +25,7 @@ from zeitlabs_payments.models import (
     CreditMemo,
     Invoice,
     InvoiceNumberSequence,
+    PaymentSitePermission,
     Transaction,
     WebhookEvent,
 )
@@ -1582,3 +1584,35 @@ def test_deleting_an_invoice_with_a_credit_memo_is_refused():
         invoice.delete()
 
     assert CreditMemo.objects.filter(pk=memo.pk).exists(), 'The credit memo was deleted with its invoice'
+
+
+@pytest.mark.django_db
+def test_a_site_permission_is_one_row_per_user_and_site():
+    """
+    Verify that a user holds one permission row per site: a second row for the same site is refused, while another
+    site takes a row of its own.
+    """
+    user = User.objects.create(username='site-employee')
+    here = Site.objects.get(pk=1)
+    there = Site.objects.create(domain='other.example.com', name='Other')
+    PaymentSitePermission.objects.create(user=user, site=here, users_order_history=True)
+
+    PaymentSitePermission.objects.create(user=user, site=there, users_order_history=True)
+    with pytest.raises(IntegrityError), transaction.atomic():
+        PaymentSitePermission.objects.create(user=user, site=here)
+
+    assert PaymentSitePermission.objects.filter(user=user).count() == 2, 'another site was refused a row of its own'
+
+
+@pytest.mark.django_db
+def test_a_site_permission_grants_nothing_until_its_flag_is_set_and_is_kept_with_it_off():
+    """
+    Verify that a new permission row grants no access, and that a row with its flag off is kept rather than refused,
+    so access can be switched off for a while without deleting the row.
+    """
+    user = User.objects.create(username='paused-employee')
+
+    row = PaymentSitePermission.objects.create(user=user, site=Site.objects.get(pk=1))
+
+    assert row.users_order_history is False, 'a new row grants access to the history'
+    assert PaymentSitePermission.objects.filter(pk=row.pk).exists(), 'a row with its flag off was not kept'

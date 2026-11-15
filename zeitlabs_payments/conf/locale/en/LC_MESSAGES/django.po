@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: openedx-zeitlabs-payments 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-14 05:17+0300\n"
+"POT-Creation-Date: 2026-11-15 11:24+0300\n"
 "PO-Revision-Date: 2026-01-01 00:00+0000\n"
 "Last-Translator: Zeitlabs <support@zeitlabs.com>\n"
 "Language-Team: English\n"
@@ -16,7 +16,7 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: admin.py:615
+#: admin.py:638
 msgid "Payment Processors"
 msgstr ""
 
@@ -72,6 +72,12 @@ msgstr ""
 
 #: cart_handler.py:435
 msgid "You already have all the courses in this bundle."
+msgstr ""
+
+#: models.py:1077
+msgid ""
+"May read a learner's payment history on this site through the history API, "
+"and open the invoices paid on this site."
 msgstr ""
 
 #: templates/zeitlabs_payments/admin/accept_payment.html:6
@@ -544,48 +550,48 @@ msgstr ""
 msgid "Payment Confirmed! Redirecting..."
 msgstr ""
 
-#: views.py:100
+#: views.py:102
 msgid ""
 "A payment for this bundle is still awaiting confirmation. Please contact "
 "support before paying again."
 msgstr ""
 
-#: views.py:104
+#: views.py:106
 msgid ""
 "A payment for this course is still awaiting confirmation. Please contact "
 "support before paying again."
 msgstr ""
 
-#: views.py:127
+#: views.py:129
 msgid ""
 "This product sells one item per purchase; please complete each purchase "
 "separately."
 msgstr ""
 
-#: views.py:141
+#: views.py:143
 msgid "This item is not available."
 msgstr ""
 
-#: views.py:153
+#: views.py:155
 msgid "This item cannot be bought right now."
 msgstr ""
 
-#: views.py:300
+#: views.py:302
 msgid "This payment cannot be found."
 msgstr ""
 
-#: views.py:307 views.py:316
+#: views.py:309 views.py:318
 msgid "This payment method is not available."
 msgstr ""
 
-#: views.py:323
+#: views.py:325
 msgid "Payments cannot be made on this site right now."
 msgstr ""
 
-#: views.py:334
+#: views.py:336
 msgid "This purchase is already paid."
 msgstr ""
 
-#: views.py:335
+#: views.py:337
 msgid "This payment link is no longer valid."
 msgstr ""

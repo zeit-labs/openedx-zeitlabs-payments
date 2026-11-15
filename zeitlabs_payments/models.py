@@ -7,10 +7,12 @@ from typing import Any, NamedTuple, NoReturn, NotRequired, Optional, TypedDict
 from urllib.parse import urljoin
 
 from django.contrib.auth import get_user_model
+from django.contrib.sites.models import Site
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.urls import reverse
 from django.utils.timezone import now
+from django.utils.translation import gettext_lazy as _
 
 from zeitlabs_payments.exceptions import CartStatusError
 from zeitlabs_payments.redaction import mask_unmasked_card_numbers
@@ -1054,3 +1056,47 @@ class TaxRule(TimeStampedModel):
         help_text='If percentage: store rate (e.g., 15 for 15%). If fixed: store amount (e.g., 2.50).'
     )
     is_active = models.BooleanField(default=True)
+
+
+class PaymentSitePermission(TimeStampedModel):
+    """
+    What one user may do with the payments of one site, beyond what a learner may.
+
+    Granted by the platform's own staff in Django admin to a site's employees, who are neither staff nor superusers: on
+    a deployment serving several organizations, Django admin is for the platform's own staff only. A row with its flag
+    off grants nothing and is kept, so access can be prepared, or switched off for a while, without deleting it.
+
+    .. no_pii:
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='payment_site_permissions')
+    site = models.ForeignKey(Site, on_delete=models.CASCADE, related_name='payment_site_permissions')
+    users_order_history = models.BooleanField(
+        default=False,
+        help_text=_(
+            "May read a learner's payment history on this site through the history API, and open the invoices paid "
+            'on this site.'
+        ),
+    )
+
+    class Meta:
+        """Payment site permission metadata."""
+
+        unique_together = ('user', 'site')
+
+    def __str__(self) -> str:
+        """Name the user and the site the row grants them."""
+        return f'{self.user} on {self.site}'
+
+    @classmethod
+    def holds(cls, user: Any, site: Any, flag: str) -> bool:
+        """
+        Return whether the user's row for the site sets the flag.
+
+        Superusers hold every flag on every site without a row: the caller lets them through before asking.
+
+        :param user: The signed-in user asking.
+        :param site: The site the request is served on.
+        :param flag: The name of the flag, ``users_order_history``.
+        """
+        return cls.objects.filter(user=user, site=site, **{flag: True}).exists()

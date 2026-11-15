@@ -32,6 +32,7 @@ from zeitlabs_payments.models import (
     CatalogueItem,
     Invoice,
     InvoiceItem,
+    PaymentSitePermission,
     Transaction,
     WebhookEvent,
 )
@@ -2024,3 +2025,48 @@ class BundleCourseItemAdminTest(TestCase):
         request.user = User.objects.create(username='bundle-admin-add', is_superuser=True)
         inlines = self.admin.get_inline_instances(request, None)
         assert 'BundleCourseItemInline' not in [type(inline).__name__ for inline in inlines]
+
+
+class PaymentSitePermissionAdminTest(TestCase):
+    """The admin page where the platform's own staff grant a site's employees access to its payments."""
+
+    def setUp(self):
+        self.client.force_login(User.objects.create(username='platform-admin', is_staff=True, is_superuser=True))
+        self.site = Site.objects.get(pk=1)
+
+    def test_grants_are_listed_and_one_with_its_flag_off_can_be_added(self):
+        """
+        Verify that the platform's staff see the grants listed, and can add one with its flag off, which is kept so
+        access can be prepared, or switched off for a while, without deleting the row.
+        """
+        granted = User.objects.create(username='granted-employee')
+        PaymentSitePermission.objects.create(user=granted, site=self.site, users_order_history=True)
+        paused = User.objects.create(username='paused-employee')
+
+        changelist = self.client.get(reverse('admin:zeitlabs_payments_paymentsitepermission_changelist'))
+        added = self.client.post(
+            reverse('admin:zeitlabs_payments_paymentsitepermission_add'), {'user': paused.pk, 'site': self.site.pk},
+        )
+
+        self.assertEqual(changelist.status_code, 200, 'the grants could not be listed')
+        self.assertContains(changelist, 'granted-employee', msg_prefix='the grant is not listed')
+        self.assertEqual(added.status_code, 302, 'the grant with its flag off was not saved')
+        self.assertTrue(
+            PaymentSitePermission.objects.filter(user=paused, site=self.site, users_order_history=False).exists(),
+            'the grant with its flag off was not stored',
+        )
+
+    def test_a_second_grant_for_the_same_user_and_site_is_refused_on_the_form(self):
+        """Verify that the add page refuses a second grant for a user on the same site, rather than failing."""
+        employee = User.objects.create(username='site-employee')
+        PaymentSitePermission.objects.create(user=employee, site=self.site)
+
+        response = self.client.post(
+            reverse('admin:zeitlabs_payments_paymentsitepermission_add'),
+            {'user': employee.pk, 'site': self.site.pk, 'users_order_history': 'on'},
+        )
+
+        self.assertEqual(response.status_code, 200, 'the duplicate grant was not sent back to the form')
+        self.assertEqual(
+            PaymentSitePermission.objects.filter(user=employee).count(), 1, 'a second grant for the site was saved',
+        )

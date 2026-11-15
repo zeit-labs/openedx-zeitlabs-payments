@@ -30,6 +30,7 @@ from zeitlabs_payments.models import (
     CatalogueItem,
     Invoice,
     InvoiceItem,
+    PaymentSitePermission,
     Transaction,
 )
 from zeitlabs_payments.views import InitiatePaymentView, paid_on_host
@@ -39,6 +40,18 @@ User = get_user_model()
 PAYMENT_ORIGIN = 'https://learn.example.com'
 STORED_LEARNER_INFO = {'name': 'Layla Haddad'}
 STORED_ORGANIZATION_INFO = {'name': 'The Key Institute LLC', 'vat_no': '445566', 'cr_no': '7788'}
+
+
+def site_employee(username, site=None, users_order_history=True):
+    """
+    Return a new user who is neither staff nor superuser, holding a payment permission row on the site -- the one the
+    test requests are served on unless another is given -- with its flag as given.
+    """
+    employee = User.objects.create(username=username)
+    PaymentSitePermission.objects.create(
+        user=employee, site=site or Site.objects.get(pk=1), users_order_history=users_order_history,
+    )
+    return employee
 
 
 class BaseTestViewMixin(APITestCase):
@@ -1342,6 +1355,45 @@ class InvoiceViewTest(BaseTestViewMixin):
         self.assertEqual(response.status_code, 410, 'another learner was not answered with the private page')
         self.assertTemplateUsed(response, 'zeitlabs_payments/invoice_private.html')
 
+    def test_an_employee_granted_the_site_opens_an_invoice_paid_on_it(self):
+        """Verify that a site's employee holding the history flag there opens an invoice paid on that site."""
+        invoice = self._issue_invoice('TEST-EMPLOYEE-1')
+        self.client.force_login(site_employee('history-employee'))
+        self.url_args = [invoice.invoice_number]
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200, 'the employee granted the site could not open its invoice')
+        self.assertEqual(response.context['invoice'], invoice, 'the employee was shown another invoice')
+
+    def test_an_employee_is_refused_an_invoice_the_grant_does_not_cover(self):
+        """
+        Verify that an employee gets the private page, never the invoice nor a redirect, when they hold no grant, hold
+        it with its flag off or for another site, or the invoice was paid on another site or before sites were
+        recorded: an employee sees only what was paid on the site they are granted.
+        """
+        here = self._issue_invoice('TEST-EMPLOYEE-HERE')
+        elsewhere = self._issue_invoice('TEST-EMPLOYEE-ELSEWHERE', payment_origin='https://other.example.com')
+        unrecorded = self._issue_invoice('TEST-EMPLOYEE-UNRECORDED', payment_origin=None)
+        other_site = Site.objects.create(domain='other.example.com', name='Other')
+        ungranted = User.objects.create(username='ungranted-employee')
+        cases = (
+            (ungranted, here, 'no grant'),
+            (site_employee('paused-employee', users_order_history=False), here, 'the flag off'),
+            (site_employee('other-site-employee', site=other_site), here, 'a grant for another site'),
+            (site_employee('this-site-employee'), elsewhere, 'an invoice paid on another site'),
+            (User.objects.get(username='this-site-employee'), unrecorded, 'an invoice paid before sites were recorded'),
+        )
+
+        for employee, invoice, case in cases:
+            self.client.force_login(employee)
+            self.url_args = [invoice.invoice_number]
+
+            response = self.client.get(self.url)
+
+            self.assertEqual(response.status_code, 410, f'the employee was not refused with {case}')
+            self.assertTemplateUsed(response, 'zeitlabs_payments/invoice_private.html')
+
     def test_invoice_from_before_origins_were_recorded_is_shown_on_any_site(self):
         """Verify that an invoice whose cart has no origin, and so names no site, is shown where it is asked for."""
         invoice = self._issue_invoice('TEST-555556', payment_origin=None)
@@ -2244,8 +2296,55 @@ class OrderHistoryApiTest(APITestCase):
 
         self.assertEqual(response.status_code, 403, 'an anonymous visitor read a history')
 
+    def test_an_employee_granted_the_site_reads_its_orders(self):
+        """
+        Verify that a site's employee holding the history flag there, neither staff nor superuser, reads a learner's
+        orders paid on that site, and none paid on another.
+        """
+        here = self.order(Cart.Status.REFUNDED)
+        self.order(Cart.Status.REFUNDED, payment_origin='https://other.example.com')
+        self.client.force_login(site_employee('history-employee'))
+
+        response = self.client.get(self.url())
+
+        self.assertEqual(response.status_code, 200, 'the employee granted the site could not read the history')
+        self.assertEqual(
+            [row['cart_id'] for row in response.json()['results']], [here.id],
+            'the employee did not read exactly the orders paid on the site',
+        )
+
+    def test_an_employee_the_grant_does_not_cover_is_refused(self):
+        """Verify that an employee is refused who holds no grant, holds it with its flag off, or for another site."""
+        other_site = Site.objects.create(domain='other.example.com', name='Other')
+        cases = (
+            (User.objects.create(username='ungranted-employee'), 'no grant'),
+            (site_employee('paused-employee', users_order_history=False), 'the flag off'),
+            (site_employee('other-site-employee', site=other_site), 'a grant for another site'),
+        )
+
+        for employee, case in cases:
+            self.client.force_login(employee)
+
+            response = self.client.get(self.url())
+
+            self.assertEqual(response.status_code, 403, f'the employee read the history with {case}')
+
+    def test_an_unknown_user_is_an_empty_history_to_an_employee(self):
+        """
+        Verify that, to an employee, a user id naming nobody answers as a learner with no orders does, so walking the
+        sequential ids does not tell them which exist.
+        """
+        self.client.force_login(site_employee('history-employee'))
+
+        response = self.client.get(self.url(999999))
+
+        self.assertEqual(response.status_code, 200, 'an unknown user was not answered as an empty history')
+        self.assertEqual(
+            (response.json()['count'], response.json()['results']), (0, []), 'an unknown user has a history',
+        )
+
     def test_an_unknown_user_is_not_found(self):
-        """Verify that a user id naming nobody is answered as not found, rather than as an empty history."""
+        """Verify that, to staff, a user id naming nobody is answered as not found, rather than as an empty history."""
         response = self.client.get(self.url(999999))
 
         self.assertEqual(response.status_code, 404, 'an unknown user was answered with a history')
