@@ -1,7 +1,8 @@
 """Zeilabs payments views."""
 import logging
+from decimal import Decimal
 from functools import lru_cache
-from typing import Any, Optional
+from typing import Any, NamedTuple, Optional
 from urllib.parse import urlencode, urljoin, urlsplit
 
 from django.contrib.auth import get_user_model
@@ -9,7 +10,8 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.sites.shortcuts import get_current_site
 from django.core.exceptions import ValidationError
 from django.db import transaction as db_transaction
-from django.http import Http404, HttpResponse, HttpResponseBadRequest
+from django.db.models import Prefetch, Q
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
@@ -17,9 +19,11 @@ from django.utils.module_loading import import_string
 from django.utils.translation import gettext as _
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
-from django.views.generic import TemplateView
+from django.views.generic import ListView, TemplateView
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.generics import ListAPIView
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -34,7 +38,7 @@ from zeitlabs_payments.inflight_payment import (
 )
 from zeitlabs_payments.invoice_info import get_invoice_info_context
 from zeitlabs_payments.providers.registry import PROCESSORS, available_processors, get_processor
-from zeitlabs_payments.serializers import CartSerializer
+from zeitlabs_payments.serializers import CartSerializer, OrderHistorySerializer
 from zeitlabs_payments.validators import validate_payment_origin
 
 logger = logging.getLogger(__name__)
@@ -82,23 +86,26 @@ class CheckoutView(LoginRequiredMixin, TemplateView):
         """
         if inflight_payment.resolution == Resolution.RESUME:
             return redirect(inflight_payment.waiting_page_url)
+        bundle = sells_a_bundle(inflight_payment.cart)
         if inflight_payment.resolution == Resolution.IN_PROGRESS:
             return render(
                 request,
                 'zeitlabs_payments/payment_in_progress.html',
                 {
                     'merchant_reference': inflight_payment.cart.gateway_order_id,
+                    'bundle': bundle,
                     **waiting_time(inflight_payment.retry_after),
                 },
             )
-        return render(
-            request,
-            'zeitlabs_payments/invalid_cart.html',
-            {'error_message': _(
+        if bundle:
+            message = _(
+                'A payment for this bundle is still awaiting confirmation. Please contact support before paying again.'
+            )
+        else:
+            message = _(
                 'A payment for this course is still awaiting confirmation. Please contact support before paying again.'
-            )},
-            status=400,
-        )
+            )
+        return render(request, 'zeitlabs_payments/invalid_cart.html', {'error_message': message}, status=400)
 
     def get(self, request: Any, *args: Any, **kwargs: Any) -> None:
         """
@@ -119,8 +126,7 @@ class CheckoutView(LoginRequiredMixin, TemplateView):
                 'zeitlabs_payments/invalid_cart.html',
                 {
                     'error_message': _(
-                        'This product accepts one item per purchase. '
-                        'Please complete each purchase separately.'
+                        'This product sells one item per purchase; please complete each purchase separately.'
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -130,19 +136,23 @@ class CheckoutView(LoginRequiredMixin, TemplateView):
             try:
                 catalog_item = models.CatalogueItem.objects.get(sku=sku_code)
             except models.CatalogueItem.DoesNotExist:
+                logger.warning('Checkout refused: no catalogue item with sku %s.', sku_code)
                 return render(
                     request,
                     'zeitlabs_payments/invalid_cart.html',
-                    {'error_message': _('Item with sku: %(sku)s does not exist.') % {'sku': sku_code}},
+                    {'error_message': _('This item is not available.')},
                     status=404
                 )
 
             handler = CART_HANDLER.get(catalog_item.type)
             if not handler:
+                logger.warning(
+                    'Checkout refused: catalogue item %s has unsupported type %s.', sku_code, catalog_item.type,
+                )
                 return render(
                     request,
                     'zeitlabs_payments/invalid_cart.html',
-                    {'error_message': _('Item has unsupported type: %(type)s.') % {'type': catalog_item.type}},
+                    {'error_message': _('This item cannot be bought right now.')},
                     status=400
                 )
             try:
@@ -210,9 +220,63 @@ class InitiatePaymentView(LoginRequiredMixin, View):
     Only accessible by authenticated users.
     """
 
+    template_name = 'zeitlabs_payments/payment_refused.html'
+
+    def refuse(self, request: Any, message: str, cart: Optional[models.Cart] = None) -> HttpResponse:
+        """
+        Answer a refused hand-off with a page saying why in one plain sentence, and where the learner goes next.
+
+        The sentence names no cart, user, provider or status; the caller logs what actually went wrong. A paid cart
+        leads to its invoice, any other cart of the learner's own back to checkout for its item, and a refusal naming
+        no cart of theirs to the courses.
+
+        :param request: Django request object
+        :param message: The translated sentence the learner reads.
+        :param cart: The learner's own cart the refusal is about, or None when the address names no cart of theirs.
+        """
+        invoice_url = checkout_url = None
+        if cart is not None and cart.status == models.Cart.Status.PAID:
+            invoice = cart.invoices.filter(status=models.Invoice.InvoiceStatus.PAID).first()
+            if invoice is not None:
+                invoice_url = reverse('zeitlabs_payments:invoice', args=[invoice.invoice_number])
+        elif cart is not None:
+            checkout_url = retry_url_for(cart)
+        return render(
+            request,
+            self.template_name,
+            {'error_message': message, 'invoice_url': invoice_url, 'checkout_url': checkout_url},
+            status=404 if cart is None else 400,
+        )
+
+    def get_learner_cart(self, request: Any, cart_id: str) -> Optional[models.Cart]:
+        """
+        Return the requesting learner's cart with the id, or None when the id is malformed, missing or not theirs.
+
+        The three are answered alike, so walking the sequential cart ids tells a learner nothing about whose each one
+        is. The log tells them apart.
+
+        :param request: Django request object
+        :param cart_id: The cart id, as the address gives it.
+        """
+        try:
+            cart = models.Cart.objects.filter(id=int(cart_id)).first()
+        except ValueError:
+            logger.warning(f'User {request.user.id} asked to pay for a malformed cart id {cart_id!r}.')
+            return None
+        if cart is None:
+            logger.warning(f'User {request.user.id} asked to pay for cart {cart_id}, which does not exist.')
+            return None
+        if cart.user_id != request.user.id:
+            logger.warning(f'User {request.user.id} asked to pay for cart {cart.id}, which is user {cart.user_id}\'s.')
+            return None
+        return cart
+
     def get(self, request: Any, provider: str, cart_id: str) -> Any:
         """
         Initiate the payment by calling the appropriate processor.
+
+        Every refusal answers with a page, see ``refuse``. A cart id that is malformed, names no cart, or names another
+        learner's cart is refused first, all three alike.
 
         A processor hidden for the request is refused as an unknown one is, before the cart is touched: hiding is how a
         processor limits who may pay with it, and typing its address must not get round that. One that raises while
@@ -233,12 +297,16 @@ class InitiatePaymentView(LoginRequiredMixin, View):
         :param cart_id: UUID of the cart
         :return: Rendered payment page or error response
         """
+        cart = self.get_learner_cart(request, cart_id)
+        if cart is None:
+            return self.refuse(request, _('This payment cannot be found.'))
+
         try:
             processor = get_processor(provider)
             logger.debug(f'Processor found for provider: {provider}')
         except ValueError as exc:
             logger.error(f'Invalid payment provider: {provider} - {exc}')
-            return HttpResponseBadRequest(f'Error: {str(exc)}')
+            return self.refuse(request, _('This payment method is not available.'), cart)
 
         try:
             hidden = processor.is_hidden_for(request)
@@ -247,26 +315,14 @@ class InitiatePaymentView(LoginRequiredMixin, View):
             hidden = True
         if hidden:
             logger.error(f'Payment provider {provider} is not offered to user {request.user}; refusing it.')
-            return HttpResponseBadRequest(f'Error: Unsupported payment provider: {provider}')
-
-        try:
-            cart = processor.get_cart(cart_id)
-        except InvalidCartError as exc:
-            logger.error(f'Cart not found with id: {cart_id} - {exc}')
-            return HttpResponseBadRequest(f'Error: {str(exc)}')
-
-        if request.user != cart.user:
-            logger.warning(f'User {request.user} attempted to access cart {cart.id} belonging to {cart.user}')
-            return HttpResponseBadRequest(
-                f'Error: User {request.user} attempted to access cart belonging to {cart.user}.'
-            )
+            return self.refuse(request, _('This payment method is not available.'), cart)
 
         payment_origin = f'{request.scheme}://{request.site.domain}'
         try:
             validate_payment_origin(payment_origin)
         except ValidationError as exc:
             logger.error(f'Cart {cart.id} not handed off to {provider}: {exc.message}')
-            return HttpResponseBadRequest(f'Error: Cart {cart.id} cannot be paid on this site.')
+            return self.refuse(request, _('Payments cannot be made on this site right now.'), cart)
 
         try:
             cart.change_status(
@@ -276,7 +332,9 @@ class InitiatePaymentView(LoginRequiredMixin, View):
             )
         except CartStatusError as exc:
             logger.warning(f'Cart {cart.id} not handed off to {provider}: {exc}')
-            return HttpResponseBadRequest(f'Error: Cart {cart.id} is {cart.status}; only a pending cart can be paid.')
+            if cart.status == models.Cart.Status.PAID:
+                return self.refuse(request, _('This purchase is already paid.'), cart)
+            return self.refuse(request, _('This payment link is no longer valid.'), cart)
         logger.info(f'Cart {cart.id} status updated to {models.Cart.Status.PROCESSING}')
 
         try:
@@ -372,8 +430,7 @@ class CartView(APIView):
             return Response(
                 {
                     'error': (
-                        'This product accepts one item per purchase. '
-                        'Please complete each purchase separately.'
+                        'This product sells one item per purchase; please complete each purchase separately.'
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -410,7 +467,7 @@ class CartView(APIView):
             return Response(
                 {
                     'error': 'Given SKU item does not match add to cart requirements',
-                    'details': f'{str(exc)}'
+                    'details': exc.detail or str(exc),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -440,10 +497,11 @@ def inflight_payment_json_response(inflight_payment: InFlightPayment) -> Respons
             {'outcome': 'payment_in_progress', 'retry_after': retry_after},
             status=status.HTTP_409_CONFLICT,
         )
+    item_type = 'bundle' if sells_a_bundle(inflight_payment.cart) else 'course'
     return Response(
         {
             'error': 'Given SKU item does not match add to cart requirements',
-            'details': 'A payment for this course is still awaiting confirmation.',
+            'details': f'A payment for this {item_type} is still awaiting confirmation.',
         },
         status=status.HTTP_400_BAD_REQUEST,
     )
@@ -460,6 +518,13 @@ class PaymentErrorView(TemplateView):
             'merchant_reference': args[0],
         }
         return render(request, self.template_name, context)
+
+
+def sells_a_bundle(cart: Optional[models.Cart]) -> bool:
+    """Return whether the cart sells a bundle, so what is said about it names a bundle rather than a course."""
+    return cart is not None and cart.items.filter(
+        catalogue_item__type=models.CatalogueItem.ItemType.PROGRAM_BUNDLE,
+    ).exists()
 
 
 def retry_url_for(cart: Optional[models.Cart]) -> Optional[str]:
@@ -511,15 +576,23 @@ class PaymentReconciliationView(TemplateView):
     yet and may still go through. Either way a retry could charge the learner twice, so the page offers none. The
     ``unconfirmed`` query parameter picks the second wording; it only changes what the page says. The merchant reference
     is required by the route because it is the only thing the learner can quote to support.
+
+    The page names a bundle's courses rather than a course only for a bundle cart of the learner's own that the
+    reference names, so a reference seen elsewhere tells nothing about what someone else bought.
     """
 
     template_name = 'zeitlabs_payments/payment_reconciliation.html'
 
     def get(self, request: Any, *args: Any, **kwargs: Any) -> Any:
         """Handle the GET request."""
+        gateway_order_id = args[0]
+        cart = None
+        if request.user.is_authenticated:
+            cart = models.Cart.objects.filter(user=request.user, gateway_order_id=gateway_order_id).first()
         context = {
-            'merchant_reference': args[0],
+            'merchant_reference': gateway_order_id,
             'unconfirmed': bool(request.GET.get('unconfirmed')),
+            'bundle': sells_a_bundle(cart),
         }
         return render(request, self.template_name, context)
 
@@ -552,6 +625,28 @@ def _host_key(netloc: str) -> tuple[Optional[str], Optional[int]]:
     return parts.hostname, parts.port if parts.port not in (80, 443) else None
 
 
+def paid_on_host(host: str) -> Q:
+    """
+    Return the filter keeping the carts paid on the host, however their recorded origin spells it.
+
+    An origin is compared as ``_host_key`` compares it: either scheme, any capitals, and with or without the default
+    port written out. A cart with no origin recorded, one handed off before 1.0, matches no host.
+
+    :param host: The host the request is served on, with or without a port.
+    """
+    hostname, port = _host_key(host)
+    if hostname is None:
+        return Q(pk__in=[])
+    if ':' in hostname:
+        hostname = f'[{hostname}]'
+    netlocs = [f'{hostname}:{port}'] if port else [hostname, f'{hostname}:80', f'{hostname}:443']
+    matches = Q()
+    for scheme in ('http', 'https'):
+        for netloc in netlocs:
+            matches |= Q(payment_origin__iexact=f'{scheme}://{netloc}')
+    return matches
+
+
 def redirect_to_issuing_site(invoice: models.Invoice, request: Any) -> Optional[HttpResponse]:
     """
     Return a redirect to the same address on the site the invoice was issued on, or None when the request is there.
@@ -574,6 +669,28 @@ def redirect_to_issuing_site(invoice: models.Invoice, request: Any) -> Optional[
     return redirect(urljoin(payment_origin, request.get_full_path()))
 
 
+def may_see_invoice(invoice: models.Invoice, request: Any) -> bool:
+    """
+    Return whether the signed-in caller may see the invoice: its learner, a superuser, or an employee of its site.
+
+    An employee holds the history flag on the site served, and sees only an invoice paid on that site's host: one
+    paid on another site, or before sites were recorded, is refused rather than redirected, as anyone's is who may not
+    see it. The host is compared as ``redirect_to_issuing_site`` compares it.
+
+    :param invoice: The invoice asked for.
+    :param request: The request asking, its user signed in.
+    """
+    user = request.user
+    if user.is_superuser or invoice.cart.user_id == user.id:
+        return True
+    payment_origin = invoice.cart.payment_origin
+    return bool(
+        payment_origin and
+        _host_key(urlsplit(payment_origin).netloc) == _host_key(request.get_host()) and
+        models.PaymentSitePermission.holds(user, get_current_site(request), 'users_order_history')
+    )
+
+
 class InvoiceView(TemplateView):
     """
     Render an invoice to its owner, addressed by invoice number.
@@ -594,10 +711,9 @@ class InvoiceView(TemplateView):
         """Handle the GET request."""
         invoice = None
         if request.user.is_authenticated:
-            filters = {'invoice_number': args[0]}
-            if not request.user.is_superuser:
-                filters['cart__user'] = request.user
-            invoice = models.Invoice.objects.filter(**filters).first()
+            invoice = models.Invoice.objects.filter(invoice_number=args[0]).select_related('cart').first()
+            if invoice is not None and not may_see_invoice(invoice, request):
+                invoice = None
 
         if invoice is None:
             response = render(request, self.private_template_name, status=410)
@@ -634,3 +750,167 @@ class PublicInvoiceView(TemplateView):
         # The token addresses the invoice, so it must not ride a Referer header out to whatever this page links to.
         response['Referrer-Policy'] = 'no-referrer'
         return response
+
+
+class OrderRow(NamedTuple):
+    """One order of a learner's payment history, as the history page and the history API show it."""
+
+    cart: models.Cart
+    # The course or bundle the order bought; None for a cart with no item, which no checkout makes.
+    item: Optional[models.CatalogueItem]
+    # The invoice's total once invoiced, otherwise what the learner was asked to pay.
+    amount: Decimal
+    currency: str
+    # 'paid', 'confirming', 'refund_requested' or 'refunded'.
+    state: str
+    # The paid invoice to link to, or None while the order has none.
+    invoice_number: Optional[str]
+
+
+# The statuses of an order that may have charged its learner: one handed off, whatever came of it. A cart never handed
+# off, or ended without a charge, is left out of the history -- a declined payment had its own page.
+HISTORY_STATUSES = (
+    models.Cart.Status.PROCESSING,
+    models.Cart.Status.PAYMENT_PENDING,
+    models.Cart.Status.PAID,
+    models.Cart.Status.UNRECONCILED,
+    models.Cart.Status.REFUND_REQUESTED,
+    models.Cart.Status.REFUNDED,
+)
+HISTORY_PAGE_SIZE = 20
+REFUND_STATES = {
+    models.Cart.Status.REFUND_REQUESTED: 'refund_requested',
+    models.Cart.Status.REFUNDED: 'refunded',
+}
+
+
+def get_order_history(user: Any, host: str) -> Any:
+    """
+    Return the learner's orders on the host that may have charged them, newest first, with items and invoices.
+
+    Only the orders paid on the host: on a deployment serving several organizations, one site's history must not show
+    what was bought on another, whoever reads it. An order with no site recorded, paid before 1.0, appears nowhere
+    until its origin is recorded. Read in a fixed number of queries however long the history, so neither the page nor
+    the API slows down with it.
+
+    :param user: The learner whose history it is.
+    :param host: The host the request is served on, see ``paid_on_host``.
+    """
+    return models.Cart.objects.filter(paid_on_host(host), user=user, status__in=HISTORY_STATUSES).order_by(
+        '-created_at', '-id',
+    ).prefetch_related(
+        Prefetch('items', queryset=models.CartItem.objects.select_related('catalogue_item')),
+        Prefetch(
+            'invoices',
+            queryset=models.Invoice.objects.filter(status=models.Invoice.InvoiceStatus.PAID).order_by('id'),
+            to_attr='paid_invoices',
+        ),
+    )
+
+
+def describe_order(cart: models.Cart) -> OrderRow:
+    """
+    Describe an order of ``get_order_history`` as its history row.
+
+    Paid with its invoice; still being confirmed -- awaiting the gateway, unreconciled, or paid with no invoice yet --
+    with the reference the learner quotes to support; or refunded.
+    """
+    items = list(cart.items.all())
+    item = items[0].catalogue_item if items else None
+    invoice = cart.paid_invoices[0] if cart.paid_invoices else None
+    if invoice is not None:
+        amount, currency = invoice.total, invoice.currency
+    else:
+        amount, currency = cart.total, (item.currency if item else None) or ''
+    if cart.status in REFUND_STATES:
+        state = REFUND_STATES[cart.status]
+    elif cart.status == models.Cart.Status.PAID and invoice is not None:
+        state = 'paid'
+    else:
+        state = 'confirming'
+    return OrderRow(
+        cart=cart,
+        item=item,
+        amount=amount,
+        currency=currency,
+        state=state,
+        invoice_number=invoice.invoice_number if invoice else None,
+    )
+
+
+class OrderHistoryView(LoginRequiredMixin, ListView):
+    """
+    Show the learner their own payment history on the site served, a page at a time.
+
+    See ``get_order_history`` and ``describe_order``.
+    """
+
+    template_name = 'zeitlabs_payments/order_history.html'
+    context_object_name = 'orders'
+    paginate_by = HISTORY_PAGE_SIZE
+
+    def get_queryset(self) -> Any:
+        """Return the learner's own history on the site served."""
+        return get_order_history(self.request.user, self.request.get_host())
+
+    def get_context_data(self, **kwargs: Any) -> dict:
+        """Return the page's context, each order on it described as a row."""
+        context = super().get_context_data(**kwargs)
+        context['orders'] = [describe_order(cart) for cart in context['orders']]
+        return context
+
+
+def is_staff_or_superuser(user: Any) -> bool:
+    """Return whether the user is the platform's own staff: a staff member or a superuser."""
+    return bool(user.is_staff or user.is_superuser)
+
+
+class CanReadOrderHistory(BasePermission):
+    """Allow a signed-in staff member or superuser, or an employee holding the history flag on the site served."""
+
+    def has_permission(self, request: Any, view: Any) -> bool:
+        """Return whether the requesting user may read learners' payment history on the site served."""
+        user = request.user
+        if not (user and user.is_authenticated):
+            return False
+        return is_staff_or_superuser(user) or models.PaymentSitePermission.holds(
+            user, get_current_site(request), 'users_order_history',
+        )
+
+
+class OrderHistoryPagination(PageNumberPagination):
+    """Pages of the history API, as many orders to a page as the learner's own page shows."""
+
+    page_size = HISTORY_PAGE_SIZE
+
+
+class OrderHistoryApiView(ListAPIView):
+    """
+    Read any learner's payment history as JSON, for staff, superusers and the site's employees.
+
+    It lists the orders the learner's own page lists. The learner is named by user id in the address. To staff and
+    superusers an id naming nobody is answered 404, rather than as an empty history; to an employee it is an empty
+    history, as a learner with no orders is, so walking the sequential ids tells them nothing. Only the orders paid on
+    the site served are read, so staff read another site's on its own address. A learner reads their own history on
+    their page, not here.
+    """
+
+    permission_classes = [CanReadOrderHistory]
+    serializer_class = OrderHistorySerializer
+    pagination_class = OrderHistoryPagination
+
+    def get_queryset(self) -> Any:
+        """Return the named learner's history on the site served, or none for an employee naming nobody."""
+        if is_staff_or_superuser(self.request.user):
+            learner = get_object_or_404(User, pk=self.kwargs['user_id'])
+        else:
+            learner = User.objects.filter(pk=self.kwargs['user_id']).first()
+            if learner is None:
+                return models.Cart.objects.none()
+        return get_order_history(learner, self.request.get_host())
+
+    def list(self, request: Any, *args: Any, **kwargs: Any) -> Response:
+        """Answer one page of the history, each order on it described as a row."""
+        page = self.paginate_queryset(self.get_queryset())
+        rows = [describe_order(cart) for cart in page]
+        return self.get_paginated_response(self.get_serializer(rows, many=True).data)

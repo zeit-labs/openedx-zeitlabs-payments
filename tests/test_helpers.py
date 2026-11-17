@@ -36,7 +36,7 @@ from zeitlabs_payments.helpers import (
     get_language,
     get_merchant_reference,
     get_order_description,
-    learner_holds_mode,
+    learner_holds_course,
     relative_url_to_absolute_url,
     sanitize_text,
     verify_param,
@@ -513,17 +513,29 @@ def test_generate_invoice_number_normalizes_the_configured_prefix():
         assert generate_invoice_number() == 'DEV-100002', 'Padding does not open a second series'
 
 
+def _buy(user, catalogue_item, status=Cart.Status.PAID):
+    """Return a cart of the learner's, in the given status, holding the catalogue item."""
+    cart = Cart.objects.create(user=user, status=status)
+    cart.items.create(
+        catalogue_item=catalogue_item, original_price=catalogue_item.price, final_price=catalogue_item.price,
+    )
+    return cart
+
+
 @pytest.mark.django_db
 @pytest.mark.usefixtures('base_data')
 @pytest.mark.parametrize('enrolment, holds, usecase', [
     (None, False, 'a learner not enrolled in the course'),
-    (('no-id-professional', True), True, 'a learner enrolled in the very mode bought'),
-    (('no-id-professional', False), False, 'a learner who left the course after enrolling in that mode'),
-    (('audit', True), False, 'a learner enrolled in the course in another mode'),
+    (('no-id-professional', True), True, 'a learner enrolled in the very mode sold'),
+    (('verified', True), True, 'a learner enrolled in another paid mode'),
+    (('no-id-professional', False), False, 'a learner who left the course and never bought it'),
+    (('audit', True), False, 'a learner auditing the course'),
+    (('honor', True), False, 'a learner on the honor track of the course'),
 ])
-def test_learner_holds_mode_only_for_an_active_enrolment_in_that_very_mode(enrolment, holds, usecase):
+def test_learner_holds_course_through_an_active_paid_enrolment(enrolment, holds, usecase):
     """
-    Verify that a learner holds a course mode only while enrolled in that mode, and active, and in no other case.
+    Verify that an active enrolment in any mode but audit or honor holds the course, however it was made, and that
+    a free or inactive enrolment does not.
     """
     user = User.objects.get(id=3)
     course_mode = CourseMode.objects.get(sku='custom-sku-1')
@@ -531,7 +543,48 @@ def test_learner_holds_mode_only_for_an_active_enrolment_in_that_very_mode(enrol
         mode, is_active = enrolment
         CourseEnrollment.objects.create(user=user, course=course_mode.course, mode=mode, is_active=is_active)
 
-    assert learner_holds_mode(user, course_mode) is holds, f'Failed usecase: {usecase}'
+    assert learner_holds_course(user, course_mode.course.id) is holds, f'Failed usecase: {usecase}'
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures('base_data')
+@pytest.mark.parametrize('bought_as, status, holds, usecase', [
+    ('custom-sku-1', Cart.Status.PAID, True, 'a course bought on its own'),
+    ('custom-sku-1', Cart.Status.REFUND_REQUESTED, True, 'a course whose refund is awaited'),
+    ('BUNDLE-PRO-CERT', Cart.Status.PAID, True, 'a course bought inside a bundle'),
+    ('custom-sku-1', Cart.Status.REFUNDED, False, 'a course whose purchase was refunded'),
+    ('custom-sku-1', Cart.Status.PAYMENT_PENDING, False, 'a course whose payment is not settled'),
+    ('course1-org2-no-id-professional', Cart.Status.PAID, False, 'another course bought'),
+])
+def test_learner_holds_course_through_a_purchase(bought_as, status, holds, usecase):
+    """
+    Verify that a paid cart, or one awaiting a refund, holds every course in it, on its own or inside a bundle, even
+    after the learner unenrolled; and that a refunded or unsettled cart, or one for another course, does not.
+    """
+    user = User.objects.get(id=3)
+    course_mode = CourseMode.objects.get(sku='custom-sku-1')
+    CourseEnrollment.objects.create(user=user, course=course_mode.course, mode=course_mode.mode_slug, is_active=False)
+    _buy(user, CatalogueItem.objects.get(sku=bought_as), status=status)
+
+    assert learner_holds_course(user, course_mode.course.id) is holds, f'Failed usecase: {usecase}'
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures('base_data')
+def test_learner_holds_course_leaves_out_the_ignored_cart():
+    """
+    Verify that the cart being fulfilled does not hold its own courses, while another paid cart for the course does.
+    """
+    user = User.objects.get(id=3)
+    course_item = CatalogueItem.objects.get(sku='custom-sku-1')
+    fulfilling = _buy(user, course_item)
+
+    assert learner_holds_course(user, course_item.item_ref_id, ignored_cart=fulfilling) is False, \
+        'The cart being fulfilled holds its own course'
+
+    _buy(user, CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT'))
+    assert learner_holds_course(user, course_item.item_ref_id, ignored_cart=fulfilling) is True, \
+        'An earlier purchase of the course is not counted beside the ignored cart'
 
 
 @pytest.mark.django_db
@@ -626,7 +679,6 @@ BUYING_AGAIN_BESIDE = {
     Cart.Status.PENDING: None,
     Cart.Status.CANCELLED: None,
     Cart.Status.CLOSED: None,
-    Cart.Status.EXPIRED: None,
     Cart.Status.REFUNDED: None,
     Cart.Status.PROCESSING: InFlightPaymentError,
     Cart.Status.PAYMENT_PENDING: InFlightPaymentError,
@@ -688,8 +740,8 @@ def test_a_payment_in_flight_is_raised_with_its_cart_before_any_other():
     (Cart.Status.PAID, True, 'It was already bought in cart {id}.', 'a completed sale'),
     (Cart.Status.PAID, False, 'A payment for it in cart {id} is still being resolved.', 'paid, not invoiced'),
     (
-        Cart.Status.PROCESSING, False, 'A payment for it in cart {id} is still being resolved.',
-        'handed off without its gateway recorded, which cannot be asked about again',
+        Cart.Status.PAYMENT_PENDING, False, 'A payment for it in cart {id} is still being resolved.',
+        'answered about by a gateway that was not recorded, which cannot be asked again',
     ),
 ])
 def test_a_blocking_cart_not_in_flight_refuses_saying_why(status, invoiced, refusal, usecase):
@@ -706,6 +758,22 @@ def test_a_blocking_cart_not_in_flight_refuses_saying_why(status, invoiced, refu
         check_carts_holding_item(User.objects.get(id=3), item)
 
     assert str(raised.value) == refusal.format(id=cart.id), f'Failed usecase: {usecase}'
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures('base_data')
+def test_a_hand_off_that_recorded_no_gateway_is_raised_as_in_flight():
+    """
+    Verify that a processing cart handed off before carts recorded their gateway is raised as a payment in flight,
+    carrying its cart, so its age can decide it rather than refusing the learner for good.
+    """
+    item = CatalogueItem.objects.get(sku='custom-sku-1')
+    stale = cart_holding(item, Cart.Status.PROCESSING, gateway=None)
+
+    with pytest.raises(InFlightPaymentError) as raised:
+        check_carts_holding_item(User.objects.get(id=3), item)
+
+    assert raised.value.cart == stale, 'The hand-off with no gateway is not the cart raised'
 
 
 @pytest.mark.django_db
@@ -733,21 +801,71 @@ def test_a_course_is_held_by_any_of_its_paid_items():
 
 @pytest.mark.django_db
 @pytest.mark.usefixtures('base_data')
-@pytest.mark.parametrize('held_sku, bought_sku', [
-    ('custom-sku-1', 'BUNDLE-PRO-CERT'),
-    ('BUNDLE-PRO-CERT', 'custom-sku-1'),
-], ids=['a bundle bought after one of its courses', 'a course bought after a bundle containing it'])
-def test_a_course_and_a_bundle_containing_it_never_block_each_other(held_sku, bought_sku):
+def test_a_cart_for_a_course_never_blocks_a_bundle_containing_it():
     """
-    Verify that a cart holding a course never blocks buying a bundle that contains it, nor the other way round.
+    Verify that a cart for a course, whatever its blocking status, never blocks buying a bundle that contains it.
 
-    Buying a course must never stop its learner buying a bundle that contains it. Whether a learner may buy a course
-    they hold through a bundle is decided by their enrolment, not their carts.
+    Buying a course must never stop its learner buying a bundle that contains it; the bundle is sold as is, its
+    fulfilment skipping the course they hold.
     """
     for status in (Cart.Status.PAYMENT_PENDING, Cart.Status.PAID, Cart.Status.UNRECONCILED):
-        cart_holding(CatalogueItem.objects.get(sku=held_sku), status)
+        cart_holding(CatalogueItem.objects.get(sku='custom-sku-1'), status)
 
-    check_carts_holding_item(User.objects.get(id=3), CatalogueItem.objects.get(sku=bought_sku))
+    check_carts_holding_item(User.objects.get(id=3), CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT'))
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures('base_data')
+def test_a_bundle_in_flight_sends_a_learner_buying_one_of_its_courses_back_to_it():
+    """
+    Verify that a bundle whose payment is in flight is raised to a learner buying one of its courses, carrying the
+    bundle's cart, as a payment in flight for the course itself is.
+
+    The bundle pays for the course too, so selling the course before the bundle's payment resolves charges for it twice.
+    """
+    bundle_cart = cart_holding(CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT'), Cart.Status.PAYMENT_PENDING)
+
+    with pytest.raises(InFlightPaymentError) as raised:
+        check_carts_holding_item(User.objects.get(id=3), CatalogueItem.objects.get(sku='custom-sku-1'))
+
+    assert raised.value.cart == bundle_cart, 'The bundle in flight is not the cart raised'
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures('base_data')
+@pytest.mark.parametrize('status, invoiced, refusal, usecase', [
+    (Cart.Status.PAID, True, 'It was already bought in cart {id}.', 'a bundle bought'),
+    (Cart.Status.UNRECONCILED, False, 'A payment for it in cart {id} is still being resolved.', 'a bundle held'),
+])
+def test_a_bundle_containing_the_course_refuses_it_saying_why(status, invoiced, refusal, usecase):
+    """
+    Verify that a blocking cart for a bundle containing the course refuses the course, as a cart for the course does.
+    """
+    bundle_cart = cart_holding(CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT'), status)
+    if invoiced:
+        invoice_cart(bundle_cart)
+
+    with pytest.raises(DuplicateCartError) as raised:
+        check_carts_holding_item(User.objects.get(id=3), CatalogueItem.objects.get(sku='custom-sku-1'))
+
+    assert str(raised.value) == refusal.format(id=bundle_cart.id), f'Failed usecase: {usecase}'
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures('base_data')
+def test_a_bundle_not_containing_the_course_or_not_blocking_lets_it_through():
+    """
+    Verify that a bundle cart lets the course through when the bundle does not contain it, or its status does not
+    block.
+    """
+    other_course = CatalogueItem.objects.get(sku='custom-sku-2')
+    for status in Cart.NON_BLOCKING_STATUSES:
+        cart_holding(CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT'), status)
+
+    check_carts_holding_item(User.objects.get(id=3), CatalogueItem.objects.get(sku='custom-sku-1'))
+
+    cart_holding(CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT'), Cart.Status.PAID)
+    check_carts_holding_item(User.objects.get(id=3), other_course)
 
 
 @pytest.mark.django_db

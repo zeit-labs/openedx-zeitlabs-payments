@@ -14,7 +14,11 @@
 
 {% block status_content %}
 <p class="status-message">
+    {% if bundle %}
+    {% trans "A payment for this bundle is already in progress." %}
+    {% else %}
     {% trans "A payment for this course is already in progress." %}
+    {% endif %}
 </p>
 <p class="status-message">
     {% if hours %}

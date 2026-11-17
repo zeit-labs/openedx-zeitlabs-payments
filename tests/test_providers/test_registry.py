@@ -9,6 +9,7 @@ from django.http import HttpRequest
 
 from test_utils.dummy_processor import DummyProcessor
 from zeitlabs_payments.providers import registry
+from zeitlabs_payments.providers.base import BaseProcessor
 from zeitlabs_payments.providers.registry import (
     PROCESSORS,
     SLUG_MAX_LENGTH,
@@ -78,6 +79,41 @@ def test_skips_processor_with_contract_version_attribute_missing(monkeypatch, ca
         load_entrypoint_processors()
     assert 'ancient' not in PROCESSORS
     assert 'declares contract version None' in caplog.text
+
+
+class NamesNoOrder(DummyProcessor):
+    """A processor that leaves get_gateway_order_id to the base class, so it never names its order."""
+
+    SLUG = 'incomplete'
+    get_gateway_order_id = BaseProcessor.get_gateway_order_id
+
+
+@pytest.mark.parametrize('processor, missing', [
+    (NamesNoOrder, 'get_gateway_order_id'),
+    (type('NoReturnView', (DummyProcessor,), {'SLUG': 'incomplete', 'RETURN_VIEW': None}), 'RETURN_VIEW'),
+    (type('NoStatusView', (DummyProcessor,), {'SLUG': 'incomplete', 'STATUS_VIEW': None}), 'STATUS_VIEW'),
+    (
+        type('NoOrderParam', (DummyProcessor,), {'SLUG': 'incomplete', 'GATEWAY_ORDER_ID_PARAM': None}),
+        'GATEWAY_ORDER_ID_PARAM',
+    ),
+])
+def test_skips_processor_not_meeting_the_hand_off_contract(monkeypatch, caplog, processor, missing):
+    """
+    Verify that a processor that does not record its gateway order at hand-off, or names no waiting page, status view
+    or order parameter, is skipped with an error naming what it lacks, and the LMS starts all the same.
+
+    Every payment is resumed through its recorded order and its waiting page, so a processor without them could take
+    payments nothing could ever look for again.
+    """
+    ep = make_entry_point('incomplete', processor)
+    monkeypatch.setattr(registry, 'PROCESSORS', {})
+    monkeypatch.setattr(registry, 'entry_points', lambda group: [ep, make_entry_point('dummy', DummyProcessor)])
+
+    with caplog.at_level(logging.ERROR):
+        load_entrypoint_processors()
+
+    assert set(registry.PROCESSORS) == {'dummy'}, f'A processor without {missing} was registered, or stopped the others'
+    assert missing in caplog.text, f'The error does not name {missing}'
 
 
 @pytest.mark.parametrize('slug, usecase', [

@@ -20,7 +20,11 @@
     {% trans "Your bank or the payment provider has not confirmed your payment yet." %}
 </p>
 <p class="status-message">
+    {% if bundle %}
+    {% trans "Please do not pay again. If your card was charged and the bundle's courses do not appear in your dashboard, contact support and quote the reference below." %}
+    {% else %}
     {% trans "Please do not pay again. If your card was charged and the course does not appear in your dashboard, contact support and quote the reference below." %}
+    {% endif %}
 </p>
 {% else %}
 <p class="status-message">

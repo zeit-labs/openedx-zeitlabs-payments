@@ -28,7 +28,7 @@ coverage: clean ## generate and view HTML coverage report
 	pytest --cov-report html
 	$(BROWSER)htmlcov/index.html
 
-docs: ## generate Sphinx HTML documentation, including API docs
+docs: ## generate Sphinx HTML documentation
 	tox -e docs
 	$(BROWSER)docs/_build/html/index.html
 

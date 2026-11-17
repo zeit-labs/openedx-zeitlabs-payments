@@ -1,7 +1,6 @@
 """Base processor."""
 
 import logging
-from datetime import datetime
 from typing import Any, Optional
 from urllib.parse import urlsplit
 
@@ -17,7 +16,7 @@ from django.utils import timezone
 from django.utils.timezone import now
 
 from zeitlabs_payments.cart_handler import CART_HANDLER
-from zeitlabs_payments.constants import DEFAULT_PAYMENT_SESSION_DURATION, ISO_4217_NUMERIC_TO_ALPHA
+from zeitlabs_payments.constants import ISO_4217_NUMERIC_TO_ALPHA
 from zeitlabs_payments.exceptions import (
     CartFulfillmentError,
     DuplicateTransactionError,
@@ -28,6 +27,7 @@ from zeitlabs_payments.exceptions import (
 from zeitlabs_payments.helpers import (
     describe_error,
     generate_invoice_number,
+    get_blocking_carts,
     get_currency,
     get_language,
     get_merchant_reference,
@@ -35,7 +35,7 @@ from zeitlabs_payments.helpers import (
 )
 from zeitlabs_payments.helpers import get_settings as get_plugin_settings
 from zeitlabs_payments.invoice_info import collect_info, get_learner_info, get_organization_info
-from zeitlabs_payments.models import AuditLog, Cart, Invoice, InvoiceItem, Transaction
+from zeitlabs_payments.models import AuditLog, Cart, CatalogueItem, Invoice, InvoiceItem, Transaction
 from zeitlabs_payments.redaction import mask_unmasked_card_numbers
 from zeitlabs_payments.validators import canonical_currency
 
@@ -118,25 +118,41 @@ class BaseProcessor:
         return ISO_4217_NUMERIC_TO_ALPHA.get(value, value)
 
     @staticmethod
-    def find_cart_bought_instead(cart: Cart) -> Optional[Cart]:
+    def find_blocking_cart(cart: Cart) -> Optional[Cart]:
         """
-        Return a paid cart of the same learner holding any item of the given cart, or None.
+        Return another of the learner's carts that blocks buying any item of the given cart, or None.
 
-        Asked of a cart that expired: its learner was free to buy the course again, so a payment for it completing late
-        may be a second payment for something already bought. Settling it would charge the learner twice, so it is
-        recorded and held for a person to refund instead.
+        Asked before staff accept an unreconciled cart's payment, which its learner may have made again elsewhere while
+        it waited. Settling it while another cart pays for, or is paying for, the same item would charge the learner
+        twice, so the payment stays for a person to refund instead. See ``get_blocking_carts`` for which carts block.
 
-        :param cart: The expired cart.
+        :param cart: The cart whose payment is about to settle.
         """
-        return (
-            Cart.objects.filter(
-                user=cart.user,
-                status=Cart.Status.PAID,
-                items__catalogue_item__in=cart.items.values('catalogue_item'),
+        for item in cart.items.select_related('catalogue_item'):
+            blocking_cart = (
+                get_blocking_carts(cart.user, item.catalogue_item).exclude(pk=cart.pk).order_by('-updated_at').first()
             )
-            .exclude(pk=cart.pk)
-            .first()
-        )
+            if blocking_cart is not None:
+                return blocking_cart
+        return None
+
+    @staticmethod
+    def find_held_item(cart: Cart) -> Optional[CatalogueItem]:
+        """
+        Return an item of the cart its learner already holds, so its payment would buy nothing new, or None.
+
+        Asked before settling a payment, since the learner can come to hold the item while the payment is at the
+        gateway: staff enrol them by hand, say, or every course of a bundle becomes held. Checkout refuses such an item,
+        so settling it would sell nothing; the payment is held for a person to accept or refund instead. The cart
+        itself is left out, as the purchase being settled. Each item type's handler says what holding it means.
+
+        :param cart: The cart whose payment is about to settle.
+        """
+        for item in cart.items.select_related('catalogue_item'):
+            handler = CART_HANDLER.get(item.catalogue_item.type)
+            if handler is not None and handler.holds_item(cart.user, item.catalogue_item, ignored_cart=cart):
+                return item.catalogue_item
+        return None
 
     def reconcile_payment(self, response: Optional[dict], cart: Cart) -> None:
         """
@@ -207,39 +223,9 @@ class BaseProcessor:
             'order_description': get_order_description(cart),
         }
 
-    def find_gateway_order_id(self, cart: Cart) -> Optional[str]:  # pylint: disable=unused-argument
-        """
-        Ask the gateway for the order it holds for the cart, and return its id, or None when there is none to find.
-
-        Asked when a learner comes back to buy a course whose cart was handed off but never had its order recorded --
-        a gateway that opens its order only when the learner pays. A gateway that can be searched by the merchant
-        reference answers here. None here, so a processor that does not override it is treated as one that cannot be
-        searched, and the cart is judged by its age instead.
-
-        :param cart: The cart whose order is looked for.
-        """
-        return None
-
     def get_return_url(self) -> str:
         """Return the path of the processor's return view, which its gateway is to send the learner back to."""
         return reverse('zeitlabs_payments:processor-return', args=[self.SLUG])
-
-    def get_session_end(self, cart: Cart) -> Optional[datetime]:
-        """
-        Return when the cart's payment session ends -- after which the gateway takes no payment for it -- or None.
-
-        Asked of a cart whose payment cannot be resumed, when its learner comes back to buy the course again. A session
-        that has ended expires the cart, so the learner may buy again; one still running makes them wait until it ends;
-        None, a session whose end cannot be told, makes them wait without a time, and never expires the cart. A
-        processor may judge by time, or by a status the gateway reports for the order -- answering now when the gateway
-        says the session is over.
-
-        The default is ``DEFAULT_PAYMENT_SESSION_DURATION`` after the hand-off: long, since expiring too soon risks a
-        second charge while waiting too long only delays a learner.
-
-        :param cart: The cart whose payment is in flight.
-        """
-        return cart.updated_at + DEFAULT_PAYMENT_SESSION_DURATION
 
     def get_gateway_order_id(self, transaction_parameters: dict) -> Optional[str]:  # pylint: disable=unused-argument
         """
@@ -248,6 +234,13 @@ class BaseProcessor:
         The plugin keeps the id on the cart, which is how the payment can be found again without the learner's browser.
         A gateway that opens its order only when the learner pays has none yet; its id is recorded when the learner
         comes back. None here, so a processor that does not override it is treated as one of those.
+
+        The order is the payment: the plugin knows a success it was told about before by its order, whatever
+        transaction id the gateway reports it under. So a processor hands each cart off to one order, and the order
+        must be single-use -- it stops taking payment once paid. A gateway that cannot issue one, a reusable payment
+        link or an invoice payable more than once, is not supported: a second payment on the order would be taken for
+        the first one reported again. A success under an order the cart was not handed off to is recorded but never
+        settled.
 
         :param transaction_parameters: What ``get_transaction_parameters`` returned for the hand-off.
         """
@@ -265,7 +258,10 @@ class BaseProcessor:
 
         Whatever ``get_transaction_parameters`` raises is left to the caller, which closes the cart: a hand-off that
         failed must not be recorded as one that redirected the learner. The order the gateway opened is recorded on the
-        cart when ``get_gateway_order_id`` names it, and a failure to record it is left to the caller the same way.
+        cart before the learner is sent to it, since a payment is found again only through its order; a hand-off whose
+        processor names none, or whose order cannot be recorded, is left to the caller the same way.
+
+        :raises GatewayError: When ``get_gateway_order_id`` names no order for the hand-off.
         """
         transaction_parameters = self.get_transaction_parameters(
             cart=cart,
@@ -274,8 +270,9 @@ class BaseProcessor:
             **kwargs,
         )
         gateway_order_id = self.get_gateway_order_id(transaction_parameters)  # pylint: disable=assignment-from-none
-        if gateway_order_id:
-            cart.record_gateway_order(self.SLUG, gateway_order_id)
+        if not gateway_order_id:
+            raise GatewayError(f'{self.SLUG} named no gateway order for the hand-off of cart {cart.id}.')
+        cart.record_gateway_order(self.SLUG, gateway_order_id)
         return render(
             request,
             self.TEMPLATE_NAME,
@@ -425,6 +422,7 @@ class BaseProcessor:
         currency: str,
         reason: str,
         response: dict = None,
+        refusal: Optional[str] = None,
     ) -> Transaction:
         """
         Persist the payment record first, verify second, and never write less on failure.
@@ -434,8 +432,8 @@ class BaseProcessor:
         annotated with the failure and kept -- it has every column a settled row has, plus the annotation -- and
         the cart is deliberately left un-paid. The raw currency value the gateway sent is what the row holds
         first; only a row that passes verification receives the canonical ISO 4217 form. Verification is the
-        currency's translation by ``map_currency``, the processor's ``reconcile_payment``, for an expired cart that
-        its items were not bought again since, and the status the gateway reported.
+        currency's translation by ``map_currency``, the processor's ``reconcile_payment``, the status the gateway
+        reported, and that the learner does not already hold what the cart sells (``find_held_item``).
 
         :param cart: The cart being paid for.
         :param user: The user making the payment.
@@ -459,37 +457,40 @@ class BaseProcessor:
             for card numbers: any unmasked number found anywhere in it is replaced by its masked form before the
             row is written, while the masked block the gateways already send is kept as-is. The settled columns
             are derived from it via the mapping above, not read back from it.
+        :param refusal: Why the caller already decided the payment is not settled, when it has. It is recorded as the
+            verification failure, in place of every check above.
         :return: Transaction instance. A row whose status is not ``TRANSACTION_STATUS_SUCCESS`` (either the gateway
             reported a non-success status or verification failed) is returned as recorded, annotated, with the cart
             left in its pre-payment state.
         :raises DuplicateTransactionError: If transaction with same ID already exists.
         """
         with db_transaction.atomic():
-            verification_error = None
-            try:
-                canonical_currency_code = canonical_currency(self.map_currency(currency))
-            except Exception as exc:  # pylint: disable=broad-exception-caught
-                # Anything a processor's map_currency or the plugin's canonical_currency raises is a verification
-                # outcome, never a write failure; it annotates the row below.
-                verification_error = exc
-                canonical_currency_code = None
+            verification_error: Optional[Exception] = ValueError(refusal) if refusal else None
+            canonical_currency_code = None
+            if verification_error is None:
+                try:
+                    canonical_currency_code = canonical_currency(self.map_currency(currency))
+                except Exception as exc:  # pylint: disable=broad-exception-caught
+                    # Anything a processor's map_currency or the plugin's canonical_currency raises is a verification
+                    # outcome, never a write failure; it annotates the row below.
+                    verification_error = exc
             if verification_error is None:
                 try:
                     self.reconcile_payment(response, cart)
                 except Exception as exc:  # pylint: disable=broad-exception-caught
                     # Like map_currency above: whatever the processor raises annotates the row, never stops it.
                     verification_error = exc
-            if verification_error is None and cart.status == Cart.Status.EXPIRED:
-                bought_again = self.find_cart_bought_instead(cart)
-                if bought_again is not None:
-                    verification_error = ValueError(
-                        f'cart {cart.id} expired and its items were bought again in cart {bought_again.id}',
-                    )
             if verification_error is None and transaction_status.lower() != self.TRANSACTION_STATUS_SUCCESS:
                 verification_error = ValueError(
                     f'Gateway reported transaction status {transaction_status!r}, expected '
                     f'{self.TRANSACTION_STATUS_SUCCESS!r}'
                 )
+            if verification_error is None:
+                held_item = self.find_held_item(cart)
+                if held_item is not None:
+                    verification_error = ValueError(
+                        f'the learner already holds {held_item.sku}, so the payment would buy nothing new',
+                    )
 
             response = mask_unmasked_card_numbers(response)
             reason = mask_unmasked_card_numbers(reason)
@@ -587,6 +588,7 @@ class BaseProcessor:
         currency: str,
         reason: str,
         site_id: Optional[int] = None,
+        refusal: Optional[str] = None,
     ) -> Optional[Invoice]:
         """
         Record the payment first, settle second, and never roll the record back.
@@ -606,9 +608,12 @@ class BaseProcessor:
         :param currency: Currency code
         :param reason: Gateway-provided reason/description
         :param site_id: Optional site ID for context logging
+        :param refusal: Why the caller already decided the payment is not settled, when it has: the payment is recorded
+            as failing verification for that reason, whatever the cart's status, and nothing is settled.
         :return: Created Invoice instance or None
         """
-        if cart.status not in [Cart.Status.PROCESSING, Cart.Status.PAYMENT_PENDING, Cart.Status.EXPIRED]:
+        settleable = (Cart.Status.PROCESSING, Cart.Status.PAYMENT_PENDING)
+        if refusal is None and cart.status not in settleable:
             AuditLog.log(
                 action=AuditLog.AuditActions.RESPONSE_INVALID_CART,
                 cart=cart,
@@ -616,13 +621,13 @@ class BaseProcessor:
                 context={
                     'cart_status': cart.status,
                     'required_cart_state': (
-                        f'{Cart.Status.PROCESSING}, {Cart.Status.PAYMENT_PENDING} or {Cart.Status.EXPIRED}'
+                        f'{Cart.Status.PROCESSING} or {Cart.Status.PAYMENT_PENDING}'
                     ),
                 },
             )
             logger.warning(
                 f'Cart {cart.id} in invalid status: {cart.status} '
-                '(expected: PROCESSING, PAYMENT_PENDING or EXPIRED).'
+                '(expected: PROCESSING or PAYMENT_PENDING).'
             )
             return None
 
@@ -647,6 +652,7 @@ class BaseProcessor:
                 currency=currency,
                 reason=reason,
                 response=data,
+                refusal=refusal,
             )
 
         except DuplicateTransactionError:

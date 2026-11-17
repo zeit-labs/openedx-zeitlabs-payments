@@ -6,9 +6,13 @@ from decimal import Decimal
 from unittest.mock import call, patch
 
 import pytest
+from common.djangoapps.course_modes.models import CourseMode
+from common.djangoapps.student.models import CourseEnrollment
 from django.contrib.auth import get_user_model
 from django.contrib.sites.models import Site
+from django.db import connection
 from django.test import RequestFactory, TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils.timezone import now
 from rest_framework import status as http_status
@@ -16,16 +20,38 @@ from rest_framework.test import APITestCase
 from waffle.testutils import override_switch
 
 from test_utils.dummy_processor import DummyProcessor
-from zeitlabs_payments.constants import DEFAULT_PAYMENT_SESSION_DURATION
+from zeitlabs_payments.constants import HANDOFF_GRACE_PERIOD, UNRECORDED_GATEWAY_GRACE_PERIOD
 from zeitlabs_payments.exceptions import CartStatusError
-from zeitlabs_payments.models import AuditLog, Cart, CartItem, CatalogueItem, Invoice, InvoiceItem, Transaction
-from zeitlabs_payments.views import InitiatePaymentView
+from zeitlabs_payments.models import (
+    AuditLog,
+    BundleCourseItem,
+    Cart,
+    CartItem,
+    CatalogueItem,
+    Invoice,
+    InvoiceItem,
+    PaymentSitePermission,
+    Transaction,
+)
+from zeitlabs_payments.views import InitiatePaymentView, paid_on_host
 
 User = get_user_model()
 
 PAYMENT_ORIGIN = 'https://learn.example.com'
 STORED_LEARNER_INFO = {'name': 'Layla Haddad'}
 STORED_ORGANIZATION_INFO = {'name': 'The Key Institute LLC', 'vat_no': '445566', 'cr_no': '7788'}
+
+
+def site_employee(username, site=None, users_order_history=True):
+    """
+    Return a new user who is neither staff nor superuser, holding a payment permission row on the site -- the one the
+    test requests are served on unless another is given -- with its flag as given.
+    """
+    employee = User.objects.create(username=username)
+    PaymentSitePermission.objects.create(
+        user=employee, site=site or Site.objects.get(pk=1), users_order_history=users_order_history,
+    )
+    return employee
 
 
 class BaseTestViewMixin(APITestCase):
@@ -264,10 +290,11 @@ class CartViewTest(BaseTestViewMixin):
         })
         self.assertEqual(response.status_code, http_status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data['error'], 'Given SKU item does not match add to cart requirements')
-        self.assertEqual(response.data['details'], (
-            'Unable to add item to the cart as user: user3 does not fulfill enrollment conditions. '
-            'User is already enrolled in the course.'
-        ))
+        details = response.data['details']
+        self.assertIn(f'User {user.username} does not fulfill enrollment conditions', details)
+        self.assertIn(course_item.sku, details, 'the API detail does not name the SKU')
+        self.assertIn(course_item.item_ref_id, details, 'the API detail does not name the course')
+        self.assertIn('User is already enrolled in the course.', details, 'the API detail omits the error behind it')
 
 
 @pytest.mark.usefixtures('base_data')
@@ -280,30 +307,68 @@ class InitiatePaymentViewTest(TestCase):
         self.cart = Cart.objects.create(user=self.user, status=Cart.Status.PENDING)
         self.provider = 'dummy'
         self.url = reverse('zeitlabs_payments:initiate-payment', args=[self.provider, str(self.cart.id)])
+        self.checkout_link = f'href="{reverse("zeitlabs_payments:checkout")}?sku=custom-sku-1"'
+
+    def add_item(self):
+        """Put a catalogue item in the cart, so that a refusal can lead back to checkout for it."""
+        item = CatalogueItem.objects.get(sku='custom-sku-1')
+        self.cart.items.create(catalogue_item=item, original_price=item.price, final_price=item.price)
+
+    def assert_refused(self, response, message, status_code=400):
+        """Assert that the response is the refusal page saying the message, with the status code given."""
+        self.assertEqual(response.status_code, status_code, f'the refusal is not answered {status_code}')
+        self.assertTemplateUsed(response, 'zeitlabs_payments/payment_refused.html', 'the refusal is not a page')
+        self.assertContains(response, message, status_code=status_code, msg_prefix='the refusal does not say why')
 
     def test_redirects_if_not_logged_in(self):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 302)
 
-    def test_returns_400_if_provider_invalid(self):
+    def test_unknown_provider_is_refused_with_a_way_back_to_checkout(self):
+        """Verify that an unknown payment method is refused with a page leading back to checkout for the cart's item."""
+        self.add_item()
         self.client.force_login(self.user)
-        bad_url = reverse('zeitlabs_payments:initiate-payment', args=['invalid', str(self.cart.id)])
-        response = self.client.get(bad_url)
-        self.assertEqual(response.status_code, 400)
-        self.assertIn(b'Unsupported payment provider', response.content)
 
-    def test_returns_400_if_cart_does_not_exist(self):
-        self.client.force_login(self.user)
-        bad_url = reverse('zeitlabs_payments:initiate-payment', args=[self.provider, str(1000)])
-        response = self.client.get(bad_url)
-        self.assertEqual(response.status_code, 400)
-        self.assertIn(b'Cart with ID 1000 does not exist.', response.content)
+        response = self.client.get(reverse('zeitlabs_payments:initiate-payment', args=['invalid', str(self.cart.id)]))
 
-    def test_returns_400_if_cart_does_not_belong_to_user(self):
+        self.assert_refused(response, 'This payment method is not available.')
+        self.assertContains(response, self.checkout_link, status_code=400, msg_prefix='no way back to checkout')
+        self.assertNotContains(response, 'invalid', status_code=400, msg_prefix='the page names the provider asked for')
+
+    def test_a_cart_not_the_learners_is_answered_alike_whatever_the_reason(self):
+        """
+        Verify that a malformed cart id, a cart that does not exist, and another learner's cart get the same page.
+
+        Cart ids are sequential, so any answer telling them apart would let a learner walking the ids learn which
+        carts exist and whose they are. The page names no one and leads to the courses, the cart being none of theirs.
+        """
         self.client.force_login(self.other_user)
-        response = self.client.get(self.url)
-        self.assertEqual(response.status_code, 400)
-        self.assertIn(b'attempted to access cart', response.content)
+        urls = {
+            'malformed': reverse('zeitlabs_payments:initiate-payment', args=[self.provider, 'abc']),
+            'missing': reverse('zeitlabs_payments:initiate-payment', args=[self.provider, '1000']),
+            "another learner's": self.url,
+        }
+
+        with self.assertLogs('zeitlabs_payments.views', level='WARNING') as logs:
+            responses = {reason: self.client.get(url) for reason, url in urls.items()}
+
+        for reason, response in responses.items():
+            with self.subTest(reason=reason):
+                self.assert_refused(response, 'This payment cannot be found.', status_code=404)
+                self.assertContains(
+                    response, f'href="{reverse("courses")}"', status_code=404, msg_prefix='no way to the courses',
+                )
+                for name in (self.user.username, self.other_user.username):
+                    self.assertNotContains(response, name, status_code=404, msg_prefix='the page names a learner')
+        self.assertEqual(
+            len({response.content for response in responses.values()}), 1, 'the three refusals can be told apart',
+        )
+        self.assertIn(
+            f'User 4 asked to pay for cart {self.cart.id}, which is user 3\'s.', '\n'.join(logs.output),
+            'the log does not tell another learner\'s cart apart',
+        )
+        self.cart.refresh_from_db()
+        self.assertEqual(self.cart.status, Cart.Status.PENDING, 'another learner\'s request moved the cart')
 
     def test_successful_payment_view_initiation(self):
         request = RequestFactory().get(self.url)
@@ -325,11 +390,7 @@ class InitiatePaymentViewTest(TestCase):
             with self.assertLogs('zeitlabs_payments.views', level='ERROR') as logs:
                 response = self.client.get(self.url)
 
-        self.assertEqual(response.status_code, 400, 'A processor hidden for the user must be refused')
-        self.assertIn(
-            b'Unsupported payment provider', response.content,
-            'A processor hidden for the user must be refused as an unknown one is',
-        )
+        self.assert_refused(response, 'This payment method is not available.')
         self.assertIn(
             'Payment provider dummy is not offered to user user3', '\n'.join(logs.output),
             'The refusal must be logged with the provider and the user',
@@ -352,11 +413,7 @@ class InitiatePaymentViewTest(TestCase):
             with self.assertLogs('zeitlabs_payments.views', level='ERROR') as logs:
                 response = self.client.get(self.url)
 
-        self.assertEqual(response.status_code, 400, 'A processor that cannot decide must be refused')
-        self.assertIn(
-            b'Unsupported payment provider', response.content,
-            'A processor that cannot decide must be refused as an unknown one is',
-        )
+        self.assert_refused(response, 'This payment method is not available.')
         self.assertIn(
             'RuntimeError: flag lookup failed', '\n'.join(logs.output),
             'The failure must be logged with its traceback',
@@ -426,6 +483,10 @@ class InitiatePaymentViewTest(TestCase):
 
         self.assertEqual(response.status_code, 400, 'a site with no usable origin was not refused')
         self.assertIn(
+            'Payments cannot be made on this site right now.', response.content.decode(),
+            'the refusal page does not say why',
+        )
+        self.assertIn(
             "Payment origin 'https://learn.example.com/lms' must be a scheme and a host", '\n'.join(logs.output),
             'the refusal does not say which origin was refused',
         )
@@ -444,6 +505,7 @@ class InitiatePaymentViewTest(TestCase):
         what replaying this URL from the browser history after paying reaches. Either way, a second gateway order would
         be opened for a cart that has one.
         """
+        self.add_item()
         self.client.force_login(self.user)
         for cart_status in (
             Cart.Status.PROCESSING, Cart.Status.PAYMENT_PENDING, Cart.Status.PAID, Cart.Status.CANCELLED,
@@ -455,13 +517,64 @@ class InitiatePaymentViewTest(TestCase):
                     response = self.client.get(self.url)
 
                 self.assertEqual(response.status_code, 400, f'a {cart_status} cart was not refused')
-                self.assertIn(
-                    f'is {cart_status}; only a pending cart can be paid'.encode(), response.content,
-                    'the refusal does not say why',
+                self.assertTemplateUsed(response, 'zeitlabs_payments/payment_refused.html', 'the refusal is not a page')
+                self.assertNotContains(
+                    response, f'>{cart_status}', status_code=400, msg_prefix='the page shows the cart\'s status',
                 )
                 self.assertFalse(payment_view.called, f'the gateway was called for a {cart_status} cart')
                 self.cart.refresh_from_db()
                 self.assertEqual(self.cart.status, cart_status, f'a {cart_status} cart was moved')
+
+    def test_a_cart_no_longer_pending_leads_back_to_checkout(self):
+        """
+        Verify that a cart that is no longer pending, and not paid, is refused with a way back to checkout for its item.
+
+        A replay of an address already handed off, or an older tab whose cart a newer checkout cancelled, reaches this.
+        Checkout decides from there: it resumes a payment still at the gateway, or starts a new cart.
+        """
+        self.add_item()
+        self.client.force_login(self.user)
+        Cart.objects.filter(pk=self.cart.pk).update(status=Cart.Status.CANCELLED)
+
+        response = self.client.get(self.url)
+
+        self.assert_refused(response, 'This payment link is no longer valid.')
+        self.assertContains(response, self.checkout_link, status_code=400, msg_prefix='no way back to checkout')
+
+    def test_a_paid_cart_leads_to_its_invoice(self):
+        """Verify that a cart already paid is refused as paid, with a way to its invoice rather than to checkout."""
+        self.add_item()
+        self.client.force_login(self.user)
+        Cart.objects.filter(pk=self.cart.pk).update(status=Cart.Status.PAID)
+        transaction = Transaction.objects.create(
+            cart=self.cart, amount=100, gateway='dummy', gateway_transaction_id='TX-1',
+        )
+        Invoice.objects.create(
+            status=Invoice.InvoiceStatus.PAID, cart=self.cart, invoice_number='INV-1', total=100, gross_total=100,
+            currency='SAR', related_transaction=transaction,
+        )
+
+        response = self.client.get(self.url)
+
+        self.assert_refused(response, 'This purchase is already paid.')
+        self.assertContains(
+            response, f'href="{reverse("zeitlabs_payments:invoice", args=["INV-1"])}"', status_code=400,
+            msg_prefix='no way to the invoice',
+        )
+        self.assertNotContains(response, self.checkout_link, status_code=400, msg_prefix='a paid cart offers checkout')
+
+    def test_a_paid_cart_without_an_invoice_leads_to_the_courses(self):
+        """Verify that a cart paid but never invoiced is refused as paid, with a way to the courses only."""
+        self.add_item()
+        self.client.force_login(self.user)
+        Cart.objects.filter(pk=self.cart.pk).update(status=Cart.Status.PAID)
+
+        response = self.client.get(self.url)
+
+        self.assert_refused(response, 'This purchase is already paid.')
+        self.assertContains(
+            response, f'href="{reverse("courses")}"', status_code=400, msg_prefix='no way to the courses',
+        )
 
     def test_failed_hand_off_closes_the_cart(self):
         """
@@ -496,11 +609,11 @@ class InitiatePaymentViewTest(TestCase):
         """
         self.client.force_login(self.user)
 
-        def expire_then_fail(**kwargs):
-            Cart.objects.filter(pk=self.cart.pk).update(status=Cart.Status.EXPIRED)
+        def move_then_fail(**kwargs):
+            Cart.objects.filter(pk=self.cart.pk).update(status=Cart.Status.PAYMENT_PENDING)
             raise TimeoutError('no answer')
 
-        with patch('test_utils.dummy_processor.DummyProcessor.payment_view', side_effect=expire_then_fail):
+        with patch('test_utils.dummy_processor.DummyProcessor.payment_view', side_effect=move_then_fail):
             with self.assertLogs('zeitlabs_payments.views', level='WARNING') as logs:
                 response = self.client.get(self.url)
 
@@ -510,7 +623,9 @@ class InitiatePaymentViewTest(TestCase):
             'the refused close is not logged',
         )
         self.cart.refresh_from_db()
-        self.assertEqual(self.cart.status, Cart.Status.EXPIRED, 'the cart was not left as the other request left it')
+        self.assertEqual(
+            self.cart.status, Cart.Status.PAYMENT_PENDING, 'the cart was not left as the other request left it',
+        )
         self.assertFalse(
             AuditLog.objects.filter(cart=self.cart, action=AuditLog.AuditActions.PAYMENT_HANDOFF_FAILED).exists(),
             'a close that did not happen is on the trail',
@@ -623,10 +738,10 @@ class InFlightPaymentOnBuyingAgainTest(TestCase):
         self.cart_url = reverse('zeitlabs_payments:cart-add')
         self.client.force_login(self.user)
 
-    def inflight_cart(self, status=Cart.Status.PROCESSING, gateway_order_id=None, age=timedelta(0)):
-        """Return the learner's cart for the course, handed to the dummy gateway the given time ago."""
+    def inflight_cart(self, status=Cart.Status.PROCESSING, gateway_order_id=None, age=timedelta(0), gateway='dummy'):
+        """Return the learner's cart for the course, handed to the given gateway the given time ago."""
         cart = Cart.objects.create(
-            user=self.user, status=status, gateway='dummy', gateway_order_id=gateway_order_id,
+            user=self.user, status=status, gateway=gateway, gateway_order_id=gateway_order_id,
         )
         cart.items.create(catalogue_item=self.item, original_price=self.item.price, final_price=self.item.price)
         Cart.objects.filter(pk=cart.pk).update(updated_at=now() - age)
@@ -643,45 +758,40 @@ class InFlightPaymentOnBuyingAgainTest(TestCase):
         )
         self.assertEqual(Cart.objects.filter(user=self.user).count(), 1, 'a second cart was made')
 
-    def test_checkout_asks_the_learner_to_wait_for_a_payment_in_progress(self):
+    def test_checkout_asks_the_learner_to_wait_for_a_hand_off_in_progress(self):
         """
-        Verify that checkout tells the learner a payment is in progress, and roughly when they may try again.
-
-        The wait is worded in hours from an hour up, in minutes below it, and as later when the session's end is not
-        known.
+        Verify that checkout tells the learner a payment is in progress, and roughly when they may try again: the end
+        of the grace a hand-off with no order recorded is given, worded in minutes below an hour.
         """
-        cart = self.inflight_cart(gateway_order_id='ORDER-1')
-        no_waiting_page = patch.object(DummyProcessor, 'RETURN_VIEW', None)
-        no_waiting_page.start()
-        self.addCleanup(no_waiting_page.stop)
-        cases = [
-            (timedelta(minutes=25), 'try again in about 24 hours'),
-            (DEFAULT_PAYMENT_SESSION_DURATION - timedelta(minutes=5), 'try again in about 5 minutes'),
-        ]
-        for age, wording in cases:
-            with self.subTest(age=age):
-                Cart.objects.filter(pk=cart.pk).update(updated_at=now() - age)
+        self.inflight_cart(age=HANDOFF_GRACE_PERIOD - timedelta(minutes=5))
 
-                response = self.client.get(self.checkout_url)
+        response = self.client.get(self.checkout_url)
 
-                self.assertTemplateUsed(response, 'zeitlabs_payments/payment_in_progress.html')
-                self.assertContains(response, wording, msg_prefix='the time to wait is not given')
-                self.assertContains(response, 'ORDER-1', msg_prefix='the payment in progress has no reference')
+        self.assertTemplateUsed(response, 'zeitlabs_payments/payment_in_progress.html')
+        self.assertContains(response, 'try again in about 5 minutes', msg_prefix='the time to wait is not given')
 
-        with patch.object(DummyProcessor, 'get_session_end', return_value=None):
-            response = self.client.get(self.checkout_url)
-        self.assertContains(response, 'try again later', msg_prefix='an unknown wait is not worded as later')
+    def test_checkout_asks_the_learner_to_wait_for_a_hand_off_that_recorded_no_gateway(self):
+        """
+        Verify that checkout tells the learner whose cart was handed off before carts recorded their gateway to wait
+        out a day from the hand-off, worded in hours from an hour up, rather than refusing them for good.
+        """
+        self.inflight_cart(gateway=None, age=UNRECORDED_GATEWAY_GRACE_PERIOD - timedelta(hours=3, minutes=30))
 
-    def test_checkout_makes_the_cart_once_an_abandoned_payment_expired(self):
-        """Verify that checkout expires an abandoned payment past its session and goes on to the new cart."""
-        abandoned = self.inflight_cart(age=timedelta(hours=25))
+        response = self.client.get(self.checkout_url)
+
+        self.assertTemplateUsed(response, 'zeitlabs_payments/payment_in_progress.html')
+        self.assertContains(response, 'try again in about 4 hours', msg_prefix='the time to wait is not given')
+
+    def test_checkout_makes_the_cart_once_a_failed_hand_off_is_closed(self):
+        """Verify that checkout closes a hand-off with no order past its grace and goes on to the new cart."""
+        failed = self.inflight_cart(age=HANDOFF_GRACE_PERIOD + timedelta(minutes=1))
 
         response = self.client.get(self.checkout_url)
 
         self.assertTemplateUsed(response, 'zeitlabs_payments/checkout.html')
-        self.assertNotEqual(response.context['cart']['id'], abandoned.id, 'the abandoned cart was offered again')
-        abandoned.refresh_from_db()
-        self.assertEqual(abandoned.status, Cart.Status.EXPIRED, 'the abandoned cart did not expire')
+        self.assertNotEqual(response.context['cart']['id'], failed.id, 'the failed hand-off was offered again')
+        failed.refresh_from_db()
+        self.assertEqual(failed.status, Cart.Status.CLOSED, 'the failed hand-off was not closed')
 
     def test_checkout_refuses_while_nothing_can_be_concluded_about_a_payment(self):
         """Verify that checkout refuses a learner whose earlier payment was answered about but cannot be asked again."""
@@ -714,7 +824,7 @@ class InFlightPaymentOnBuyingAgainTest(TestCase):
 
     def test_api_names_when_to_retry_a_payment_in_progress(self):
         """Verify that the cart API answers 409 with the time after which buying again is allowed."""
-        cart = self.inflight_cart(age=timedelta(minutes=10))
+        cart = self.inflight_cart(age=timedelta(minutes=1))
         cart.refresh_from_db()
 
         response = self.client.post(self.cart_url, data={'sku': self.item.sku})
@@ -723,7 +833,7 @@ class InFlightPaymentOnBuyingAgainTest(TestCase):
             (response.status_code, response.json()),
             (409, {
                 'outcome': 'payment_in_progress',
-                'retry_after': (cart.updated_at + DEFAULT_PAYMENT_SESSION_DURATION).isoformat(),
+                'retry_after': (cart.updated_at + HANDOFF_GRACE_PERIOD).isoformat(),
             }),
             'the payment in progress was not named with the time to retry',
         )
@@ -751,6 +861,133 @@ class InFlightPaymentOnBuyingAgainTest(TestCase):
         self.assertEqual(
             response.json()['details'], 'A payment for this course is still awaiting confirmation.',
             'the refusal does not say why',
+        )
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures('base_data')
+class BundleEveryCourseHeldTest(TestCase):
+    """Checkout and the cart API refuse a bundle whose every course the learner already holds."""
+
+    def setUp(self):
+        self.user = User.objects.get(id=3)
+        self.bundle = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
+        self.checkout_url = f"{reverse('zeitlabs_payments:checkout')}?sku={self.bundle.sku}"
+        self.cart_url = reverse('zeitlabs_payments:cart-add')
+        self.client.force_login(self.user)
+        for link in BundleCourseItem.objects.filter(bundle=self.bundle).select_related('course_item'):
+            course_mode = CourseMode.objects.get(sku=link.course_item.sku)
+            CourseEnrollment.objects.create(
+                user=self.user, course=course_mode.course, mode=course_mode.mode_slug, is_active=True,
+            )
+
+    def test_checkout_refuses_the_bundle_and_says_every_course_is_held(self):
+        """Verify that checkout refuses the bundle, saying the learner already has all its courses."""
+        response = self.client.get(self.checkout_url)
+
+        self.assertEqual(response.status_code, 400, 'the bundle whose every course is held was not refused')
+        self.assertContains(response, 'You already have all the courses in this bundle.', status_code=400)
+        self.assertFalse(
+            Cart.objects.filter(user=self.user).exists(), 'a cart was made for a bundle the learner already holds',
+        )
+
+    def test_api_refuses_the_bundle_and_says_every_course_is_held(self):
+        """Verify that the cart API refuses the bundle the same way, in its usual error shape."""
+        response = self.client.post(self.cart_url, data={'sku': self.bundle.sku})
+
+        self.assertEqual(response.status_code, 400, 'the bundle whose every course is held was not refused')
+        self.assertIn(self.bundle.sku, response.json()['details'], 'the API detail does not name the bundle')
+        self.assertIn('already holds all', response.json()['details'])
+        self.assertFalse(
+            Cart.objects.filter(user=self.user).exists(), 'a cart was made for a bundle the learner already holds',
+        )
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures('base_data')
+class EmptyBundleOnCheckoutTest(TestCase):
+    """Checkout of a bundle with no courses linked: its setup error comes before the learner's carts."""
+
+    def setUp(self):
+        self.user = User.objects.get(id=3)
+        self.bundle = CatalogueItem.objects.get(sku='BUNDLE-EMPTY')
+        self.checkout_url = f"{reverse('zeitlabs_payments:checkout')}?sku={self.bundle.sku}"
+        self.cart_url = reverse('zeitlabs_payments:cart-add')
+        self.client.force_login(self.user)
+
+    def inflight_cart(self, gateway_order_id='ORDER-EMPTY', age=timedelta(0)):
+        """Return the learner's cart for the empty bundle, handed to the dummy gateway the given time ago."""
+        cart = Cart.objects.create(
+            user=self.user, status=Cart.Status.PROCESSING, gateway='dummy', gateway_order_id=gateway_order_id,
+        )
+        cart.items.create(catalogue_item=self.bundle, original_price=self.bundle.price, final_price=self.bundle.price)
+        Cart.objects.filter(pk=cart.pk).update(updated_at=now() - age)
+        cart.refresh_from_db()
+        return cart
+
+    def test_checkout_reports_an_empty_bundle_instead_of_resuming_its_payment(self):
+        """
+        Verify that checkout refuses an empty bundle with its setup error, leaving the resumable payment untouched.
+
+        Its order is known and the dummy processor has a waiting page, so the cart checks would have sent the learner
+        back to it; the bundle's configuration is reported instead.
+        """
+        inflight = self.inflight_cart()
+
+        response = self.client.get(self.checkout_url)
+
+        self.assertEqual(response.status_code, 400, 'the empty bundle was not refused')
+        self.assertContains(response, 'This bundle is not available to buy right now.', status_code=400)
+        inflight.refresh_from_db()
+        self.assertEqual(inflight.status, Cart.Status.PROCESSING, 'the payment in flight was resolved')
+
+    def test_checkout_reports_an_empty_bundle_instead_of_waiting_on_its_payment(self):
+        """
+        Verify that checkout refuses an empty bundle with its setup error, instead of asking the learner to wait.
+
+        Its order is not recorded and its session has not lapsed, so the cart checks would have said a payment is in
+        progress; the bundle's configuration is reported instead.
+        """
+        inflight = self.inflight_cart(gateway_order_id=None)
+
+        response = self.client.get(self.checkout_url)
+
+        self.assertEqual(response.status_code, 400, 'the empty bundle was not refused')
+        self.assertContains(response, 'This bundle is not available to buy right now.', status_code=400)
+        inflight.refresh_from_db()
+        self.assertEqual(inflight.status, Cart.Status.PROCESSING, 'the payment in flight was resolved')
+
+    def test_checkout_reports_an_empty_bundle_instead_of_expiring_its_payment(self):
+        """
+        Verify that checkout refuses an empty bundle even when its payment is past the session, leaving it processing.
+
+        An abandoned payment would have been expired and a new cart made; the bundle's configuration is reported
+        instead, and nothing of the learner's is moved or made.
+        """
+        inflight = self.inflight_cart(gateway_order_id=None, age=HANDOFF_GRACE_PERIOD * 2)
+
+        response = self.client.get(self.checkout_url)
+
+        self.assertEqual(response.status_code, 400, 'the empty bundle was not refused')
+        self.assertContains(response, 'This bundle is not available to buy right now.', status_code=400)
+        inflight.refresh_from_db()
+        self.assertEqual(inflight.status, Cart.Status.PROCESSING, 'the abandoned payment was expired')
+        self.assertEqual(
+            Cart.objects.filter(user=self.user).count(), 1, 'a new cart was made for a bundle that cannot be bought',
+        )
+
+    def test_api_reports_an_empty_bundle_instead_of_resuming_its_payment(self):
+        """Verify that the cart API refuses an empty bundle with its setup error, leaving its payment untouched."""
+        inflight = self.inflight_cart()
+
+        response = self.client.post(self.cart_url, data={'sku': self.bundle.sku})
+
+        self.assertEqual(response.status_code, 400, 'the empty bundle was not refused')
+        self.assertIn(self.bundle.sku, response.json()['details'], 'the API detail does not name the bundle')
+        inflight.refresh_from_db()
+        self.assertEqual(inflight.status, Cart.Status.PROCESSING, 'the payment in flight was resolved')
+        self.assertEqual(
+            Cart.objects.filter(user=self.user).count(), 1, 'a cart was made for a bundle that cannot be bought',
         )
 
 
@@ -797,40 +1034,47 @@ class CheckoutViewTests(TestCase):
         self.assertEqual(user_existing_cart.status, Cart.Status.CANCELLED, 'Old pending cart should be cancelled.')
 
     def test_checkout_view_with_sku_for_invalid_sku(self):
+        """Verify that an unknown SKU is refused with one plain sentence, with the SKU kept in the log."""
         self.client.force_login(self.user)
         test_sku = 'does-not-exist'
-        response = self.client.get(f'{self.url}?sku={test_sku}')
+        with self.assertLogs('zeitlabs_payments.views', level='WARNING') as logs:
+            response = self.client.get(f'{self.url}?sku={test_sku}')
         self.assertTemplateUsed(response, 'zeitlabs_payments/invalid_cart.html')
-        self.assertEqual(response.context['error_message'], 'Item with sku: does-not-exist does not exist.')
+        self.assertEqual(response.context['error_message'], 'This item is not available.')
+        self.assertNotIn(test_sku, response.context['error_message'], 'the learner sentence names the SKU')
+        self.assertIn(test_sku, '\n'.join(logs.output), 'the refused SKU is not logged')
         self.assertEqual(response.status_code, 404)
 
     @patch.dict(
         'zeitlabs_payments.views.CART_HANDLER', {}, clear=True
     )
     def test_checkout_view_with_sku_for_item_sku_with_unsuppported_type(self):
+        """Verify that an unsupported item is refused with one plain sentence, its type kept in the log."""
         self.client.force_login(self.user)
-        response = self.client.get(f'{self.url}?sku=custom-sku-1')
+        with self.assertLogs('zeitlabs_payments.views', level='WARNING') as logs:
+            response = self.client.get(f'{self.url}?sku=custom-sku-1')
         self.assertTemplateUsed(response, 'zeitlabs_payments/invalid_cart.html')
-        self.assertEqual(
-            response.context['error_message'],
-            'Item has unsupported type: paid_course.'
-        )
+        self.assertEqual(response.context['error_message'], 'This item cannot be bought right now.')
+        self.assertIn('paid_course', '\n'.join(logs.output), 'the refused type is not logged')
         self.assertEqual(response.status_code, 400)
 
     @patch(
         'zeitlabs_payments.helpers.CourseEnrollment.is_enrolled'
     )
     def test_checkout_view_with_sku_for_course_item_sku_already_enrolled(self, mock_enrolled):
+        """Verify that an already-enrolled learner sees one plain sentence, with the detail kept in the log."""
         mock_enrolled.return_value = True
         self.client.force_login(self.user)
-        response = self.client.get(f'{self.url}?sku=custom-sku-1')
+        with self.assertLogs('zeitlabs_payments.cart_handler', level='WARNING') as logs:
+            response = self.client.get(f'{self.url}?sku=custom-sku-1')
         self.assertTemplateUsed(response, 'zeitlabs_payments/invalid_cart.html')
-        self.assertEqual(
-            response.context['error_message'],
-            'Unable to add item to the cart as user: user3 does not fulfill enrollment '
-            'conditions. User is already enrolled in the course.'
-        )
+        self.assertEqual(response.context['error_message'], 'You are already enrolled in this course.')
+        self.assertNotIn('user3', response.context['error_message'], 'the learner sentence names the user')
+        self.assertNotIn('custom-sku-1', response.context['error_message'], 'the learner sentence names the SKU')
         self.assertEqual(response.status_code, 400)
+        logged = '\n'.join(logs.output)
+        self.assertIn('Checkout refused for user', logged)
+        self.assertIn('custom-sku-1', logged, 'the refused SKU is not logged')
 
     def test_checkout_view_with_multiple_skus_renders_invalid_cart_page(self):
         """Verify that a multi-SKU checkout URL renders the invalid-cart page with status 400.
@@ -1110,6 +1354,45 @@ class InvoiceViewTest(BaseTestViewMixin):
 
         self.assertEqual(response.status_code, 410, 'another learner was not answered with the private page')
         self.assertTemplateUsed(response, 'zeitlabs_payments/invoice_private.html')
+
+    def test_an_employee_granted_the_site_opens_an_invoice_paid_on_it(self):
+        """Verify that a site's employee holding the history flag there opens an invoice paid on that site."""
+        invoice = self._issue_invoice('TEST-EMPLOYEE-1')
+        self.client.force_login(site_employee('history-employee'))
+        self.url_args = [invoice.invoice_number]
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200, 'the employee granted the site could not open its invoice')
+        self.assertEqual(response.context['invoice'], invoice, 'the employee was shown another invoice')
+
+    def test_an_employee_is_refused_an_invoice_the_grant_does_not_cover(self):
+        """
+        Verify that an employee gets the private page, never the invoice nor a redirect, when they hold no grant, hold
+        it with its flag off or for another site, or the invoice was paid on another site or before sites were
+        recorded: an employee sees only what was paid on the site they are granted.
+        """
+        here = self._issue_invoice('TEST-EMPLOYEE-HERE')
+        elsewhere = self._issue_invoice('TEST-EMPLOYEE-ELSEWHERE', payment_origin='https://other.example.com')
+        unrecorded = self._issue_invoice('TEST-EMPLOYEE-UNRECORDED', payment_origin=None)
+        other_site = Site.objects.create(domain='other.example.com', name='Other')
+        ungranted = User.objects.create(username='ungranted-employee')
+        cases = (
+            (ungranted, here, 'no grant'),
+            (site_employee('paused-employee', users_order_history=False), here, 'the flag off'),
+            (site_employee('other-site-employee', site=other_site), here, 'a grant for another site'),
+            (site_employee('this-site-employee'), elsewhere, 'an invoice paid on another site'),
+            (User.objects.get(username='this-site-employee'), unrecorded, 'an invoice paid before sites were recorded'),
+        )
+
+        for employee, invoice, case in cases:
+            self.client.force_login(employee)
+            self.url_args = [invoice.invoice_number]
+
+            response = self.client.get(self.url)
+
+            self.assertEqual(response.status_code, 410, f'the employee was not refused with {case}')
+            self.assertTemplateUsed(response, 'zeitlabs_payments/invoice_private.html')
 
     def test_invoice_from_before_origins_were_recorded_is_shown_on_any_site(self):
         """Verify that an invoice whose cart has no origin, and so names no site, is shown where it is asked for."""
@@ -1543,3 +1826,582 @@ class PaymentReconciliationViewTest(BaseTestViewMixin):
         self.assertContains(response, 'Payment Not Yet Confirmed', msg_prefix='the unconfirmed wording is not shown')
         self.assertContains(response, 'Please do not pay again', msg_prefix='the learner is invited to pay again')
         self.assertNotContains(response, 'Payment Received', msg_prefix='an unconfirmed payment is called received')
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures('base_data')
+class BundleWordingTest(TestCase):
+    """The pages and refusals a learner reaches while a payment is open, worded for a bundle as for a course."""
+
+    def setUp(self):
+        self.user = User.objects.get(id=3)
+        self.bundle = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
+        self.course = CatalogueItem.objects.get(sku='custom-sku-1')
+        self.client.force_login(self.user)
+
+    def open_cart(self, item, status=Cart.Status.PROCESSING, gateway_order_id=None, user=None):
+        """Return a cart of the learner for the item, handed to the dummy gateway a minute ago."""
+        cart = Cart.objects.create(
+            user=user or self.user, status=status, gateway='dummy', gateway_order_id=gateway_order_id,
+        )
+        cart.items.create(catalogue_item=item, original_price=item.price, final_price=item.price)
+        Cart.objects.filter(pk=cart.pk).update(updated_at=now() - timedelta(minutes=1))
+        return cart
+
+    def checkout(self, item):
+        """Open checkout for the item."""
+        return self.client.get(f"{reverse('zeitlabs_payments:checkout')}?sku={item.sku}")
+
+    def reconciliation(self, gateway_order_id):
+        """Open the not-confirmed-yet reconciliation page for the order."""
+        return self.client.get(
+            f"{reverse('zeitlabs_payments:payment-reconciliation', args=[gateway_order_id])}?unconfirmed=1",
+        )
+
+    def test_the_in_progress_page_names_a_bundle(self):
+        """Verify that the in-progress page says a payment for this bundle is in progress, not one for this course."""
+        self.open_cart(self.bundle)
+
+        response = self.checkout(self.bundle)
+
+        self.assertContains(
+            response, 'A payment for this bundle is already in progress.', msg_prefix='not worded for a bundle',
+        )
+        self.assertNotContains(response, 'this course', msg_prefix='a bundle is called a course')
+
+    def test_the_in_progress_page_still_names_a_course(self):
+        """Verify that the in-progress page still says a payment for this course is in progress, for a course."""
+        self.open_cart(self.course)
+
+        response = self.checkout(self.course)
+
+        self.assertContains(response, 'A payment for this course is already in progress.', msg_prefix='not a course')
+
+    def test_the_checkout_refusal_names_a_bundle(self):
+        """Verify that checkout refuses a bundle whose payment awaits confirmation in a sentence naming a bundle."""
+        self.open_cart(self.bundle, status=Cart.Status.PAYMENT_PENDING)
+
+        response = self.checkout(self.bundle)
+
+        self.assertContains(
+            response,
+            'A payment for this bundle is still awaiting confirmation. Please contact support before paying again.',
+            status_code=400,
+            msg_prefix='the refusal does not name a bundle',
+        )
+
+    def test_the_checkout_refusal_still_names_a_course(self):
+        """Verify that checkout still refuses a course whose payment is awaiting confirmation naming a course."""
+        self.open_cart(self.course, status=Cart.Status.PAYMENT_PENDING)
+
+        response = self.checkout(self.course)
+
+        self.assertContains(
+            response, 'A payment for this course is still awaiting confirmation.', status_code=400,
+            msg_prefix='the refusal does not name a course',
+        )
+
+    def test_the_api_detail_names_a_bundle_or_a_course(self):
+        """Verify that the add-to-cart API's detail for a payment awaiting confirmation names the item's type."""
+        for item, word in ((self.bundle, 'bundle'), (self.course, 'course')):
+            self.open_cart(item, status=Cart.Status.PAYMENT_PENDING)
+
+        responses = {
+            word: self.client.post(reverse('zeitlabs_payments:cart-add'), data={'sku': item.sku})
+            for item, word in ((self.bundle, 'bundle'), (self.course, 'course'))
+        }
+
+        for word, response in responses.items():
+            self.assertEqual(response.status_code, 400, f'the {word} was not refused')
+            self.assertEqual(
+                response.json()['details'], f'A payment for this {word} is still awaiting confirmation.',
+                f'the API detail does not name a {word}',
+            )
+
+    def test_the_reconciliation_page_names_the_courses_of_a_bundle(self):
+        """
+        Verify that the reconciliation page tells a learner whose bundle is unconfirmed to contact support if its
+        courses do not appear in their dashboard.
+        """
+        self.open_cart(self.bundle, status=Cart.Status.PAYMENT_PENDING, gateway_order_id='ORDER-B')
+
+        response = self.reconciliation('ORDER-B')
+
+        self.assertContains(
+            response, "the bundle's courses do not appear in your dashboard", msg_prefix='not worded for a bundle',
+        )
+
+    def test_the_reconciliation_page_keeps_the_course_wording_for_a_course_or_another_learner(self):
+        """
+        Verify that the reconciliation page says "the course" for a course, and for an order of another learner's,
+        so the page never tells anyone what someone else bought.
+        """
+        self.open_cart(self.course, status=Cart.Status.PAYMENT_PENDING, gateway_order_id='ORDER-C')
+        self.open_cart(
+            self.bundle, status=Cart.Status.PAYMENT_PENDING, gateway_order_id='ORDER-OTHER',
+            user=User.objects.get(id=4),
+        )
+
+        for gateway_order_id in ('ORDER-C', 'ORDER-OTHER'):
+            response = self.reconciliation(gateway_order_id)
+
+            self.assertContains(
+                response, 'the course does not appear in your dashboard',
+                msg_prefix=f'{gateway_order_id} is not worded for a course',
+            )
+
+
+# The origin the test client's requests are served on, and other spellings of it.
+TEST_ORIGIN = 'http://testserver'
+SAME_SITE_ORIGINS = (TEST_ORIGIN, 'https://testserver', 'https://TestServer', 'https://testserver:443')
+# Origins of another site: another host, another port on the same host, and none recorded.
+OTHER_SITE_ORIGINS = ('https://other.example.com', 'https://testserver:8443', None)
+
+
+@pytest.mark.django_db
+def test_paid_on_host_matches_an_ipv6_host_by_its_port():
+    """Verify that a host named by an IPv6 address keeps the carts paid on it at that port, and no other."""
+    user = User.objects.create(username='ipv6-learner')
+    here = Cart.objects.create(user=user, status=Cart.Status.PAID, payment_origin='http://[::1]:8000')
+    Cart.objects.create(user=user, status=Cart.Status.PAID, payment_origin='http://[::1]:9000')
+
+    matched = list(Cart.objects.filter(paid_on_host('[::1]:8000')))
+
+    assert matched == [here], f'the IPv6 host matched {matched}, not only the cart paid on it'
+
+
+@pytest.mark.django_db
+def test_paid_on_host_matches_nothing_for_a_host_with_no_name():
+    """Verify that a host with no name keeps no cart, not even one with no origin recorded."""
+    user = User.objects.create(username='nameless-host-learner')
+    Cart.objects.create(user=user, status=Cart.Status.PAID, payment_origin='http://testserver')
+    Cart.objects.create(user=user, status=Cart.Status.PAID)
+
+    assert not Cart.objects.filter(paid_on_host('')).exists(), 'a host with no name matched a cart'
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures('base_data')
+class OrderHistoryViewTest(TestCase):
+    """The learner's payment history page."""
+
+    def setUp(self):
+        self.user = User.objects.get(id=3)
+        self.course = CatalogueItem.objects.get(sku='custom-sku-1')
+        self.bundle = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
+        self.url = reverse('zeitlabs_payments:order-history')
+        self.client.force_login(self.user)
+
+    def order(  # pylint: disable=too-many-positional-arguments
+        self, status, item=None, user=None, gateway_order_id=None, age=timedelta(0), payment_origin=TEST_ORIGIN,
+    ):
+        """
+        Return an order of the learner, in the given status, for the item, created the given time ago, paid on the
+        test client's site unless another origin is given.
+        """
+        item = item or self.course
+        cart = Cart.objects.create(
+            user=user or self.user, status=status, gateway='dummy', gateway_order_id=gateway_order_id,
+            payment_origin=payment_origin,
+        )
+        cart.items.create(catalogue_item=item, original_price=item.price, final_price=item.price)
+        Cart.objects.filter(pk=cart.pk).update(created_at=now() - age)
+        return cart
+
+    def invoice(self, cart, invoice_number, total=Decimal('45')):
+        """Issue the cart its paid invoice for the total."""
+        payment = Transaction.objects.create(
+            cart=cart, amount=total, gateway='dummy', gateway_transaction_id=f'TX-{invoice_number}',
+        )
+        return Invoice.objects.create(
+            status=Invoice.InvoiceStatus.PAID, cart=cart, invoice_number=invoice_number, total=total,
+            gross_total=total, currency='SAR', related_transaction=payment,
+        )
+
+    def test_the_page_needs_a_login(self):
+        """Verify that the history page sends a visitor who is not logged in to log in."""
+        self.client.logout()
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 302, 'the history was shown without a login')
+
+    def test_the_page_lists_the_learners_orders_that_reached_the_gateway(self):
+        """
+        Verify that the page lists the learner's own orders that reached the gateway, and none that never charged
+        anyone -- pending, cancelled or closed -- nor any other learner's.
+        """
+        listed = {
+            status: self.order(status)
+            for status in (
+                Cart.Status.PROCESSING, Cart.Status.PAYMENT_PENDING, Cart.Status.PAID, Cart.Status.UNRECONCILED,
+                Cart.Status.REFUND_REQUESTED, Cart.Status.REFUNDED,
+            )
+        }
+        for status in (Cart.Status.PENDING, Cart.Status.CANCELLED, Cart.Status.CLOSED):
+            self.order(status)
+        self.order(Cart.Status.PAID, user=User.objects.get(id=4))
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200, 'the history was not shown')
+        self.assertEqual(
+            {row.cart for row in response.context['orders']}, set(listed.values()),
+            'the history does not list exactly the learner\'s orders that reached the gateway',
+        )
+
+    def test_a_paid_order_links_its_invoice_and_shows_its_amount(self):
+        """Verify that a paid order is labelled paid, shows its invoice's amount, and links to its invoice."""
+        cart = self.order(Cart.Status.PAID)
+        self.invoice(cart, 'INV-100', total=Decimal('45'))
+
+        response = self.client.get(self.url)
+
+        row = response.context['orders'][0]
+        self.assertEqual((row.amount, row.currency), (Decimal('45'), 'SAR'), 'the amount is not the invoice\'s')
+        self.assertContains(response, reverse('zeitlabs_payments:invoice', args=['INV-100']))
+        self.assertContains(response, 'data-status="paid"', msg_prefix='the order is not labelled paid')
+
+    def test_an_order_being_confirmed_shows_its_reference_and_no_invoice(self):
+        """
+        Verify that an order still being confirmed -- awaiting the gateway, unreconciled, or paid without an invoice --
+        is labelled so and shows the reference to quote to support, with no invoice link.
+        """
+        confirming = (
+            (Cart.Status.PAYMENT_PENDING, 'ORDER-1'),
+            (Cart.Status.UNRECONCILED, 'ORDER-2'),
+            (Cart.Status.PAID, 'ORDER-3'),
+        )
+        for status, reference in confirming:
+            self.order(status, gateway_order_id=reference)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(
+            [row.state for row in response.context['orders']], ['confirming'] * 3,
+            'an order still being confirmed is not labelled so',
+        )
+        for reference in ('ORDER-1', 'ORDER-2', 'ORDER-3'):
+            self.assertContains(response, reference, msg_prefix=f'the reference {reference} is not shown')
+        self.assertContains(response, 'Being confirmed', msg_prefix='the label is not shown')
+        self.assertNotContains(response, '/payment/v1/invoice/', msg_prefix='an order with no invoice links one')
+
+    def test_a_refund_is_labelled_as_one(self):
+        """Verify that an order awaiting its refund, and one refunded, are labelled as such."""
+        self.order(Cart.Status.REFUND_REQUESTED, age=timedelta(minutes=1))
+        self.order(Cart.Status.REFUNDED)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(
+            [row.state for row in response.context['orders']], ['refunded', 'refund_requested'],
+            'the refunds are not labelled as such',
+        )
+        self.assertContains(response, 'Refund requested', msg_prefix='a refund requested is not labelled')
+        self.assertContains(response, 'Refunded', msg_prefix='a refund is not labelled')
+
+    def test_a_course_links_its_page_and_a_bundle_is_marked_a_program(self):
+        """Verify that a course order links to the course's page, and a bundle order shows its title as a program."""
+        self.order(Cart.Status.PAID, item=self.course)
+        self.order(Cart.Status.PAID, item=self.bundle)
+
+        response = self.client.get(self.url)
+
+        self.assertContains(response, reverse('about_course', args=[self.course.item_ref_id]))
+        self.assertContains(response, self.bundle.title, msg_prefix='the bundle is not named')
+        self.assertContains(response, 'Program', msg_prefix='the bundle is not marked a program')
+
+    def test_orders_are_listed_newest_first_twenty_to_a_page(self):
+        """Verify that the newest order comes first, and the history is split into pages of twenty."""
+        orders = [self.order(Cart.Status.REFUNDED, age=timedelta(days=day)) for day in range(21)]
+
+        first = self.client.get(self.url)
+        second = self.client.get(self.url, {'page': 2})
+
+        self.assertEqual(
+            [row.cart for row in first.context['orders']], orders[:20], 'the first page is not the newest twenty',
+        )
+        self.assertEqual([row.cart for row in second.context['orders']], orders[20:], 'the oldest is not on page 2')
+        self.assertContains(first, 'Page 1 of 2', msg_prefix='the page is not numbered')
+        self.assertContains(first, 'Next', msg_prefix='no way to the next page')
+        self.assertContains(second, 'Previous', msg_prefix='no way back to the previous page')
+
+    def test_the_query_count_does_not_grow_with_the_history(self):
+        """
+        Verify that listing many orders takes no more queries than listing one, so the page does not slow down.
+
+        The page is requested once before counting, so the site lookup the first request caches is not counted.
+        """
+        def queries_for_history():
+            with CaptureQueriesContext(connection) as captured:
+                self.client.get(self.url)
+            return len(captured)
+
+        self.invoice(self.order(Cart.Status.PAID), 'INV-1')
+        self.client.get(self.url)
+        one = queries_for_history()
+        for number in range(2, 6):
+            self.invoice(self.order(Cart.Status.PAID, item=self.bundle if number % 2 else self.course), f'INV-{number}')
+        self.order(Cart.Status.UNRECONCILED, gateway_order_id='ORDER-9')
+
+        self.assertEqual(queries_for_history(), one, 'the query count grows with the history')
+
+    def test_an_empty_history_says_so(self):
+        """Verify that a learner with no orders that reached the gateway is told they have made no payments."""
+        self.order(Cart.Status.PENDING)
+
+        response = self.client.get(self.url)
+
+        self.assertContains(response, 'You have not made any payments yet.', msg_prefix='the empty history is blank')
+
+    def test_only_orders_paid_on_the_site_served_are_listed(self):
+        """
+        Verify that the page lists only the learner's orders paid on the site it is served on, however that site's
+        origin is spelled, and none paid on another site or with no site recorded, as a cart paid before 1.0 has.
+
+        On a deployment serving several organizations, one site's page must not show what was bought on another.
+        """
+        listed = [
+            self.order(Cart.Status.PAID, payment_origin=origin, age=timedelta(minutes=age))
+            for age, origin in enumerate(SAME_SITE_ORIGINS)
+        ]
+        for origin in OTHER_SITE_ORIGINS:
+            self.order(Cart.Status.PAID, payment_origin=origin)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(
+            [row.cart for row in response.context['orders']], listed,
+            'the history does not list exactly the orders paid on the site served',
+        )
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures('base_data')
+class OrderHistoryApiTest(APITestCase):
+    """The history API staff read any learner's payment history from."""
+
+    def setUp(self):
+        self.learner = User.objects.get(id=3)
+        self.staff = User.objects.get(id=2)
+        self.course = CatalogueItem.objects.get(sku='custom-sku-1')
+        self.client.force_login(self.staff)
+
+    def url(self, user_id=None):
+        """Return the history API's address for the learner, or for the given user id."""
+        return reverse('zeitlabs_payments:order-history-api', args=[user_id or self.learner.id])
+
+    def order(
+        self, status, user=None, gateway_order_id=None, age=timedelta(0), payment_origin=TEST_ORIGIN,
+    ):
+        """
+        Return an order of the learner for the course, in the given status, created the given time ago, paid on the
+        test client's site unless another origin is given.
+        """
+        cart = Cart.objects.create(
+            user=user or self.learner, status=status, gateway='dummy', gateway_order_id=gateway_order_id,
+            payment_origin=payment_origin,
+        )
+        cart.items.create(catalogue_item=self.course, original_price=self.course.price, final_price=self.course.price)
+        Cart.objects.filter(pk=cart.pk).update(created_at=now() - age)
+        cart.refresh_from_db()
+        return cart
+
+    def invoice(self, cart, invoice_number):
+        """Issue the cart its paid invoice for 45 SAR."""
+        payment = Transaction.objects.create(
+            cart=cart, amount=45, gateway='dummy', gateway_transaction_id=f'TX-{invoice_number}',
+        )
+        return Invoice.objects.create(
+            status=Invoice.InvoiceStatus.PAID, cart=cart, invoice_number=invoice_number, total=45, gross_total=45,
+            currency='SAR', related_transaction=payment,
+        )
+
+    def test_staff_read_a_learners_orders_as_the_learner_sees_them(self):
+        """
+        Verify that a staff member reads the learner's orders that reached the gateway, as the learner's own page lists
+        them, each with its date, item, amount, status and invoice or reference, and nothing of anyone else's.
+        """
+        paid = self.order(Cart.Status.PAID)
+        self.invoice(paid, 'INV-1')
+        confirming = self.order(Cart.Status.UNRECONCILED, gateway_order_id='ORDER-9', age=timedelta(days=1))
+        self.order(Cart.Status.CANCELLED)
+        self.order(Cart.Status.PAID, user=User.objects.get(id=4))
+
+        response = self.client.get(self.url())
+
+        self.assertEqual(response.status_code, 200, 'staff could not read the learner\'s history')
+        self.assertEqual(
+            response.json()['results'],
+            [
+                {
+                    'cart_id': paid.id,
+                    'created_at': paid.created_at.isoformat().replace('+00:00', 'Z'),
+                    'status': 'paid',
+                    'state': 'paid',
+                    'item': {
+                        'type': 'paid_course', 'sku': 'custom-sku-1', 'title': self.course.title,
+                        'item_ref_id': self.course.item_ref_id,
+                    },
+                    'amount': '45.00',
+                    'currency': 'SAR',
+                    'invoice_number': 'INV-1',
+                    'gateway_order_id': None,
+                },
+                {
+                    'cart_id': confirming.id,
+                    'created_at': confirming.created_at.isoformat().replace('+00:00', 'Z'),
+                    'status': 'unreconciled',
+                    'state': 'confirming',
+                    'item': {
+                        'type': 'paid_course', 'sku': 'custom-sku-1', 'title': self.course.title,
+                        'item_ref_id': self.course.item_ref_id,
+                    },
+                    'amount': '50.00',
+                    'currency': 'SAR',
+                    'invoice_number': None,
+                    'gateway_order_id': 'ORDER-9',
+                },
+            ],
+            'the learner\'s orders were not read as their page lists them',
+        )
+
+    def test_a_superuser_who_is_not_staff_reads_it_too(self):
+        """Verify that a superuser reads any learner's history even without the staff flag."""
+        superuser = User.objects.get(id=1)
+        User.objects.filter(pk=superuser.pk).update(is_staff=False)
+        self.client.force_login(User.objects.get(pk=superuser.pk))
+
+        response = self.client.get(self.url())
+
+        self.assertEqual(response.status_code, 200, 'a superuser could not read the history')
+
+    def test_a_learner_cannot_read_any_history_through_it(self):
+        """
+        Verify that a learner who is neither staff nor superuser is refused, for another learner's history and their
+        own alike: the API is for staff, and the learner has their own page.
+        """
+        self.client.force_login(User.objects.get(id=4))
+
+        for user_id in (self.learner.id, 4):
+            response = self.client.get(self.url(user_id))
+
+            self.assertEqual(response.status_code, 403, f'a learner read the history of user {user_id}')
+
+    def test_a_visitor_who_is_not_logged_in_is_refused(self):
+        """Verify that a visitor who is not logged in is refused."""
+        self.client.logout()
+
+        response = self.client.get(self.url())
+
+        self.assertEqual(response.status_code, 403, 'an anonymous visitor read a history')
+
+    def test_an_employee_granted_the_site_reads_its_orders(self):
+        """
+        Verify that a site's employee holding the history flag there, neither staff nor superuser, reads a learner's
+        orders paid on that site, and none paid on another.
+        """
+        here = self.order(Cart.Status.REFUNDED)
+        self.order(Cart.Status.REFUNDED, payment_origin='https://other.example.com')
+        self.client.force_login(site_employee('history-employee'))
+
+        response = self.client.get(self.url())
+
+        self.assertEqual(response.status_code, 200, 'the employee granted the site could not read the history')
+        self.assertEqual(
+            [row['cart_id'] for row in response.json()['results']], [here.id],
+            'the employee did not read exactly the orders paid on the site',
+        )
+
+    def test_an_employee_the_grant_does_not_cover_is_refused(self):
+        """Verify that an employee is refused who holds no grant, holds it with its flag off, or for another site."""
+        other_site = Site.objects.create(domain='other.example.com', name='Other')
+        cases = (
+            (User.objects.create(username='ungranted-employee'), 'no grant'),
+            (site_employee('paused-employee', users_order_history=False), 'the flag off'),
+            (site_employee('other-site-employee', site=other_site), 'a grant for another site'),
+        )
+
+        for employee, case in cases:
+            self.client.force_login(employee)
+
+            response = self.client.get(self.url())
+
+            self.assertEqual(response.status_code, 403, f'the employee read the history with {case}')
+
+    def test_an_unknown_user_is_an_empty_history_to_an_employee(self):
+        """
+        Verify that, to an employee, a user id naming nobody answers as a learner with no orders does, so walking the
+        sequential ids does not tell them which exist.
+        """
+        self.client.force_login(site_employee('history-employee'))
+
+        response = self.client.get(self.url(999999))
+
+        self.assertEqual(response.status_code, 200, 'an unknown user was not answered as an empty history')
+        self.assertEqual(
+            (response.json()['count'], response.json()['results']), (0, []), 'an unknown user has a history',
+        )
+
+    def test_an_unknown_user_is_not_found(self):
+        """Verify that, to staff, a user id naming nobody is answered as not found, rather than as an empty history."""
+        response = self.client.get(self.url(999999))
+
+        self.assertEqual(response.status_code, 404, 'an unknown user was answered with a history')
+
+    def test_only_orders_paid_on_the_site_served_are_read(self):
+        """
+        Verify that the API reads only the learner's orders paid on the site it is served on, however that site's
+        origin is spelled, and none paid on another site or with no site recorded, even for a superuser.
+
+        Staff read another site's orders on that site's own address.
+        """
+        self.client.force_login(User.objects.get(id=1))
+        listed = [
+            self.order(Cart.Status.REFUNDED, payment_origin=origin, age=timedelta(minutes=age))
+            for age, origin in enumerate(SAME_SITE_ORIGINS)
+        ]
+        for origin in OTHER_SITE_ORIGINS:
+            self.order(Cart.Status.REFUNDED, payment_origin=origin)
+
+        response = self.client.get(self.url())
+
+        self.assertEqual(
+            [row['cart_id'] for row in response.json()['results']], [cart.id for cart in listed],
+            'the history does not read exactly the orders paid on the site served',
+        )
+
+    def test_the_history_is_paged_twenty_to_a_page_newest_first(self):
+        """Verify that the history comes twenty orders to a page, newest first, with the total and the next page."""
+        orders = [self.order(Cart.Status.REFUNDED, age=timedelta(days=day)) for day in range(21)]
+
+        first = self.client.get(self.url()).json()
+        second = self.client.get(self.url(), {'page': 2}).json()
+
+        self.assertEqual(first['count'], 21, 'the total is not given')
+        self.assertEqual(
+            [row['cart_id'] for row in first['results']], [order.id for order in orders[:20]],
+            'the first page is not the newest twenty',
+        )
+        self.assertIsNotNone(first['next'], 'no link to the next page')
+        self.assertEqual([row['cart_id'] for row in second['results']], [orders[20].id], 'the oldest is not on page 2')
+
+    def test_the_query_count_does_not_grow_with_the_history(self):
+        """
+        Verify that reading many orders takes no more queries than reading one.
+
+        The API is read once before counting, so the site lookup the first request caches is not counted.
+        """
+        def queries_for_history():
+            with CaptureQueriesContext(connection) as captured:
+                self.client.get(self.url())
+            return len(captured)
+
+        self.invoice(self.order(Cart.Status.PAID), 'INV-1')
+        self.client.get(self.url())
+        one = queries_for_history()
+        for number in range(2, 6):
+            self.invoice(self.order(Cart.Status.PAID), f'INV-{number}')
+        self.order(Cart.Status.UNRECONCILED, gateway_order_id='ORDER-9')
+
+        self.assertEqual(queries_for_history(), one, 'the query count grows with the history')

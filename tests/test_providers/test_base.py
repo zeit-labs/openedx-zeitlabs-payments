@@ -70,7 +70,10 @@ def test_payment_view_renders_template_with_correct_context(
     mock_get_transaction_parameters.return_value = {'test': 'test_123'}
     fake_request = MagicMock(spec=HttpRequest)
     base_processor.TEMPLATE_NAME = 'dummy-template.html'
-    base_processor.payment_view(cart=cart, request=fake_request)
+    base_processor.SLUG = 'base'
+    with patch.object(BaseProcessor, 'get_gateway_order_id', return_value='GW-1'), \
+            patch.object(Cart, 'record_gateway_order'):
+        base_processor.payment_view(cart=cart, request=fake_request)
     mock_get_transaction_parameters.assert_called_once_with(
         cart=cart,
         request=fake_request,
@@ -90,26 +93,30 @@ def test_payment_view_records_the_order_the_processor_names(
     _, mock_render, cart, base_processor   # pylint: disable=redefined-outer-name
 ):
     """
-    Verify that the order a processor names at hand-off is recorded on the cart, and that none is by default.
+    Verify that the order a processor names at hand-off is recorded on the cart, and that a hand-off naming none raises
+    with nothing recorded or rendered.
 
     The id is how the payment can be found again without the learner's browser, so it is kept as soon as the gateway
-    has opened the order.
+    has opened the order. A hand-off without it would send the learner to pay for an order nothing could look for
+    again; raising closes the cart as a failed hand-off instead.
     """
     base_processor.TEMPLATE_NAME = 'dummy-template.html'
     base_processor.SLUG = 'base'
     Cart.objects.filter(pk=cart.pk).update(gateway='base')
     cart.refresh_from_db()
 
-    base_processor.payment_view(cart=cart, request=MagicMock(spec=HttpRequest))
+    with pytest.raises(GatewayError, match='named no gateway order'):
+        base_processor.payment_view(cart=cart, request=MagicMock(spec=HttpRequest))
     cart.refresh_from_db()
     assert cart.gateway_order_id is None, 'An order was recorded although the processor names none'
+    assert not mock_render.called, 'The hand-off page was rendered without an order'
 
     with patch.object(BaseProcessor, 'get_gateway_order_id', side_effect=lambda parameters: parameters['order']):
         base_processor.payment_view(cart=cart, request=MagicMock(spec=HttpRequest))
 
     cart.refresh_from_db()
     assert cart.gateway_order_id == 'GW-1', 'The named order was not recorded'
-    assert mock_render.call_count == 2, 'The hand-off page was not rendered each time'
+    assert mock_render.call_count == 1, 'The hand-off page was not rendered once its order was recorded'
 
 
 def test_is_hidden_for_default_returns_false(base_processor):  # pylint: disable=redefined-outer-name
@@ -606,7 +613,7 @@ def test_process_payment_invalid_cart_status(cart):  # pylint: disable=redefined
     )[0]
     assert audit_log.details == (
         'Invalid cart state found. Cart is in state: '
-        'pending instead of processing, payment_pending or expired.'
+        'pending instead of processing or payment_pending.'
     )
 
 
@@ -1003,6 +1010,127 @@ def test_handle_payment_refuses_to_mark_cart_paid_on_non_success_status(  # pyli
 
     cart.refresh_from_db()
     assert cart.status == Cart.Status.PROCESSING
+
+
+def enrol(user, sku, mode=None):
+    """Enrol the learner, actively, in the course of the catalogue item, in the given mode or the item's own."""
+    course_mode = CourseMode.objects.get(sku=sku)
+    CourseEnrollment.objects.create(
+        user=user, course=course_mode.course, mode=mode or course_mode.mode_slug, is_active=True,
+    )
+
+
+def buy_in_another_cart(user, sku):
+    """Have the learner buy the catalogue item in another, paid, cart."""
+    item = CatalogueItem.objects.get(sku=sku)
+    bought = Cart.objects.create(user=user, status=Cart.Status.PAID)
+    bought.items.create(catalogue_item=item, original_price=item.price, final_price=item.price)
+
+
+def settle(cart, transaction_status='success'):  # pylint: disable=redefined-outer-name
+    """Record a payment of the cart's total for the cart through the dummy processor, and return the row."""
+    processor = DummyProcessor()
+    return processor.handle_payment(
+        cart, cart.user, transaction_status, f'TX-{cart.id}', processor.SLUG, str(cart.total), get_currency(cart),
+        'gateway reason', {'id': f'TX-{cart.id}'},
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('come_to_hold, usecase', [
+    (lambda user: enrol(user, 'custom-sku-1'), 'enrolled by staff in the mode bought'),
+    (lambda user: enrol(user, 'custom-sku-1', mode=CourseMode.VERIFIED), 'enrolled by staff in another paid mode'),
+    (lambda user: buy_in_another_cart(user, 'custom-sku-1'), 'bought in another cart'),
+])
+def test_handle_payment_holds_a_payment_for_a_course_its_learner_came_to_hold(  # pylint: disable=redefined-outer-name
+    cart, come_to_hold, usecase,
+):
+    """
+    Verify that a payment for a course its learner came to hold while it was at the gateway is recorded, marked failed
+    saying why, and not settled.
+
+    Checkout would refuse the course now, so settling it would sell nothing new; the payment waits for a person to
+    accept or refund it.
+    """
+    come_to_hold(cart.user)
+
+    record = settle(cart)
+
+    assert record.status == DummyProcessor.TRANSACTION_STATUS_FAILED, f'Settled: {usecase}'
+    assert 'not reconciled: the learner already holds custom-sku-1' in record.reason, f'No reason: {usecase}'
+    assert AuditLog.objects.filter(cart=cart, action=AuditLog.AuditActions.TRANSACTION_NOT_RECONCILED).exists(), \
+        f'Not on the audit trail: {usecase}'
+    cart.refresh_from_db()
+    assert cart.status == Cart.Status.PROCESSING, f'Marked paid: {usecase}'
+
+
+@pytest.mark.django_db
+def test_handle_payment_settles_a_course_its_learner_only_audits(cart):  # pylint: disable=redefined-outer-name
+    """Verify that a payment for a course its learner only audits settles: buying it upgrades them."""
+    enrol(cart.user, 'custom-sku-1', mode=CourseMode.AUDIT)
+
+    record = settle(cart)
+
+    assert record.status == DummyProcessor.TRANSACTION_STATUS_SUCCESS, 'A payment upgrading an audit was not settled'
+    cart.refresh_from_db()
+    assert cart.status == Cart.Status.PAID, 'A payment upgrading an audit did not mark the cart paid'
+
+
+@pytest.mark.django_db
+def test_handle_payment_keeps_the_gateways_reason_for_a_held_course(cart):  # pylint: disable=redefined-outer-name
+    """
+    Verify that a payment the gateway did not report a success for keeps that as its reason, even for a course its
+    learner holds: what the gateway said comes first.
+    """
+    enrol(cart.user, 'custom-sku-1')
+
+    record = settle(cart, transaction_status=DummyProcessor.TRANSACTION_STATUS_PENDING)
+
+    assert 'Gateway reported transaction status' in record.reason, 'The gateway\'s answer is not the reason'
+    assert 'already holds' not in record.reason, 'The held course was given as the reason over the gateway\'s answer'
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('held_skus, settled, usecase', [
+    (('custom-sku-1', 'course1-org2-no-id-professional'), False, 'every course held'),
+    (('custom-sku-1',), True, 'only some courses held'),
+])
+def test_handle_payment_holds_a_bundle_only_when_every_course_is_held(  # pylint: disable=redefined-outer-name
+    cart, held_skus, settled, usecase,
+):
+    """
+    Verify that a payment for a bundle is held when its learner came to hold every one of its courses, and settled
+    when they hold only some: the bundle is sold as checkout sells it, fulfilment skipping the courses held.
+    """
+    bundle = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
+    cart.items.update(catalogue_item=bundle, original_price=bundle.price, final_price=bundle.price)
+    for sku in held_skus:
+        enrol(cart.user, sku)
+
+    record = settle(cart)
+
+    assert (record.status == DummyProcessor.TRANSACTION_STATUS_SUCCESS) == settled, f'Failed usecase: {usecase}'
+    assert ('already holds BUNDLE-PRO-CERT' in record.reason) != settled, f'Failed usecase: {usecase}'
+
+
+@pytest.mark.django_db
+def test_handle_payment_records_the_callers_refusal_as_the_reason(cart):  # pylint: disable=redefined-outer-name
+    """
+    Verify that a payment the caller already refused is recorded as failed for the caller's reason, in place of every
+    other check, and leaves the cart as it was.
+    """
+    processor = DummyProcessor()
+
+    record = processor.handle_payment(
+        cart, cart.user, 'success', 'refused-1', processor.SLUG, str(cart.total), '999', 'gateway reason',
+        {'id': 'refused-1'}, refusal='a second order paid for the cart',
+    )
+
+    assert record.status == processor.TRANSACTION_STATUS_FAILED, 'A refused payment was recorded as settled'
+    assert record.reason == 'gateway reason | not reconciled: a second order paid for the cart', \
+        'The row does not carry the caller\'s reason alone'
+    cart.refresh_from_db()
+    assert cart.status == Cart.Status.PROCESSING, 'A refused payment moved the cart'
 
 
 @pytest.mark.django_db

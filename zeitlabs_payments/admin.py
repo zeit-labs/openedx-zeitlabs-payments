@@ -17,7 +17,17 @@ from django.utils.translation import gettext_lazy as _
 
 from . import resolution
 from .exceptions import ResolutionError
-from .models import AuditLog, BundleCourseItem, Cart, CartItem, CatalogueItem, Invoice, InvoiceItem, Transaction
+from .models import (
+    AuditLog,
+    BundleCourseItem,
+    Cart,
+    CartItem,
+    CatalogueItem,
+    Invoice,
+    InvoiceItem,
+    PaymentSitePermission,
+    Transaction,
+)
 from .providers.registry import PROCESSORS
 
 
@@ -413,6 +423,19 @@ class BundleCourseItemAdmin(admin.ModelAdmin):
     list_filter = ('bundle',)
     search_fields = ('bundle__sku', 'course_item__sku')
     autocomplete_fields = ('bundle', 'course_item')
+
+
+@admin.register(PaymentSitePermission)
+class PaymentSitePermissionAdmin(admin.ModelAdmin):
+    """
+    Where the platform's own staff grant a site's employees access to the site's payments, one row per user and site.
+    """
+
+    list_display = ('user', 'site', 'users_order_history', 'updated_at')
+    list_filter = ('site', 'users_order_history')
+    search_fields = ('user__username', 'user__email')
+    # The user table holds every learner of every site, too many to list in a select.
+    raw_id_fields = ('user',)
 
 
 @admin.register(Transaction)

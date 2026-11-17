@@ -32,7 +32,17 @@ class CartFulfillmentError(Exception):
 
 
 class InvalidCartError(Exception):
-    """Custom exception raised when cart is invalid."""
+    """
+    A checkout refusal: the sentence a learner sees, and the technical detail behind it.
+
+    ``str(error)`` is the learner-facing sentence -- one plain, translated sentence, with no usernames, SKUs, model
+    names or internal status values. ``detail`` says what actually went wrong, for the log and the add-to-cart API.
+    """
+
+    def __init__(self, learner_message: str, detail: str = '') -> None:
+        """Record the sentence for the learner, and the technical detail behind it when known."""
+        super().__init__(learner_message)
+        self.detail = detail
 
 
 class CartStatusError(Exception):
@@ -44,7 +54,7 @@ class InFlightPaymentError(Exception):
     Raised when a cart cannot be created because a payment for the same item is still open.
 
     It carries the in-flight cart, so the caller can send the learner back to that payment, tell them it is in progress,
-    or expire it and create the cart after all.
+    or close it as a failed hand-off and create the cart after all.
     """
 
     def __init__(self, message: str, cart: Any = None) -> None:
@@ -54,7 +64,21 @@ class InFlightPaymentError(Exception):
 
 
 class DuplicateCartError(Exception):
-    """Custom exception raised when cart is duplicate."""
+    """
+    Raised when another of the learner's carts blocks buying the item.
+
+    Carries the blocking cart's id and why it blocks, so the caller can word the refusal for the learner while keeping
+    the cart number support needs to find it.
+    """
+
+    BOUGHT = 'bought'
+    UNRESOLVED = 'unresolved'
+
+    def __init__(self, message: str, cart_id: int | None = None, reason: str = '') -> None:
+        """Record the technical message, the blocking cart, and why it blocks."""
+        super().__init__(message)
+        self.cart_id = cart_id
+        self.reason = reason
 
 
 class InvoiceError(Exception):

@@ -20,14 +20,31 @@ SLUG_PATTERN = re.compile(r'^[a-z0-9_]+$')
 SLUG_MAX_LENGTH = 50
 
 
+def missing_hand_off_contract(cls: Type[BaseProcessor]) -> List[str]:
+    """
+    Return what the processor lacks of the hand-off contract, or nothing when it meets it.
+
+    Every payment is found again through the gateway order recorded at hand-off, and resumed on the processor's waiting
+    page, which polls its status view. So a processor records its order (``get_gateway_order_id``), and names its
+    return view, its status view and the parameter its gateway's redirect carries the order id in.
+    """
+    missing = [
+        attribute for attribute in ('RETURN_VIEW', 'STATUS_VIEW', 'GATEWAY_ORDER_ID_PARAM')
+        if not getattr(cls, attribute, None)
+    ]
+    if getattr(cls, 'get_gateway_order_id', None) is BaseProcessor.get_gateway_order_id:
+        missing.insert(0, 'get_gateway_order_id')
+    return missing
+
+
 def load_entrypoint_processors() -> None:
     """
     Discover and register processors defined via entry_points.
 
-    Registration follows two rules: a processor that cannot be loaded (import error, missing or malformed SLUG, or
-    any other failure at registration) is logged and skipped so one broken processor cannot stop the LMS from
-    booting; a duplicate slug is a developer error and raises ``ImproperlyConfigured`` so the conflict is fixed
-    rather than silently overwriting the first registration.
+    Registration follows two rules: a processor that cannot be loaded (import error, missing or malformed SLUG, a
+    hand-off contract it does not meet, or any other failure at registration) is logged and skipped so one broken
+    processor cannot stop the LMS from booting; a duplicate slug is a developer error and raises
+    ``ImproperlyConfigured`` so the conflict is fixed rather than silently overwriting the first registration.
 
     The slug rule is enforced here because this is the boundary the name enters through. Everything downstream
     reads it off a registered processor, so a malformed name costs one processor at boot, with a logged reason,
@@ -51,6 +68,14 @@ def load_entrypoint_processors() -> None:
                 'Processor %s from entry point "%s" declares contract version %r but the plugin '
                 'implements %r; skipping.',
                 cls.__name__, ep.name, declared_version, BaseProcessor.contract_version,
+            )
+            continue
+
+        missing = missing_hand_off_contract(cls)
+        if missing:
+            logger.error(
+                'Processor %s from entry point "%s" does not meet the hand-off contract, lacking %s; skipping.',
+                cls.__name__, ep.name, ', '.join(missing),
             )
             continue
 

@@ -17,6 +17,7 @@ from common.djangoapps.student.models import (
     EnrollmentClosedError,
 )
 from django.contrib.auth import get_user_model
+from django.db.models import Q, QuerySet
 from django.utils.safestring import mark_safe
 from django.utils.timezone import now
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
@@ -229,19 +230,40 @@ def get_merchant_reference(site_id: int, cart: Cart) -> str:
     return f'{site_id}-{cart.id}'
 
 
-def learner_holds_mode(user: get_user_model, course_mode: CourseMode) -> bool:
+def learner_holds_course(user: get_user_model, course_key: Any, ignored_cart: Optional[Cart] = None) -> bool:
     """
-    Return whether the learner is enrolled in the mode's course, in that very mode, and the enrolment is active.
+    Return whether the learner holds the course: buying it again would give them nothing.
 
-    Open edX keeps one enrolment per learner and course, so a learner holding the mode already has what buying it would
-    give them: there is nothing to enrol them in.
+    They hold it when either is true:
+
+    - A cart of theirs that is paid, or awaiting a refund, contains the course: on its own in any paid mode, or inside
+      a bundle. It stays held after they unenrol; a refunded cart no longer counts.
+    - They have an active enrolment in it in a mode Open edX does not upgrade from, however it was made, staff
+      enrolling them by hand included. A course they only audit or honor is not held: buying it upgrades them.
 
     :param user: The learner.
-    :param course_mode: The course mode bought.
-    :return: Whether the learner holds the mode, in an active enrolment.
+    :param course_key: The course's id.
+    :param ignored_cart: A cart not to count: the one being fulfilled, which is paid by then and would hold every
+        course in it.
+    :return: Whether the learner holds the course.
     """
-    mode, is_active = CourseEnrollment.enrollment_mode_for_user(user, course_mode.course.id)
-    return bool(is_active) and mode == course_mode.mode_slug
+    mode, is_active = CourseEnrollment.enrollment_mode_for_user(user, course_key)
+    if is_active and not CourseMode.is_mode_upgradeable(mode):
+        return True
+
+    course_ref = str(course_key)
+    purchases = Cart.objects.filter(
+        user=user, status__in=(Cart.Status.PAID, Cart.Status.REFUND_REQUESTED),
+    ).filter(
+        Q(
+            items__catalogue_item__type=CatalogueItem.ItemType.PAID_COURSE,
+            items__catalogue_item__item_ref_id=course_ref,
+        ) |
+        Q(items__catalogue_item__bundle_courses__course_item__item_ref_id=course_ref),
+    )
+    if ignored_cart is not None:
+        purchases = purchases.exclude(id=ignored_cart.id)
+    return purchases.exists()
 
 
 def check_user_enroll_conditions(user: get_user_model, course_mode: CourseMode) -> None:
@@ -356,36 +378,48 @@ def cancel_old_pending_carts(user: get_user_model) -> None:
             logger.info(f'Pending cart {cart.id} of user {user} left as it is: {exc}')
 
 
-def check_carts_holding_item(user: get_user_model, catalogue_item: CatalogueItem) -> None:
+def get_blocking_carts(user: get_user_model, catalogue_item: CatalogueItem) -> QuerySet:
     """
-    Refuse the item while another of the learner's carts holding it blocks buying it, or send them back to its payment.
+    Return the learner's carts that stop them buying the item again.
 
-    Every cart blocks except one whose status ``Cart.NON_BLOCKING_STATUSES`` lists. A cart holds the item when it holds
-    the same bundle or, for a course, any paid item of the same course: Open edX keeps one enrolment per learner and
-    course, so two paid modes of one course cannot both be fulfilled. A course and a bundle containing it never block
-    each other, since buying a course must never stop its learner buying a bundle that contains it.
-
-    A payment in flight -- processing or awaiting payment, with its gateway recorded -- is raised first, so the learner
-    can be sent back to it, told to wait, or let through once it expires. Any other blocking cart refuses the item.
+    Every cart blocks except one whose status ``Cart.NON_BLOCKING_STATUSES`` lists. For a course, a cart blocks when it
+    holds any paid item of the same course -- Open edX keeps one enrolment per learner and course, so two paid modes of
+    one course cannot both be fulfilled -- or a bundle containing the course, which pays for the course too. For a
+    bundle, only a cart holding the same bundle blocks: a bundle is sold as is while the learner holds only some of its
+    courses, so a cart for one of them does not stop it.
 
     :param user: The learner buying the item.
     :param catalogue_item: The course or bundle being bought.
-    :raises InFlightPaymentError: When a blocking cart holding the item has its payment in flight, carrying the latest.
-    :raises DuplicateCartError: When any other blocking cart holds the item: paid, unreconciled, awaiting a refund, or
-        handed off without its gateway recorded.
-    :return: None
     """
     if catalogue_item.type == CatalogueItem.ItemType.PAID_COURSE:
-        holding_item = {
-            'items__catalogue_item__type': CatalogueItem.ItemType.PAID_COURSE,
-            'items__catalogue_item__item_ref_id': catalogue_item.item_ref_id,
-        }
+        holding_item = Q(
+            items__catalogue_item__type=CatalogueItem.ItemType.PAID_COURSE,
+            items__catalogue_item__item_ref_id=catalogue_item.item_ref_id,
+        ) | Q(items__catalogue_item__bundle_courses__course_item__item_ref_id=catalogue_item.item_ref_id)
     else:
-        holding_item = {'items__catalogue_item': catalogue_item}
-    blocking_carts = Cart.objects.filter(user=user, **holding_item).exclude(status__in=Cart.NON_BLOCKING_STATUSES)
+        holding_item = Q(items__catalogue_item=catalogue_item)
+    return Cart.objects.filter(holding_item, user=user).exclude(status__in=Cart.NON_BLOCKING_STATUSES).distinct()
+
+
+def check_carts_holding_item(user: get_user_model, catalogue_item: CatalogueItem) -> None:
+    """
+    Refuse the item while another of the learner's carts blocks buying it, or send them back to that cart's payment.
+
+    See ``get_blocking_carts`` for which carts block. A payment in flight -- processing, or awaiting payment with its
+    gateway recorded -- is raised first, so the learner can be sent back to it, told to wait, or let through once its
+    hand-off is closed as failed. Any other blocking cart refuses the item.
+
+    :param user: The learner buying the item.
+    :param catalogue_item: The course or bundle being bought.
+    :raises InFlightPaymentError: When a blocking cart has its payment in flight, carrying the latest.
+    :raises DuplicateCartError: When any other blocking cart exists: paid, unreconciled, awaiting a refund, or
+        answered about by a gateway that was not recorded.
+    :return: None
+    """
+    blocking_carts = get_blocking_carts(user, catalogue_item)
 
     inflight_cart = blocking_carts.filter(
-        status__in=(Cart.Status.PROCESSING, Cart.Status.PAYMENT_PENDING), gateway__isnull=False,
+        Q(status=Cart.Status.PROCESSING) | Q(status=Cart.Status.PAYMENT_PENDING, gateway__isnull=False),
     ).order_by('-updated_at').first()
     if inflight_cart:
         raise InFlightPaymentError(
@@ -398,8 +432,16 @@ def check_carts_holding_item(user: get_user_model, catalogue_item: CatalogueItem
         return
     if blocking_cart.status == Cart.Status.PAID and blocking_cart.invoices.exists():
         # TODO: implement the credit-note refund feature to allow refunding paid carts with invoices
-        raise DuplicateCartError(f'It was already bought in cart {blocking_cart.id}.')
-    raise DuplicateCartError(f'A payment for it in cart {blocking_cart.id} is still being resolved.')
+        raise DuplicateCartError(
+            f'It was already bought in cart {blocking_cart.id}.',
+            cart_id=blocking_cart.id,
+            reason=DuplicateCartError.BOUGHT,
+        )
+    raise DuplicateCartError(
+        f'A payment for it in cart {blocking_cart.id} is still being resolved.',
+        cart_id=blocking_cart.id,
+        reason=DuplicateCartError.UNRESOLVED,
+    )
 
 
 def describe_error(error: BaseException) -> str:

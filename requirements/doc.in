@@ -7,3 +7,4 @@ sphinx-book-theme         # Common theme for all Open edX projects
 twine                     # Validates README.rst for usage on PyPI
 build                     # Needed to build the wheel for twine check
 Sphinx                    # Documentation builder
+sphinxcontrib-mermaid     # Renders the cart status chart

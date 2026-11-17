@@ -11,6 +11,7 @@ from django.test import RequestFactory, override_settings
 from test_utils.dummy_processor import DummyProcessor
 from zeitlabs_payments.exceptions import ResolutionError
 from zeitlabs_payments.models import AuditLog, Cart, CatalogueItem, Invoice, Transaction
+from zeitlabs_payments.providers.base import BaseProcessor
 from zeitlabs_payments.resolution import accept_payment, record_refund, retry_fulfillment
 
 User = get_user_model()
@@ -378,11 +379,42 @@ def pay_cart(cart):
     Cart.objects.filter(pk=cart.pk).update(status=Cart.Status.PAID)
 
 
+def other_cart(cart, status, item=None):
+    """Give the cart's learner another cart in the given status, holding the item, or the cart's own item."""
+    item = item or cart.items.get().catalogue_item
+    other = Cart.objects.create(user=cart.user, status=status, gateway=DummyProcessor.SLUG)
+    other.items.create(catalogue_item=item, original_price=item.price, final_price=item.price)
+    return other
+
+
 def buy_items_again(cart):
     """Buy the cart's items again in another cart of the same learner."""
+    other_cart(cart, Cart.Status.PAID)
+
+
+def pay_for_items_again(cart):
+    """Start paying for the cart's items again in another cart, still at the gateway."""
+    other_cart(cart, Cart.Status.PAYMENT_PENDING)
+
+
+def hold_items_in_another_unreconciled_cart(cart):
+    """Hold the cart's items in another cart whose payment was also taken and refused."""
+    other_cart(cart, Cart.Status.UNRECONCILED)
+
+
+def buy_another_mode_of_the_course(cart):
+    """Buy another paid mode of the cart's course in another cart."""
     item = cart.items.get().catalogue_item
-    other = Cart.objects.create(user=cart.user, status=Cart.Status.PAID)
-    other.items.create(catalogue_item=item, original_price=item.price, final_price=item.price)
+    other_mode = CatalogueItem.objects.create(
+        sku=f'{item.sku}-other-mode', type=CatalogueItem.ItemType.PAID_COURSE, title='Same course, other mode',
+        item_ref_id=item.item_ref_id, price=item.price, currency=item.currency,
+    )
+    other_cart(cart, Cart.Status.PAID, other_mode)
+
+
+def buy_a_bundle_containing_the_course(cart):
+    """Buy a bundle containing the cart's course in another cart."""
+    other_cart(cart, Cart.Status.PAID, CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT'))
 
 
 def record_the_id_on_another_cart(cart):
@@ -409,7 +441,11 @@ def hand_to_a_removed_processor(cart):
     (pay_cart, REFUSED_ID, 0, 'is paid; only an unreconciled cart is resolved here', 'a cart already paid'),
     (None, '  ', 0, 'needs the id the gateway gave it', 'no transaction id typed in'),
     (None, REFUSED_ID, 1, 'but the gateway took', 'a payment of another amount than the cart total'),
-    (buy_items_again, REFUSED_ID, 0, 'were bought again in cart', 'a cart whose items were bought again'),
+    (buy_items_again, REFUSED_ID, 0, 'holds the items of cart', 'a cart whose items were bought again'),
+    (pay_for_items_again, REFUSED_ID, 0, 'holds the items of cart', 'items being paid for again at the gateway'),
+    (hold_items_in_another_unreconciled_cart, REFUSED_ID, 0, 'holds the items of cart', 'another unreconciled cart'),
+    (buy_another_mode_of_the_course, REFUSED_ID, 0, 'holds the items of cart', 'another paid mode of the course'),
+    (buy_a_bundle_containing_the_course, REFUSED_ID, 0, 'holds the items of cart', 'a bundle containing the course'),
     (
         record_the_id_on_another_cart, REFUSED_ID, 0, 'is already recorded on another transaction',
         "a transaction id another cart's payment holds",
@@ -436,6 +472,41 @@ def test_accepting_refuses_a_payment_it_cannot_settle(  # pylint: disable=too-ma
     assert Cart.objects.get(pk=unreconciled_cart.pk).status == status_before, f'Failed usecase: {usecase}'
     assert not Transaction.objects.filter(cart=unreconciled_cart).exists(), f'Failed usecase: {usecase}'
     assert AuditLog.AuditActions.PAYMENT_ACCEPTED not in trail(unreconciled_cart), f'Failed usecase: {usecase}'
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('status', Cart.NON_BLOCKING_STATUSES)
+def test_accepting_is_not_refused_for_another_cart_that_does_not_block(
+    unreconciled_cart, staff, status,  # pylint: disable=redefined-outer-name
+):
+    """
+    Verify that another cart for the same item is no reason to refuse accepting the payment when its status does not
+    block buying the item: it ended unpaid, was given up on, or was refunded.
+    """
+    other_cart(unreconciled_cart, status)
+
+    accept(unreconciled_cart, staff, transaction_id='TX-UNREAD')
+
+    assert Cart.objects.get(pk=unreconciled_cart.pk).status == Cart.Status.PAID, f'Refused beside a {status} cart'
+
+
+@pytest.mark.django_db
+def test_a_cart_for_one_of_its_courses_does_not_block_settling_a_bundle(
+    unreconciled_cart,  # pylint: disable=redefined-outer-name
+):
+    """
+    Verify that another cart paying for one of a bundle's courses does not block settling the bundle's payment, while
+    another cart for the same bundle does: a bundle is sold as is while its learner holds only some of its courses.
+    """
+    course_item = unreconciled_cart.items.get().catalogue_item
+    bundle_item = CatalogueItem.objects.get(sku='BUNDLE-PRO-CERT')
+    unreconciled_cart.items.update(catalogue_item=bundle_item)
+    other_cart(unreconciled_cart, Cart.Status.PAID, course_item)
+
+    assert BaseProcessor.find_blocking_cart(unreconciled_cart) is None, 'A cart for one of its courses blocks a bundle'
+
+    same_bundle = other_cart(unreconciled_cart, Cart.Status.PAID, bundle_item)
+    assert BaseProcessor.find_blocking_cart(unreconciled_cart) == same_bundle, 'The same bundle bought does not block'
 
 
 @pytest.mark.django_db

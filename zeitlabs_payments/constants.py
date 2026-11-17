@@ -257,8 +257,10 @@ ISO_4217_NUMERIC_TO_ALPHA: dict[str, str] = {
     '997': 'USN',  # US dollar (next day)
 }
 
-# How long a gateway keeps an order payable after the hand-off, for a processor that does not say. A cart handed off
-# longer ago than this, whose order cannot be found, is taken as abandoned when its learner comes back for the course.
-# Long on purpose: a learner kept waiting is better than one charged twice, and a processor knowing its gateway's real
-# session ends it sooner through get_session_end.
-DEFAULT_PAYMENT_SESSION_DURATION = timedelta(hours=24)
+# How long a cart handed off with no order recorded is taken as a hand-off still running. Every processor records its
+# order before sending the learner to the gateway, so a cart still without one after this never reached it.
+HANDOFF_GRACE_PERIOD = timedelta(minutes=10)
+
+# The same, for a cart handed off before carts recorded their gateway, whose processor cannot be told. A day outlasts
+# any gateway's payment session.
+UNRECORDED_GATEWAY_GRACE_PERIOD = timedelta(hours=24)

@@ -64,9 +64,10 @@ def accept_payment(cart_id: int, request: Any, gateway_transaction_id: str, amou
     unreconciled carts have no payment row at all -- so staff copy the gateway's transaction id and the amount taken
     from its dashboard. Only the cart total is accepted: a payment that took another amount stays unreconciled.
 
-    The cart is locked, and refused when its items were bought again in another cart, since accepting would sell them
-    twice. The cart's row for that transaction is made successful, or a successful one written when there is none, and
-    the cart moves to paid, its trail keeping the amount and currency the row held before next to the ones accepted.
+    The cart is locked, and refused when another cart blocks buying its items -- paid, unreconciled or still at the
+    gateway -- since accepting could sell them twice. The cart's row for that transaction is made successful, or a
+    successful one written when there is none, and the cart moves to paid, its trail keeping the amount and currency
+    the row held before next to the ones accepted.
     The invoice and enrolment then follow as on a settlement, on the site the cart was paid on.
     A failure there leaves the cart paid without an invoice, for staff to retry.
 
@@ -88,11 +89,11 @@ def accept_payment(cart_id: int, request: Any, gateway_transaction_id: str, amou
                 f'Cart {cart.id} totals {cart.total}, but the gateway took {amount}; a payment of another amount than '
                 'the cart total cannot be accepted.',
             )
-        bought_instead = BaseProcessor.find_cart_bought_instead(cart)
-        if bought_instead is not None:
+        blocking_cart = BaseProcessor.find_blocking_cart(cart)
+        if blocking_cart is not None:
             raise ResolutionError(
-                f'The items of cart {cart.id} were bought again in cart {bought_instead.id}, so accepting this payment '
-                'would sell them twice; record its refund instead.',
+                f'Cart {blocking_cart.id} ({blocking_cart.status}) holds the items of cart {cart.id}, so accepting '
+                'this payment could sell them twice; record its refund instead.',
             )
         if not cart.gateway:
             raise ResolutionError(f'Cart {cart.id} was handed off without its gateway recorded.')

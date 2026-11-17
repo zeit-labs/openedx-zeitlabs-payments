@@ -6,6 +6,7 @@ from django.db.migrations.recorder import MigrationRecorder
 
 LAST_PUBLISHED = ('zeitlabs_payments', '0003_add_bundlecourseitem_and_program_bundle_type')
 RELEASE_1_0 = ('zeitlabs_payments', '0004_release_1_0')
+NO_EXPIRED_STATUS = ('zeitlabs_payments', '0005_remove_expired_cart_status')
 
 
 def migrate_to(target):
@@ -105,3 +106,25 @@ def test_a_transaction_id_shared_within_a_gateway_stops_the_migration():
             gateway_transaction_id='TX-2',
         )
         migrate_to(RELEASE_1_0)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_expired_carts_are_closed_and_others_left_as_they_were():
+    """
+    Verify that every expired cart is closed when the expired status is removed, and no cart in another status moves.
+
+    An expired cart was given up on with its payment unconfirmed, as a closed one is; nothing settles either any more.
+    """
+    apps = migrate_to(RELEASE_1_0)
+    user = apps.get_model('auth', 'User').objects.create(username='learner')
+    carts = apps.get_model('zeitlabs_payments', 'Cart').objects
+    expired = carts.create(user=user, status='expired')
+    processing = carts.create(user=user, status='processing')
+
+    try:
+        apps = migrate_to(NO_EXPIRED_STATUS)
+        carts = apps.get_model('zeitlabs_payments', 'Cart').objects
+        assert carts.get(pk=expired.pk).status == 'closed', 'An expired cart was not closed'
+        assert carts.get(pk=processing.pk).status == 'processing', 'A cart in another status moved'
+    finally:
+        migrate_to(NO_EXPIRED_STATUS)
